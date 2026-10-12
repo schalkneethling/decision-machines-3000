@@ -13,9 +13,11 @@
  *
  * Timing caveat: on Cloudflare's network, `performance.now()` advances only when
  * I/O completes, as a Spectre mitigation, so it reads the same before and after
- * synchronous work. Each measured step therefore ends with a zero-delay timer,
- * which counts as I/O and lets the clock catch up. `frozenClockMs` is the reading
- * without that timer, which shows whether the clock was frozen.
+ * synchronous work. Each measured step ends with a zero-delay timer in the hope
+ * that it lets the clock catch up, and `frozenClockMs` is the reading without it.
+ * Locally both readings advance. On Cloudflare both stayed at 0 in the spike, so
+ * the zero-delay timer does not help there: read `cpuTime` from
+ * `wrangler tail --format json` instead.
  */
 
 type PartReport = {

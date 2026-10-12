@@ -112,19 +112,17 @@ function renderChoice(answer: ChoiceAnswer): Node[] {
 
 /** Numeric keys by value, then keys that are not numbers, so a stray key never reorders the scale. */
 function compareLevels(a: string, b: string): number {
-  const first = Number(a);
-  const second = Number(b);
-  const firstIsNumber = isNumericKey(a, first);
-  const secondIsNumber = isNumericKey(b, second);
-  if (firstIsNumber && secondIsNumber) return first - second;
+  const firstIsNumber = isNumericKey(a);
+  const secondIsNumber = isNumericKey(b);
+  if (firstIsNumber && secondIsNumber) return Number(a) - Number(b);
   if (firstIsNumber !== secondIsNumber) return firstIsNumber ? -1 : 1;
   // A plain code-unit comparison, so the order never depends on the runtime's locale.
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Blank keys parse as 0, so they are not numbers; `parsed` is `Number(key)`. */
-function isNumericKey(key: string, parsed: number): boolean {
-  return key.trim() !== "" && Number.isFinite(parsed);
+/** Blank keys parse as 0, so they are not numbers. */
+function isNumericKey(key: string): boolean {
+  return key.trim() !== "" && Number.isFinite(Number(key));
 }
 
 /** Levels in rubric order, taken from the legend, then any extra probability keys. */
@@ -157,8 +155,10 @@ function legendText(value: JsonValue | undefined): string {
 
 function renderScore(answer: ScoreAnswer): Node[] {
   const levels = scoreLevels(answer);
-  const lowest = levels[0] ?? "0";
-  const highest = levels.at(-1) ?? lowest;
+  // The scale runs over the numeric levels only; other keys still get a bar below it.
+  const scale = levels.filter(isNumericKey);
+  const lowest = scale[0] ?? "0";
+  const highest = scale.at(-1) ?? lowest;
   const verdict = create("p", { className: "answer-verdict" }, [
     "Jev scored this ",
     create("strong", { text: formatProbability(answer.score) }),
@@ -171,7 +171,7 @@ function renderScore(answer: ScoreAnswer): Node[] {
     ],
     value: answer.probabilities[level] ?? 0,
   }));
-  return [verdict, scoreTrack(answer.score, levels), barList(entries, "bars-stacked")];
+  return [verdict, scoreTrack(answer.score, scale), barList(entries, "bars-stacked")];
 }
 
 function renderReading(answer: Answer): Node[] {

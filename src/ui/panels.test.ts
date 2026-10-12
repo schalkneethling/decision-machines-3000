@@ -93,7 +93,7 @@ describe("view switch", () => {
   });
 
   it("does not write the stored preference while loading", () => {
-    localStorage.setItem("jev-3000:view:score", "json");
+    localStorage.setItem("decisionmachines3000:view:score", "json");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     setupPanels(document);
     expect(setItem).not.toHaveBeenCalled();

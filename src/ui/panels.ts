@@ -39,7 +39,7 @@ interface Panel {
   serialised: string;
 }
 
-const VIEW_STORAGE_PREFIX = "jev-3000:view:";
+const VIEW_STORAGE_PREFIX = "decisionmachines3000:view:";
 
 /** The view this viewer last used for a panel. A per-viewer convenience: any storage failure means "tree". */
 function readStoredView(primitive: Primitive): View {

@@ -71,11 +71,18 @@ describe("view switch", () => {
     viewButton("choice", "json").click();
     expect(textarea("choice").value).toBe(JSON.stringify(choiceExample, null, 2));
     expect(viewButton("choice", "json").getAttribute("aria-pressed")).toBe("true");
-    expect(localStorage.getItem("jev-3000:view:choice")).toBe("json");
+    expect(localStorage.getItem("decisionmachines3000:view:choice")).toBe("json");
+  });
+
+  it("ignores a view preference saved under the old key", () => {
+    localStorage.setItem("jev-3000:view:score", "json");
+    setupPanels(document);
+    expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("false");
+    expect(viewButton("score", "tree").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("remembers the JSON view per panel", () => {
-    localStorage.setItem("jev-3000:view:score", "json");
+    localStorage.setItem("decisionmachines3000:view:score", "json");
     setupPanels(document);
     expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
     expect(viewButton("noul", "tree").getAttribute("aria-pressed")).toBe("true");

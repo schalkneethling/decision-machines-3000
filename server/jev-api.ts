@@ -447,7 +447,7 @@ function closeConnectionWith(
 /** Vite plugin that serves `POST /api/jev` and `POST /api/jev/warm` from the dev and preview servers. */
 export function jevApiPlugin(): Plugin {
   return {
-    name: "jev-3000:api",
+    name: "decisionmachines3000:api",
     configureServer(server) {
       server.middlewares.use(jevMiddleware);
       closeConnectionWith(server.httpServer);

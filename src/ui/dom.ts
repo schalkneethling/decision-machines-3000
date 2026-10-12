@@ -6,7 +6,7 @@ export function required<T extends Element>(
 ): T {
   const element = root.querySelector(selector);
   if (!(element instanceof type)) {
-    throw new Error(`Jev 3000 markup is missing ${selector}.`);
+    throw new Error(`DecisionMachines3000 markup is missing ${selector}.`);
   }
   return element;
 }

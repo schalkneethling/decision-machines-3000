@@ -1,21 +1,21 @@
-import { JEV_ENDPOINT, KEEP_ALIVE_SECONDS } from "../jev/contract.ts";
-import { isPlainObject } from "../jev/json.ts";
+import { DECISION_ENDPOINT, KEEP_ALIVE_SECONDS } from "../decision/contract.ts";
+import { isPlainObject } from "../decision/json.ts";
 import type {
   ChoiceAnswer,
   ConnectionKind,
-  JevFailure,
-  JevResponse,
-  JevSuccess,
+  DecisionFailure,
+  DecisionResponse,
+  DecisionSuccess,
   KeepAliveSeconds,
   NoulAnswer,
   ScoreAnswer,
   WarmResponse,
   WarmSuccess,
-} from "../jev/contract.ts";
+} from "../decision/contract.ts";
 
 export const REQUEST_TIMEOUT_MS = 30_000;
 
-/** Everything a POST to one of the Jev endpoints can end in, so the caller renders each case explicitly. */
+/** Everything a POST to one of the decision endpoints can end in, so the caller renders each case explicitly. */
 export type PostResult<T> =
   | { kind: "response"; response: T }
   | { kind: "unrecognised"; status: number }
@@ -23,7 +23,7 @@ export type PostResult<T> =
   | { kind: "timeout" };
 
 /** Everything a run can end in. */
-export type AskResult = PostResult<JevResponse>;
+export type AskResult = PostResult<DecisionResponse>;
 
 /**
  * POSTs JSON text, unchanged, to `endpoint` and checks the body with `isExpected`.
@@ -76,9 +76,9 @@ export async function postJson<T>(
   }
 }
 
-/** POSTs a panel's JSON text, unchanged, to the Jev endpoint. Never rejects. */
-export function askJev(body: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<AskResult> {
-  return postJson(JEV_ENDPOINT, body, isJevResponse, timeoutMs);
+/** POSTs a panel's JSON text, unchanged, to the decision endpoint. Never rejects. */
+export function askDecision(body: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<AskResult> {
+  return postJson(DECISION_ENDPOINT, body, isDecisionResponse, timeoutMs);
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {
@@ -128,9 +128,9 @@ export function isKeepAliveSeconds(value: unknown): value is KeepAliveSeconds {
   return KEEP_ALIVE_SECONDS.some((seconds) => seconds === value);
 }
 
-function isJevFailure(
+function isDecisionFailure(
   value: Record<string, unknown>,
-): value is Record<string, unknown> & JevFailure {
+): value is Record<string, unknown> & DecisionFailure {
   return (
     value.ok === false &&
     typeof value.error === "string" &&
@@ -138,9 +138,9 @@ function isJevFailure(
   );
 }
 
-function isJevSuccess(
+function isDecisionSuccess(
   value: Record<string, unknown>,
-): value is Record<string, unknown> & JevSuccess {
+): value is Record<string, unknown> & DecisionSuccess {
   const { usage, answers } = value;
   return (
     value.ok === true &&
@@ -157,9 +157,9 @@ function isJevSuccess(
   );
 }
 
-/** Checks the shape of a parsed body against the `JevResponse` contract. */
-export function isJevResponse(value: unknown): value is JevResponse {
-  return isPlainObject(value) && (isJevSuccess(value) || isJevFailure(value));
+/** Checks the shape of a parsed body against the `DecisionResponse` contract. */
+export function isDecisionResponse(value: unknown): value is DecisionResponse {
+  return isPlainObject(value) && (isDecisionSuccess(value) || isDecisionFailure(value));
 }
 
 function isWarmSuccess(
@@ -175,5 +175,5 @@ function isWarmSuccess(
 
 /** Checks the shape of a parsed body against the `WarmResponse` contract. */
 export function isWarmResponse(value: unknown): value is WarmResponse {
-  return isPlainObject(value) && (isWarmSuccess(value) || isJevFailure(value));
+  return isPlainObject(value) && (isWarmSuccess(value) || isDecisionFailure(value));
 }

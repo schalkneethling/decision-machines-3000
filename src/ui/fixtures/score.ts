@@ -1,7 +1,7 @@
-import type { JevSuccess } from "../../jev/contract.ts";
+import type { DecisionSuccess } from "../../decision/contract.ts";
 
-/** Real `/api/jev` response to `scoreExample` from src/jev/examples.ts. */
-export const scoreResponse: JevSuccess<"score"> = {
+/** Real `/api/jev` response to `scoreExample` from src/decision/examples.ts. */
+export const scoreResponse: DecisionSuccess<"score"> = {
   ok: true,
   primitive: "score",
   model: "jev-1.13.0",

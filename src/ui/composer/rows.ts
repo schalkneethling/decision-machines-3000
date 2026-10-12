@@ -4,7 +4,7 @@
  * the model objects they render and report back through the `RowContext`.
  */
 
-import type { NoulCriteria } from "../../jev/contract.ts";
+import type { NoulCriteria } from "../../decision/contract.ts";
 import { create } from "../dom.ts";
 import {
   addLevel,
@@ -232,7 +232,7 @@ export function optionList(
   return create("div", { className: "option-group" }, [
     create("p", {
       className: "tree-hint",
-      text: "Each option has a name your code reads and a description Jev reads.",
+      text: "Each option has a name your code reads and a description the model reads.",
       attributes: { id: hintId },
     }),
     list,

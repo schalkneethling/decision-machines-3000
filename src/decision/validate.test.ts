@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { examples } from "./examples.ts";
-import { MAX_SCORE_LEVELS, validateJevRequest, validateWarmRequest } from "./validate.ts";
+import { MAX_SCORE_LEVELS, validateDecisionRequest, validateWarmRequest } from "./validate.ts";
 import type { ValidationResult } from "./validate.ts";
 
 function expectFailure(result: ValidationResult) {
@@ -10,26 +10,26 @@ function expectFailure(result: ValidationResult) {
   return result;
 }
 
-describe("validateJevRequest", () => {
+describe("validateDecisionRequest", () => {
   it.each(Object.entries(examples))("accepts the %s example", (_name, example) => {
-    const result = validateJevRequest(example);
+    const result = validateDecisionRequest(example);
     expect(result).toEqual({ ok: true, value: example });
   });
 
   it("accepts the examples after a JSON round trip", () => {
     for (const example of Object.values(examples)) {
-      expect(validateJevRequest(JSON.parse(JSON.stringify(example))).ok).toBe(true);
+      expect(validateDecisionRequest(JSON.parse(JSON.stringify(example))).ok).toBe(true);
     }
   });
 
   it("rejects a request that is not an object", () => {
-    const failure = expectFailure(validateJevRequest([]));
+    const failure = expectFailure(validateDecisionRequest([]));
     expect(failure.error).toMatch(/must be a JSON object/);
   });
 
   it("rejects a missing state", () => {
     const failure = expectFailure(
-      validateJevRequest({ primitive: "noul", questions: { q: { instructions: "Is it?" } } }),
+      validateDecisionRequest({ primitive: "noul", questions: { q: { instructions: "Is it?" } } }),
     );
     expect(failure.error).toMatch(/Add a "state" field/);
     expect(failure.detail).toBe("state");
@@ -38,7 +38,7 @@ describe("validateJevRequest", () => {
   it("rejects a null or numeric state", () => {
     for (const state of [null, 42, true]) {
       const failure = expectFailure(
-        validateJevRequest({
+        validateDecisionRequest({
           primitive: "noul",
           state,
           questions: { q: { instructions: "Is it?" } },
@@ -50,21 +50,23 @@ describe("validateJevRequest", () => {
 
   it("rejects empty questions", () => {
     const failure = expectFailure(
-      validateJevRequest({ primitive: "noul", state: "Hello", questions: {} }),
+      validateDecisionRequest({ primitive: "noul", state: "Hello", questions: {} }),
     );
     expect(failure.error).toMatch(/at least one question/);
     expect(failure.detail).toBe("questions");
   });
 
   it("rejects an unknown top-level key and names it", () => {
-    const failure = expectFailure(validateJevRequest({ ...examples.noul, model: "jev-latest" }));
+    const failure = expectFailure(
+      validateDecisionRequest({ ...examples.noul, model: "jev-latest" }),
+    );
     expect(failure.error).toContain('"model"');
     expect(failure.detail).toBe("model");
   });
 
   it("rejects an unknown question key and names the question", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "noul",
         state: "Hello",
         questions: { greeting: { instructions: "Is this a greeting?", type: "noul" } },
@@ -76,13 +78,13 @@ describe("validateJevRequest", () => {
   });
 
   it("rejects an unknown primitive", () => {
-    const failure = expectFailure(validateJevRequest({ ...examples.noul, primitive: "rank" }));
+    const failure = expectFailure(validateDecisionRequest({ ...examples.noul, primitive: "rank" }));
     expect(failure.error).toMatch(/Set "primitive" to "noul", "choice", or "score"/);
   });
 
   it("rejects empty instructions", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "noul",
         state: "Hello",
         questions: { q: { instructions: "  " } },
@@ -93,7 +95,7 @@ describe("validateJevRequest", () => {
 
   it("rejects a choice question without criteria and names the question", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "choice",
         state: "Hello",
         questions: { tone: { instructions: "What is the tone?" } },
@@ -105,7 +107,7 @@ describe("validateJevRequest", () => {
 
   it("rejects a choice with a single option", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "choice",
         state: "Hello",
         criteria: { only: null },
@@ -117,7 +119,7 @@ describe("validateJevRequest", () => {
 
   it("rejects a score with one level", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "score",
         state: "Hello",
         questions: { warmth: { instructions: "How warm is it?", criteria: ["Cold"] } },
@@ -130,7 +132,7 @@ describe("validateJevRequest", () => {
   it("rejects a score with too many levels", () => {
     const levels = Array.from({ length: MAX_SCORE_LEVELS + 1 }, (_, index) => `Level ${index}`);
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "score",
         state: "Hello",
         criteria: levels,
@@ -142,7 +144,7 @@ describe("validateJevRequest", () => {
 
   it("rejects noul criteria with a key other than true or false", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "noul",
         state: "Hello",
         questions: { q: { instructions: "Is it?", criteria: { yes: "It is." } } },
@@ -154,7 +156,7 @@ describe("validateJevRequest", () => {
 
   it("rejects numeric criteria descriptions", () => {
     const failure = expectFailure(
-      validateJevRequest({
+      validateDecisionRequest({
         primitive: "choice",
         state: "Hello",
         criteria: { warm: 1, cold: "Distant or curt." },
@@ -174,7 +176,7 @@ describe("validateJevRequest", () => {
         overrides: { instructions: "How polite is it?", criteria: ["Rude", "Polite"] },
       },
     };
-    const result = validateJevRequest(request);
+    const result = validateDecisionRequest(request);
     expect(result).toEqual({ ok: true, value: request });
     if (result.ok && result.value.primitive === "score") {
       expect(result.value.questions.inherits?.criteria).toBeUndefined();
@@ -183,7 +185,7 @@ describe("validateJevRequest", () => {
   });
 
   it("accepts noul questions without any criteria", () => {
-    const result = validateJevRequest({
+    const result = validateDecisionRequest({
       primitive: "noul",
       state: ["a", "list", "state"],
       questions: { q: { instructions: { question: "Is `state` a list?" } } },

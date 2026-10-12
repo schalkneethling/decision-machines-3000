@@ -1,8 +1,8 @@
-import type { JevSuccess, Primitive } from "../jev/contract.ts";
-import { examples } from "../jev/examples.ts";
-import { validateJevRequest } from "../jev/validate.ts";
-import type { ValidJevRequest } from "../jev/validate.ts";
-import { askJev, REQUEST_TIMEOUT_MS } from "./client.ts";
+import type { DecisionSuccess, Primitive } from "../decision/contract.ts";
+import { examples } from "../decision/examples.ts";
+import { validateDecisionRequest } from "../decision/validate.ts";
+import type { ValidDecisionRequest } from "../decision/validate.ts";
+import { askDecision, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
 import { toRequest, toViewModel } from "./composer/model.ts";
 import type { DraftRequest } from "./composer/model.ts";
@@ -133,7 +133,7 @@ function writeJson(panel: Panel): void {
 }
 
 /** Reads the textarea as a valid request, or shows why it is not one. */
-function readJson(panel: Panel): ValidJevRequest | undefined {
+function readJson(panel: Panel): ValidDecisionRequest | undefined {
   const source = panel.field.value;
   let parsed: unknown;
   try {
@@ -143,7 +143,7 @@ function readJson(panel: Panel): ValidJevRequest | undefined {
     return undefined;
   }
 
-  const validation = validateJevRequest(parsed);
+  const validation = validateDecisionRequest(parsed);
   if (!validation.ok) {
     const where = validation.detail ? ` Path: ${validation.detail}.` : "";
     showFieldError(panel, `${validation.error}${where}`);
@@ -204,7 +204,7 @@ function clearFieldError(panel: Panel): void {
  * What Run sends from the current view, or undefined after showing why it cannot.
  * The JSON view sends its text unchanged, as it always has.
  */
-function prepareRun(panel: Panel): { sent: ValidJevRequest; body: string } | undefined {
+function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } | undefined {
   if (panel.view === "json") {
     const request = readJson(panel);
     if (request === undefined) return undefined;
@@ -220,7 +220,7 @@ function prepareRun(panel: Panel): { sent: ValidJevRequest; body: string } | und
   }
 
   // The tree found nothing wrong; the shared validator has the final word.
-  const validation = validateJevRequest(panel.request);
+  const validation = validateDecisionRequest(panel.request);
   if (!validation.ok) {
     const where = validation.detail ? ` Path: ${validation.detail}.` : "";
     setStatus(panel, `${validation.error}${where}`, "alert");
@@ -237,11 +237,11 @@ function renderResult(sent: unknown, result: AskResult): HTMLElement {
       return renderUnreachable(result.detail);
     case "timeout":
       return renderError(
-        `Jev did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds. Run the panel again.`,
+        `No answer arrived within ${REQUEST_TIMEOUT_MS / 1000} seconds. Run the panel again.`,
       );
     case "unrecognised":
       return renderError(
-        "The Jev endpoint answered in a shape this page does not recognise.",
+        "The decision endpoint answered in a shape this page does not recognise.",
         `HTTP ${result.status}. Check the server log for details.`,
       );
   }
@@ -257,7 +257,7 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
 
 export type PanelOptions = {
   /** Called after every run TypeSafe answered successfully. */
-  onAnswered?: (response: JevSuccess) => void;
+  onAnswered?: (response: DecisionSuccess) => void;
 };
 
 /** Fills each panel with its example, wires the Tree and JSON views, and wires Run to the shared readout. */
@@ -287,7 +287,7 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
     setRunning(panel);
     readout.replaceChildren(renderLoading());
     try {
-      const result = await askJev(prepared.body);
+      const result = await askDecision(prepared.body);
       readout.replaceChildren(renderResult(prepared.sent, result));
       if (result.kind === "response" && result.response.ok) {
         onAnswered?.(result.response);
@@ -323,7 +323,7 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
     // tree report any remaining problem.
     panel.field.addEventListener("input", () => {
       const parsed = tryParse(panel.field.value);
-      const validation = parsed.ok ? validateJevRequest(parsed.value) : undefined;
+      const validation = parsed.ok ? validateDecisionRequest(parsed.value) : undefined;
       if (validation?.ok) {
         panel.request = validation.value;
         if (!panel.error.hidden) clearFieldError(panel);
@@ -339,7 +339,7 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
       run(panel).catch((error: unknown) => {
         readout.replaceChildren(
           renderError(
-            "Something went wrong while showing Jev's answer.",
+            "Something went wrong while showing the answer.",
             error instanceof Error ? error.message : undefined,
           ),
         );

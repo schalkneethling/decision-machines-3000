@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { JevRequest } from "../../jev/contract.ts";
-import { choiceExample, examples, noulExample, scoreExample } from "../../jev/examples.ts";
-import { validateJevRequest } from "../../jev/validate.ts";
-import type { ValidJevRequest } from "../../jev/validate.ts";
+import type { DecisionRequest } from "../../decision/contract.ts";
+import { choiceExample, examples, noulExample, scoreExample } from "../../decision/examples.ts";
+import { validateDecisionRequest } from "../../decision/validate.ts";
+import type { ValidDecisionRequest } from "../../decision/validate.ts";
 import {
   addLevel,
   addOption,
@@ -56,7 +56,7 @@ describe("round trip", () => {
   it.each(Object.entries(examples))(
     "produces a request that passes validation for %s",
     (_name, example) => {
-      expect(validateJevRequest(toRequest(toViewModel(example))).ok).toBe(true);
+      expect(validateDecisionRequest(toRequest(toViewModel(example))).ok).toBe(true);
     },
   );
 
@@ -106,7 +106,7 @@ describe("fan-out", () => {
         { ...entry, criteria: criteria(index % 2 === 1) },
       ]),
     );
-    const validation = validateJevRequest({ ...choiceExample, questions });
+    const validation = validateDecisionRequest({ ...choiceExample, questions });
     if (!validation.ok) throw new Error(validation.error);
     const model = toViewModel(validation.value);
     expect(model.questions).toHaveLength(1);
@@ -120,7 +120,7 @@ describe("fan-out", () => {
         { ...entry, criteria: { drama: index === 0 ? "Serious." : "Grave.", comedy: "Funny." } },
       ]),
     );
-    const validation = validateJevRequest({ ...choiceExample, questions });
+    const validation = validateDecisionRequest({ ...choiceExample, questions });
     if (!validation.ok) throw new Error(validation.error);
     expect(toViewModel(validation.value).questions.length).toBeGreaterThan(1);
   });
@@ -147,7 +147,7 @@ describe("fan-out", () => {
   });
 
   it("keeps questions plain when one instruction differs beyond the index", () => {
-    const request: ValidJevRequest = {
+    const request: ValidDecisionRequest = {
       ...choiceExample,
       questions: {
         ...choiceExample.questions,
@@ -161,14 +161,14 @@ describe("fan-out", () => {
 
   it("keeps questions plain when the count does not match the list length", () => {
     const { film_5: _dropped, ...fewer } = choiceExample.questions;
-    const request: ValidJevRequest = { ...choiceExample, questions: fewer };
+    const request: ValidDecisionRequest = { ...choiceExample, questions: fewer };
     const model = toViewModel(request);
     expect(model.questions).toHaveLength(5);
     expect(toRequest(model)).toStrictEqual(request);
   });
 
   it("keeps questions plain when their criteria differ", () => {
-    const request: JevRequest<"score"> = {
+    const request: DecisionRequest<"score"> = {
       ...scoreExample,
       questions: {
         ...scoreExample.questions,
@@ -182,7 +182,7 @@ describe("fan-out", () => {
 
   it("collapses questions that share their own criteria and keeps those criteria", () => {
     const criteria: [string, string] = ["Calm", "Tense"];
-    const request: JevRequest<"score"> = {
+    const request: DecisionRequest<"score"> = {
       primitive: "score",
       state: { films: ["a", "b"] },
       questions: {
@@ -377,7 +377,7 @@ describe("inherit or override criteria", () => {
     const request = toRequest(model);
     expect(request).not.toHaveProperty("criteria");
     expect(request.questions.film_0?.criteria).toEqual(scoreExample.criteria);
-    expect(validateJevRequest(request).ok).toBe(true);
+    expect(validateDecisionRequest(request).ok).toBe(true);
   });
 
   it("reports a Choice question with no options anywhere", () => {
@@ -397,7 +397,7 @@ describe("fan-out by primitive", () => {
   });
 
   it("never collapses noul questions, even when they look like a fan-out", () => {
-    const request = validateJevRequest({
+    const request = validateDecisionRequest({
       primitive: "noul",
       state: { reviews: ["Loved it.", "Hated it."] },
       questions: {

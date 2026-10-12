@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { choiceExample, noulExample } from "../jev/examples.ts";
+import { choiceExample, noulExample, scoreExample } from "../jev/examples.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 
@@ -58,6 +58,10 @@ afterEach(() => {
 });
 
 describe("view switch", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("opens every panel in the tree", () => {
     setupPanels(document);
     for (const primitive of ["noul", "choice", "score"]) {
@@ -88,6 +92,15 @@ describe("view switch", () => {
     expect(viewButton("noul", "tree").getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("does not write the stored preference while loading", () => {
+    localStorage.setItem("decisionmachines3000:view:score", "json");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    setupPanels(document);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
+    expect(textarea("score").value).toBe(JSON.stringify(scoreExample, null, 2));
+  });
+
   it("opens in the tree when storage throws", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("Blocked");
@@ -98,7 +111,6 @@ describe("view switch", () => {
     expect(() => setupPanels(document)).not.toThrow();
     viewButton("noul", "json").click();
     expect(viewButton("noul", "json").getAttribute("aria-pressed")).toBe("true");
-    vi.restoreAllMocks();
   });
 
   it("refuses to switch to the tree while the JSON is invalid", () => {

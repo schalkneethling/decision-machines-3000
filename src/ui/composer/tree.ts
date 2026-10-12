@@ -29,10 +29,10 @@ import {
   stateReading,
 } from "./model.ts";
 import type { ComposerModel, CriteriaModel, Issue, QuestionModel } from "./model.ts";
+import { create } from "../dom.ts";
 import {
   addLevelButton,
   addOptionButton,
-  create,
   elementId,
   issueSlot,
   levelList,
@@ -46,7 +46,7 @@ import {
 } from "./rows.ts";
 import type { FocusTarget, RowContext, StructuralChange } from "./rows.ts";
 
-export interface ComposerOptions {
+export type ComposerOptions = {
   /** Prefix for element ids, unique per panel. */
   prefix: string;
   model: ComposerModel;
@@ -54,9 +54,9 @@ export interface ComposerOptions {
   announce: (message: string) => void;
   /** The model changed; the panel re-derives its request. */
   onChange: () => void;
-}
+};
 
-export interface Composer {
+export type Composer = {
   element: HTMLElement;
   model(): ComposerModel;
   setModel(model: ComposerModel): void;
@@ -64,7 +64,7 @@ export interface Composer {
   revealIssues(): Issue[];
   /** Moves focus to the control an issue is about. */
   focusIssue(issue: Issue): void;
-}
+};
 
 /** What the shared and per-question criteria are called in each primitive. */
 const CRITERIA_NOUN: Record<Primitive, string> = {
@@ -686,18 +686,18 @@ export function createComposer(options: ComposerOptions): Composer {
   };
 }
 
-interface QuestionParts {
+type QuestionParts = {
   legendId: Element | null;
   fanOutField: HTMLElement | null;
   select: HTMLSelectElement | null;
   hint: HTMLElement | null;
-}
+};
 
 /** What a row's issue slot and invalid fields currently show. */
-interface ShownIssues {
+type ShownIssues = {
   message: string;
   fields: Set<string>;
-}
+};
 
 function sameFields(a: Set<string> | undefined, b: Set<string> | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;

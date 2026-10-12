@@ -6,6 +6,7 @@ import type {
   NoulAnswer,
   ScoreAnswer,
 } from "../jev/contract.ts";
+import { create } from "./dom.ts";
 
 /**
  * Pure renderers for the readout. Each takes data and returns a detached element;
@@ -15,27 +16,6 @@ import type {
 type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer;
 
 const numberFormat = new Intl.NumberFormat("en");
-
-interface ElementOptions {
-  className?: string;
-  text?: string;
-}
-
-function create<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  { className, text }: ElementOptions = {},
-  children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  if (className) {
-    element.className = className;
-  }
-  if (text !== undefined) {
-    element.textContent = text;
-  }
-  element.append(...children);
-  return element;
-}
 
 /** Probabilities and scores always read with two decimals. */
 export function formatProbability(value: number): string {
@@ -130,10 +110,25 @@ function renderChoice(answer: ChoiceAnswer): Node[] {
   return [verdict, barList(options, "bars-inline")];
 }
 
+/** Numeric keys by value, then keys that are not numbers, so a stray key never reorders the scale. */
+function compareLevels(a: string, b: string): number {
+  const firstIsNumber = isNumericKey(a);
+  const secondIsNumber = isNumericKey(b);
+  if (firstIsNumber && secondIsNumber) return Number(a) - Number(b);
+  if (firstIsNumber !== secondIsNumber) return firstIsNumber ? -1 : 1;
+  // A plain code-unit comparison, so the order never depends on the runtime's locale.
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Blank keys parse as 0, so they are not numbers. */
+function isNumericKey(key: string): boolean {
+  return key.trim() !== "" && Number.isFinite(Number(key));
+}
+
 /** Levels in rubric order, taken from the legend, then any extra probability keys. */
-function scoreLevels(answer: ScoreAnswer): string[] {
+export function scoreLevels(answer: ScoreAnswer): string[] {
   const keys = new Set([...Object.keys(answer.legend), ...Object.keys(answer.probabilities)]);
-  return [...keys].sort((a, b) => Number(a) - Number(b));
+  return [...keys].sort(compareLevels);
 }
 
 function scoreTrack(score: number, levels: string[]): HTMLDivElement {
@@ -160,8 +155,10 @@ function legendText(value: JsonValue | undefined): string {
 
 function renderScore(answer: ScoreAnswer): Node[] {
   const levels = scoreLevels(answer);
-  const lowest = levels[0] ?? "0";
-  const highest = levels.at(-1) ?? lowest;
+  // The scale runs over the numeric levels only; other keys still get a bar below it.
+  const scale = levels.filter(isNumericKey);
+  const lowest = scale[0] ?? "0";
+  const highest = scale.at(-1) ?? lowest;
   const verdict = create("p", { className: "answer-verdict" }, [
     "Jev scored this ",
     create("strong", { text: formatProbability(answer.score) }),
@@ -174,7 +171,7 @@ function renderScore(answer: ScoreAnswer): Node[] {
     ],
     value: answer.probabilities[level] ?? 0,
   }));
-  return [verdict, scoreTrack(answer.score, levels), barList(entries, "bars-stacked")];
+  return [verdict, scoreTrack(answer.score, scale), barList(entries, "bars-stacked")];
 }
 
 function renderReading(answer: Answer): Node[] {

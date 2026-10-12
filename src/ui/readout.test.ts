@@ -14,6 +14,7 @@ import {
   renderLoading,
   renderResponse,
   renderUnreachable,
+  scoreLevels,
 } from "./readout.ts";
 
 function texts(root: Element, selector: string): string[] {
@@ -103,6 +104,24 @@ describe("renderResponse for Score", () => {
     expect(texts(first, "dd .bar-value")).toEqual(["0.11", "0.89", "0.00", "0.00"]);
   });
 
+  it("keeps non-numeric keys out of the scale but in the bars", () => {
+    const [id, answer] = Object.entries(scoreResponse.answers)[0] ?? [];
+    if (!id || !answer) throw new Error("expected an answer");
+    const odd = renderResponse(scoreExample, {
+      ...scoreResponse,
+      answers: {
+        [id]: { ...answer, legend: {}, probabilities: { "0": 0.1, "1": 0.2, "2": 0.6, x: 0.1 } },
+      },
+    });
+    expect(odd.querySelector(".answer-verdict")?.textContent).toBe(
+      "Jev scored this 0.89 on a scale of 0 to 2, with confidence 0.89.",
+    );
+    const [first] = odd.querySelectorAll(".answer");
+    if (!first) throw new Error("expected an answer");
+    expect(texts(first, ".score-tick")).toEqual(["0", "1", "2"]);
+    expect(texts(first, ".bars-level")).toEqual(["0", "1", "2", "x"]);
+  });
+
   it("describes levels whose legend entry is null", () => {
     const [id, answer] = Object.entries(scoreResponse.answers)[0] ?? [];
     if (!id || !answer) throw new Error("expected an answer");
@@ -111,6 +130,23 @@ describe("renderResponse for Score", () => {
       answers: { [id]: { ...answer, legend: { ...answer.legend, "3": null } } },
     });
     expect(texts(undescribed, "dt")[3]).toBe("3No description");
+  });
+});
+
+describe("scoreLevels", () => {
+  const answer = (legend: string[], probabilities: string[]) => ({
+    type: "score" as const,
+    score: 0,
+    confidence: 1,
+    legend: Object.fromEntries(legend.map((key) => [key, null])),
+    probabilities: Object.fromEntries(probabilities.map((key) => [key, 0])),
+  });
+
+  it("sorts numeric keys by value and non-numeric keys after them", () => {
+    expect(scoreLevels(answer(["2", "x", "0"], []))).toEqual(["0", "2", "x"]);
+    expect(scoreLevels(answer(["2", "", "0"], []))).toEqual(["0", "2", ""]);
+    expect(scoreLevels(answer(["2", "  ", "0"], []))).toEqual(["0", "2", "  "]);
+    expect(scoreLevels(answer(["2", "0"], ["x", "1", "10"]))).toEqual(["0", "1", "2", "10", "x"]);
   });
 });
 

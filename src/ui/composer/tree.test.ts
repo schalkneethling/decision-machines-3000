@@ -7,13 +7,13 @@ import { toRequest, toViewModel } from "./model.ts";
 import { createComposer } from "./tree.ts";
 import type { Composer } from "./tree.ts";
 
-interface Harness {
+type Harness = {
   composer: Composer;
   announcements: string[];
   changes: number;
   get: <T extends HTMLElement = HTMLElement>(selector: string) => T;
   all: (selector: string) => HTMLElement[];
-}
+};
 
 function mount(request: ValidJevRequest): Harness {
   document.body.replaceChildren();

@@ -27,10 +27,10 @@ export type Content = string | JsonValue[] | { [key: string]: JsonValue };
 export type Primitive = "noul" | "choice" | "score";
 
 /** Optional clarification of what a yes and a no mean for a Noul question. */
-export interface NoulCriteria {
+export type NoulCriteria = {
   true?: Content;
   false?: Content;
-}
+};
 
 /** Option name mapped to its description (or null for an undescribed option). Up to 255 options. */
 export type ChoiceCriteria = Record<string, Content | null>;
@@ -38,17 +38,17 @@ export type ChoiceCriteria = Record<string, Content | null>;
 /** Ordered level descriptions, index 0 first. Between two and ten entries; null leaves a level undescribed. */
 export type ScoreCriteria = [Content | null, Content | null, ...(Content | null)[]];
 
-export interface CriteriaByPrimitive {
+export type CriteriaByPrimitive = {
   noul: NoulCriteria;
   choice: ChoiceCriteria;
   score: ScoreCriteria;
-}
+};
 
 /** One question as typed into a panel. `criteria` may be omitted to inherit the request-level default. */
-export interface QuestionInput<P extends Primitive> {
+export type QuestionInput<P extends Primitive> = {
   instructions: Content;
   criteria?: CriteriaByPrimitive[P];
-}
+};
 
 /**
  * The JSON document a panel textarea holds and posts to `/api/jev`.
@@ -58,38 +58,38 @@ export interface QuestionInput<P extends Primitive> {
  *   Choice and Score questions must end up with criteria from one of the two places.
  * - `questions`: at least one question, keyed by an id of your choosing.
  */
-export interface JevRequest<P extends Primitive = Primitive> {
+export type JevRequest<P extends Primitive = Primitive> = {
   primitive: P;
   state: Content;
   criteria?: CriteriaByPrimitive[P];
   questions: Record<string, QuestionInput<P>>;
-}
+};
 
-export interface NoulAnswer {
+export type NoulAnswer = {
   type: "noul";
   noul: number;
-}
+};
 
-export interface ChoiceAnswer {
+export type ChoiceAnswer = {
   type: "choice";
   choice: string;
   confidence: number;
   probabilities: Record<string, number>;
-}
+};
 
-export interface ScoreAnswer {
+export type ScoreAnswer = {
   type: "score";
   score: number;
   confidence: number;
   legend: Record<string, Content | null>;
   probabilities: Record<string, number>;
-}
+};
 
-export interface AnswerByPrimitive {
+export type AnswerByPrimitive = {
   noul: NoulAnswer;
   choice: ChoiceAnswer;
   score: ScoreAnswer;
-}
+};
 
 /**
  * Whether the server opened a connection to TypeSafe while answering (`new`:
@@ -106,7 +106,7 @@ export type KeepAliveSeconds = (typeof KEEP_ALIVE_SECONDS)[number];
 /** The keep-alive the server starts with: Node's own default. */
 export const DEFAULT_KEEP_ALIVE_SECONDS: KeepAliveSeconds = 4;
 
-export interface JevSuccess<P extends Primitive = Primitive> {
+export type JevSuccess<P extends Primitive = Primitive> = {
   ok: true;
   primitive: P;
   model: string;
@@ -117,32 +117,32 @@ export interface JevSuccess<P extends Primitive = Primitive> {
   /** The keep-alive the server's connection to TypeSafe had when it answered. */
   keepAliveSeconds: KeepAliveSeconds;
   answers: Record<string, AnswerByPrimitive[P]>;
-}
+};
 
-export interface JevFailure {
+export type JevFailure = {
   ok: false;
   /** Short, user-facing explanation of what went wrong and how to fix it. */
   error: string;
   /** Extra detail such as an upstream status code or validation path. */
   detail?: string;
-}
+};
 
 export type JevResponse<P extends Primitive = Primitive> = JevSuccess<P> | JevFailure;
 
 export const JEV_ENDPOINT = "/api/jev";
 
 /** The JSON body `POST /api/jev/warm` accepts. */
-export interface WarmRequest {
+export type WarmRequest = {
   keepAliveSeconds: KeepAliveSeconds;
-}
+};
 
-export interface WarmSuccess {
+export type WarmSuccess = {
   ok: true;
   /** Wall-clock milliseconds the warming call to TypeSafe took. */
   latencyMs: number;
   connection: ConnectionKind;
   keepAliveSeconds: KeepAliveSeconds;
-}
+};
 
 export type WarmResponse = WarmSuccess | JevFailure;
 

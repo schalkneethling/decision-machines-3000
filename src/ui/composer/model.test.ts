@@ -95,6 +95,36 @@ describe("fan-out", () => {
     });
   });
 
+  it("treats criteria with the same keys in a different order as equal", () => {
+    const criteria = (reversed: boolean) => {
+      const entries = Object.entries({ drama: "Serious.", comedy: "Funny." });
+      return Object.fromEntries(reversed ? entries.reverse() : entries);
+    };
+    const questions = Object.fromEntries(
+      Object.entries(choiceExample.questions).map(([id, entry], index) => [
+        id,
+        { ...entry, criteria: criteria(index % 2 === 1) },
+      ]),
+    );
+    const validation = validateJevRequest({ ...choiceExample, questions });
+    if (!validation.ok) throw new Error(validation.error);
+    const model = toViewModel(validation.value);
+    expect(model.questions).toHaveLength(1);
+    expect(question(model).fanOut).toBe("films");
+  });
+
+  it("keeps questions apart when their criteria differ in value", () => {
+    const questions = Object.fromEntries(
+      Object.entries(choiceExample.questions).map(([id, entry], index) => [
+        id,
+        { ...entry, criteria: { drama: index === 0 ? "Serious." : "Grave.", comedy: "Funny." } },
+      ]),
+    );
+    const validation = validateJevRequest({ ...choiceExample, questions });
+    if (!validation.ok) throw new Error(validation.error);
+    expect(toViewModel(validation.value).questions.length).toBeGreaterThan(1);
+  });
+
   it("leaves unrelated Noul questions as plain questions", () => {
     const model = toViewModel(noulExample);
     expect(model.questions.map((entry) => entry.id)).toEqual(Object.keys(noulExample.questions));

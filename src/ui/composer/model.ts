@@ -19,29 +19,30 @@ import type {
   Primitive,
   ScoreCriteria,
 } from "../../jev/contract.ts";
+import { isPlainObject } from "../../jev/json.ts";
 import { MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS } from "../../jev/validate.ts";
 import type { ValidJevRequest } from "../../jev/validate.ts";
 
 /** A criteria description; `null` leaves the outcome undescribed. */
 export type Description = Content | null;
 
-export interface OptionRow {
+export type OptionRow = {
   key: string;
   name: string;
   description: Description;
-}
+};
 
-export interface LevelRow {
+export type LevelRow = {
   key: string;
   description: Description;
-}
+};
 
 export type CriteriaModel =
   | { kind: "noul"; meanings: NoulCriteria }
   | { kind: "choice"; options: OptionRow[] }
   | { kind: "score"; levels: LevelRow[] };
 
-export interface QuestionModel {
+export type QuestionModel = {
   key: string;
   /** The question id, or the id prefix when the question fans out. */
   id: string;
@@ -51,9 +52,9 @@ export interface QuestionModel {
   criteria?: CriteriaModel;
   /** Top-level array key in the state to ask this question for, once per item. */
   fanOut?: string;
-}
+};
 
-export interface ComposerModel {
+export type ComposerModel = {
   primitive: Primitive;
   state: Content;
   /** Request-level criteria that questions without their own inherit. */
@@ -61,25 +62,25 @@ export interface ComposerModel {
   questions: QuestionModel[];
   /** Next number for a row key; keys stay unique for the model's lifetime. */
   nextKey: number;
-}
+};
 
 /**
  * The request the tree currently describes. Typed loosely because a request
  * being edited can be incomplete; `validateJevRequest` narrows it before sending.
  */
-export interface DraftRequest {
+export type DraftRequest = {
   primitive: Primitive;
   state: Content;
   criteria?: DraftCriteria;
   questions: Record<string, DraftQuestion>;
-}
+};
 
 export type DraftCriteria = NoulCriteria | ChoiceCriteria | Description[];
 
-export interface DraftQuestion {
+export type DraftQuestion = {
   instructions: Content;
   criteria?: DraftCriteria;
-}
+};
 
 /** Slugs for question ids and option names. */
 export const SLUG_PATTERN = /^[a-z0-9_]+$/;
@@ -99,10 +100,6 @@ function takeKey(model: Pick<ComposerModel, "nextKey">, prefix: string): string 
 }
 
 /* Content as text: how state, instructions, and descriptions appear in a field */
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** Text for a field: strings as they are, structured content as indented JSON. */
 export function contentText(value: Description | undefined): string {
@@ -225,24 +222,40 @@ function levelRows(model: Pick<ComposerModel, "nextKey">, criteria: ScoreCriteri
   return criteria.map((description) => ({ key: takeKey(model, "l"), description }));
 }
 
-interface SourceQuestion {
+/** Deep equality for parsed JSON: object key order is ignored, array order is not. */
+function sameContent(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => sameContent(item, b[index]))
+    );
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((key) => Object.hasOwn(b, key) && sameContent(a[key], b[key]))
+    );
+  }
+  return a === b;
+}
+
+type SourceQuestion = {
   instructions: Content;
   criteria?: unknown;
-}
+};
 
 type QuestionEntry = [id: string, question: SourceQuestion];
 
-interface FanOutMatch {
+type FanOutMatch = {
   id: string;
   path: string;
   template: string;
   count: number;
-}
+};
 
-/**
- * Looks for `<id>_0 … <id>_<n-1>` starting at `start`, one per item of a top-level
- * array in the state, whose instructions differ only by that item's path.
- */
 /**
  * Whether a panel offers "ask for each item in" expansion. A Noul asks one yes/no
  * statement about the state as a whole, so it never fans out.
@@ -251,6 +264,10 @@ export function supportsFanOut(primitive: Primitive): boolean {
   return primitive !== "noul";
 }
 
+/**
+ * Looks for `<id>_0 … <id>_<n-1>` starting at `start`, one per item of a top-level
+ * array in the state, whose instructions differ only by that item's path.
+ */
 function matchFanOut(
   entries: QuestionEntry[],
   start: number,
@@ -275,8 +292,8 @@ function matchFanOut(
     if (template === undefined || !hasPlaceholder(template)) continue;
     if (!templates.every((candidate) => candidate === template)) continue;
 
-    const criteria = JSON.stringify(run[0][1].criteria);
-    if (!run.every(([, question]) => JSON.stringify(question.criteria) === criteria)) continue;
+    const criteria = run[0][1].criteria;
+    if (!run.every(([, question]) => sameContent(question.criteria, criteria))) continue;
 
     const expandsBack = run.every(
       ([, question], index) => expandTemplate(template, path, index) === question.instructions,
@@ -393,11 +410,11 @@ export function toRequest(model: ComposerModel): DraftRequest {
  * Where an issue shows: next to the row with `key`. `field` names the control
  * that is wrong; `list` means the row's option or level list as a whole.
  */
-export interface Issue {
+export type Issue = {
   key: string;
   field: "state" | "id" | "instructions" | "fanOut" | "name" | "list" | "criteria";
   message: string;
-}
+};
 
 /** The row key issues about the state attach to. */
 export const STATE_KEY = "state";

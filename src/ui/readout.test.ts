@@ -14,6 +14,7 @@ import {
   renderLoading,
   renderResponse,
   renderUnreachable,
+  scoreLevels,
 } from "./readout.ts";
 
 function texts(root: Element, selector: string): string[] {
@@ -111,6 +112,21 @@ describe("renderResponse for Score", () => {
       answers: { [id]: { ...answer, legend: { ...answer.legend, "3": null } } },
     });
     expect(texts(undescribed, "dt")[3]).toBe("3No description");
+  });
+});
+
+describe("scoreLevels", () => {
+  const answer = (legend: string[], probabilities: string[]) => ({
+    type: "score" as const,
+    score: 0,
+    confidence: 1,
+    legend: Object.fromEntries(legend.map((key) => [key, null])),
+    probabilities: Object.fromEntries(probabilities.map((key) => [key, 0])),
+  });
+
+  it("sorts numeric keys by value and non-numeric keys after them", () => {
+    expect(scoreLevels(answer(["2", "x", "0"], []))).toEqual(["0", "2", "x"]);
+    expect(scoreLevels(answer(["2", "0"], ["x", "1", "10"]))).toEqual(["0", "1", "2", "10", "x"]);
   });
 });
 

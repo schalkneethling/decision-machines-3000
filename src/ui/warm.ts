@@ -32,7 +32,7 @@ const repeatWithInterval: Repeat = (callback, ms) => {
   };
 };
 
-export interface Countdown {
+export type Countdown = {
   /**
    * Show `lead` (if any) and "Warm for {seconds} s.", then count down once a
    * second to "Connection is cold again." Restarting cancels the running count.
@@ -42,7 +42,7 @@ export interface Countdown {
   stop(): void;
   /** Seconds left, or 0 once the connection is cold. */
   readonly remaining: number;
-}
+};
 
 /** The countdown as a small state machine; `repeat` is injectable so tests control time. */
 export function createCountdown(
@@ -105,10 +105,10 @@ export function warmFailureText(result: PostResult<WarmResponse>): string | unde
   }
 }
 
-export interface WarmControl {
+export type WarmControl = {
   /** Restart the countdown after any successful run. A property, so it can be passed on unbound. */
   noteAnswered: (response: JevSuccess) => void;
-}
+};
 
 /** Wires the warm form: the keep-alive select, the Warm connection button, and the countdown output. */
 export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): WarmControl {

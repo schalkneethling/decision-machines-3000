@@ -5,6 +5,7 @@
  */
 
 import type { NoulCriteria } from "../../jev/contract.ts";
+import { create } from "../dom.ts";
 import {
   addLevel,
   addOption,
@@ -18,52 +19,31 @@ import {
 import type { ComposerModel, Description, LevelRow, OptionRow } from "./model.ts";
 
 /** A control to focus after a re-render: the element with `data-for=key` and `data-control=control`. */
-export interface FocusTarget {
+export type FocusTarget = {
   key: string;
   control: string;
-}
+};
 
 /** A change to the tree's shape: applied, then the tree re-renders, focuses, and announces. */
-export interface StructuralChange {
+export type StructuralChange = {
   apply(): void;
   /** Called after `apply`; the first control still in the tree gets focus. */
   focus(): FocusTarget[];
   announce: string;
   /** Row whose issues start showing because of this change. */
   touches?: string;
-}
+};
 
-export interface RowContext {
+export type RowContext = {
   /** Prefix for element ids, unique per panel. */
   prefix: string;
   model: ComposerModel;
   /** A field changed; `key` is the row it belongs to. */
   edited(key: string): void;
   structural(change: StructuralChange): void;
-}
+};
 
 /* Elements */
-
-interface ElementOptions {
-  className?: string;
-  text?: string;
-  attributes?: Record<string, string>;
-}
-
-export function create<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  { className, text, attributes = {} }: ElementOptions = {},
-  children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
-  for (const [name, value] of Object.entries(attributes)) {
-    element.setAttribute(name, value);
-  }
-  element.append(...children);
-  return element;
-}
 
 function visuallyHidden(text: string): HTMLSpanElement {
   return create("span", { className: "visually-hidden", text });
@@ -106,7 +86,7 @@ function updateReadingHint(hint: HTMLElement, text: string): void {
   if (hint.textContent !== message) hint.textContent = message;
 }
 
-export interface TextFieldOptions {
+export type TextFieldOptions = {
   key: string;
   control: string;
   label: string | (Node | string)[];
@@ -125,7 +105,7 @@ export interface TextFieldOptions {
   reading?: boolean;
   className?: string;
   onInput(value: string): void;
-}
+};
 
 export function textField(ctx: RowContext, options: TextFieldOptions): HTMLDivElement {
   const id = elementId(ctx.prefix, options.key, options.control);

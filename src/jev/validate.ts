@@ -9,6 +9,7 @@
  */
 
 import { KEEP_ALIVE_SECONDS } from "./contract.ts";
+import { isPlainObject } from "./json.ts";
 import type {
   ChoiceCriteria,
   Content,
@@ -36,13 +37,13 @@ type Description = Content | null;
 /** A validated request, discriminated on `primitive`, so narrowing it also narrows every criteria shape. */
 export type ValidJevRequest = { [P in Primitive]: JevRequest<P> }[Primitive];
 
-export interface ValidationFailure {
+export type ValidationFailure = {
   ok: false;
   /** User-facing explanation of what is wrong and how to fix it. */
   error: string;
   /** Where in the request the problem is, as a dotted path. */
   detail?: string;
-}
+};
 
 export type ValidationResult = { ok: true; value: ValidJevRequest } | ValidationFailure;
 
@@ -61,10 +62,6 @@ class ValidationError extends Error {
     this.name = "ValidationError";
     this.detail = detail;
   }
-}
-
-function isPlainObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isJsonValue(value: unknown): value is JsonValue {

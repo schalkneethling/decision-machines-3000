@@ -1,3 +1,25 @@
+type ElementOptions = {
+  className?: string;
+  text?: string;
+  attributes?: Record<string, string>;
+};
+
+/** Builds an element with optional class, text, attributes, and children. */
+export function create<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  { className, text, attributes = {} }: ElementOptions = {},
+  children: (Node | string)[] = [],
+): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  for (const [name, value] of Object.entries(attributes)) {
+    element.setAttribute(name, value);
+  }
+  element.append(...children);
+  return element;
+}
+
 /** The element `selector` finds under `root`, or an error naming the missing markup. */
 export function required<T extends Element>(
   root: ParentNode,

@@ -6,6 +6,7 @@ import type {
   NoulAnswer,
   ScoreAnswer,
 } from "../jev/contract.ts";
+import { create } from "./dom.ts";
 
 /**
  * Pure renderers for the readout. Each takes data and returns a detached element;
@@ -15,27 +16,6 @@ import type {
 type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer;
 
 const numberFormat = new Intl.NumberFormat("en");
-
-interface ElementOptions {
-  className?: string;
-  text?: string;
-}
-
-function create<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  { className, text }: ElementOptions = {},
-  children: (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  if (className) {
-    element.className = className;
-  }
-  if (text !== undefined) {
-    element.textContent = text;
-  }
-  element.append(...children);
-  return element;
-}
 
 /** Probabilities and scores always read with two decimals. */
 export function formatProbability(value: number): string {
@@ -130,10 +110,21 @@ function renderChoice(answer: ChoiceAnswer): Node[] {
   return [verdict, barList(options, "bars-inline")];
 }
 
+/** Numeric keys by value, then keys that are not numbers, so a stray key never reorders the scale. */
+function compareLevels(a: string, b: string): number {
+  const first = Number(a);
+  const second = Number(b);
+  const firstIsNumber = !Number.isNaN(first);
+  const secondIsNumber = !Number.isNaN(second);
+  if (firstIsNumber && secondIsNumber) return first - second;
+  if (firstIsNumber !== secondIsNumber) return firstIsNumber ? -1 : 1;
+  return a.localeCompare(b);
+}
+
 /** Levels in rubric order, taken from the legend, then any extra probability keys. */
-function scoreLevels(answer: ScoreAnswer): string[] {
+export function scoreLevels(answer: ScoreAnswer): string[] {
   const keys = new Set([...Object.keys(answer.legend), ...Object.keys(answer.probabilities)]);
-  return [...keys].sort((a, b) => Number(a) - Number(b));
+  return [...keys].sort(compareLevels);
 }
 
 function scoreTrack(score: number, levels: string[]): HTMLDivElement {

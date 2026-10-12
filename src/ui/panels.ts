@@ -16,7 +16,7 @@ type View = "tree" | "json";
 
 const VIEWS = ["tree", "json"] as const satisfies readonly View[];
 
-interface Panel {
+type Panel = {
   primitive: Primitive;
   form: HTMLFormElement;
   field: HTMLTextAreaElement;
@@ -37,7 +37,7 @@ interface Panel {
    * fan-out questions and rows that are not valid yet.
    */
   serialised: string;
-}
+};
 
 const VIEW_STORAGE_PREFIX = "decisionmachines3000:view:";
 
@@ -124,7 +124,6 @@ function showView(panel: Panel, view: View): void {
     panel.switches[candidate].setAttribute("aria-pressed", String(candidate === view));
     panel.bodies[candidate].hidden = candidate !== view;
   }
-  storeView(panel.primitive, view);
 }
 
 function writeJson(panel: Panel): void {
@@ -166,6 +165,7 @@ function switchView(panel: Panel, view: View): boolean {
   if (view === "json") {
     writeJson(panel);
     showView(panel, "json");
+    storeView(panel.primitive, "json");
     return true;
   }
 
@@ -181,6 +181,7 @@ function switchView(panel: Panel, view: View): boolean {
   clearFieldError(panel);
   setStatus(panel, "");
   showView(panel, "tree");
+  storeView(panel.primitive, "tree");
   return true;
 }
 
@@ -254,10 +255,10 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
   }
 }
 
-export interface PanelOptions {
+export type PanelOptions = {
   /** Called after every run TypeSafe answered successfully. */
   onAnswered?: (response: JevSuccess) => void;
-}
+};
 
 /** Fills each panel with its example, wires the Tree and JSON views, and wires Run to the shared readout. */
 export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): void {
@@ -304,7 +305,9 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
     const stored = readStoredView(panel.primitive);
     showView(panel, "tree");
     if (stored === "json") {
-      switchView(panel, "json");
+      // Restoring the preference must not write it back, so this skips switchView.
+      writeJson(panel);
+      showView(panel, "json");
     }
 
     for (const view of VIEWS) {

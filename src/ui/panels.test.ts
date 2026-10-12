@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { choiceExample, noulExample } from "../jev/examples.ts";
+import { choiceExample, noulExample, scoreExample } from "../jev/examples.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 
@@ -86,6 +86,16 @@ describe("view switch", () => {
     setupPanels(document);
     expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
     expect(viewButton("noul", "tree").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("does not write the stored preference while loading", () => {
+    localStorage.setItem("jev-3000:view:score", "json");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    setupPanels(document);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
+    expect(textarea("score").value).toBe(JSON.stringify(scoreExample, null, 2));
+    vi.restoreAllMocks();
   });
 
   it("opens in the tree when storage throws", () => {

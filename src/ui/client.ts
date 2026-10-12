@@ -1,4 +1,5 @@
 import { JEV_ENDPOINT, KEEP_ALIVE_SECONDS } from "../jev/contract.ts";
+import { isPlainObject } from "../jev/json.ts";
 import type {
   ChoiceAnswer,
   ConnectionKind,
@@ -80,12 +81,8 @@ export function askJev(body: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<As
   return postJson(JEV_ENDPOINT, body, isJevResponse, timeoutMs);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isNumberRecord(value: unknown): value is Record<string, number> {
-  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "number");
+  return isPlainObject(value) && Object.values(value).every((entry) => typeof entry === "number");
 }
 
 function isNoulAnswer(
@@ -112,13 +109,15 @@ function isScoreAnswer(
     value.type === "score" &&
     typeof value.score === "number" &&
     typeof value.confidence === "number" &&
-    isRecord(value.legend) &&
+    isPlainObject(value.legend) &&
     isNumberRecord(value.probabilities)
   );
 }
 
 function isAnswer(value: unknown): boolean {
-  return isRecord(value) && (isNoulAnswer(value) || isChoiceAnswer(value) || isScoreAnswer(value));
+  return (
+    isPlainObject(value) && (isNoulAnswer(value) || isChoiceAnswer(value) || isScoreAnswer(value))
+  );
 }
 
 function isConnectionKind(value: unknown): value is ConnectionKind {
@@ -150,17 +149,17 @@ function isJevSuccess(
     typeof value.latencyMs === "number" &&
     isConnectionKind(value.connection) &&
     isKeepAliveSeconds(value.keepAliveSeconds) &&
-    isRecord(usage) &&
+    isPlainObject(usage) &&
     typeof usage.input_tokens === "number" &&
     typeof usage.output_tokens === "number" &&
-    isRecord(answers) &&
+    isPlainObject(answers) &&
     Object.values(answers).every(isAnswer)
   );
 }
 
 /** Checks the shape of a parsed body against the `JevResponse` contract. */
 export function isJevResponse(value: unknown): value is JevResponse {
-  return isRecord(value) && (isJevSuccess(value) || isJevFailure(value));
+  return isPlainObject(value) && (isJevSuccess(value) || isJevFailure(value));
 }
 
 function isWarmSuccess(
@@ -176,5 +175,5 @@ function isWarmSuccess(
 
 /** Checks the shape of a parsed body against the `WarmResponse` contract. */
 export function isWarmResponse(value: unknown): value is WarmResponse {
-  return isRecord(value) && (isWarmSuccess(value) || isJevFailure(value));
+  return isPlainObject(value) && (isWarmSuccess(value) || isJevFailure(value));
 }

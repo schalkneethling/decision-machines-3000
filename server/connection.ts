@@ -25,14 +25,14 @@ import type { ConnectionKind, KeepAliveSeconds } from "../src/jev/contract.ts";
 export const CONNECTED_CHANNEL = "undici:client:connected";
 
 /** One call being tracked; `finish` reports whether a connection opened for it. */
-export interface TrackedCall {
+export type TrackedCall = {
   finish(): ConnectionKind;
-}
+};
 
-interface InFlight {
+type InFlight = {
   host: string;
   opened: boolean;
-}
+};
 
 /**
  * Attributes "connection opened" events to calls in flight. Pure: no network,

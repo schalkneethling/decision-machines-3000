@@ -42,10 +42,10 @@ export const MAX_BODY_BYTES = 256 * 1024;
 
 const LOG_PREFIX = "[jev]";
 
-interface Reply {
+type Reply = {
   status: number;
   body: JevSuccess | WarmSuccess | JevFailure;
-}
+};
 
 /** Error with a ready-made reply, thrown while reading or handling a request. */
 class ReplyError extends Error {
@@ -241,14 +241,14 @@ function toReply(error: unknown): Reply {
   );
 }
 
-interface HandledRequest {
+type HandledRequest = {
   reply: Reply;
   /** What the log line names the request by: a primitive, or "warm". */
   label?: Primitive | "warm";
   questionCount?: number;
   latencyMs?: number;
   connection?: ConnectionKind;
-}
+};
 
 /** Checks the method and content type, then reads and parses the JSON body. */
 async function readJsonRequest(req: IncomingMessage, endpoint: string): Promise<unknown> {

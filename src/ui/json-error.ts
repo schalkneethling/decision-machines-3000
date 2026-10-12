@@ -19,10 +19,10 @@ export function describeJsonError(source: string, error: unknown): string {
   return `This is not valid JSON: ${message}.`;
 }
 
-interface Location {
+type Location = {
   line: number;
   column: number;
-}
+};
 
 function findLocation(source: string, message: string): Location | undefined {
   const lineColumn = /line (\d+) column (\d+)/i.exec(message);

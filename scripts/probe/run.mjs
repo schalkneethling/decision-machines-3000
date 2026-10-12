@@ -2,7 +2,12 @@
  * Live probe of the three decision providers (TypeSafe Jev, SubQ Snap, OpenAI
  * Decisions). It sends a small, fixed set of requests, saves each exchange as a
  * sanitised fixture under `worker/providers/fixtures/<provider>/<case>.json`,
- * and finishes by checking that no key value appears in any fixture.
+ * and finishes by reading the fixture files back from disk to check that no key
+ * value appears in any of them. Each fixture is also checked just before it is
+ * written, and a fixture that fails is not written. Every key present in the
+ * environment is checked, even when the run is limited to one provider.
+ *
+ * Requires Node 22.2 or later, because the PNG builder uses `zlib.crc32`.
  *
  * This is a development tool for the provider spike (GitHub issue 2). Nothing in
  * `src`, `server`, or the build imports it.
@@ -151,7 +156,7 @@ async function exchange(provider, name, options) {
     },
     secrets,
   );
-  await writeFixture(path.join(FIXTURE_ROOT, provider), name, fixture);
+  await writeFixture(path.join(FIXTURE_ROOT, provider), name, fixture, secrets);
 
   const line = { provider, name, status, latencyMs, bytes: fixture.responseBytes };
   results.push(line);
@@ -620,8 +625,19 @@ for (const provider of selected) {
   }
 }
 
-for (const provider of selected) {
-  await probes[provider]();
+try {
+  for (const provider of selected) {
+    await probes[provider]();
+  }
+} catch (error) {
+  // The only error thrown on purpose is the pre-write leak check, whose message names
+  // the fixture and nothing else. Anything else is printed by name only, never in full.
+  const message =
+    error instanceof Error && error.message.startsWith("redaction check FAILED")
+      ? error.message
+      : "the probe stopped on an unexpected error";
+  console.error(message);
+  process.exit(1);
 }
 
 console.log(`\n${results.length} calls sent.`);

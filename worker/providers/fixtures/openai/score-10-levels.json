@@ -53,13 +53,7 @@
   "status": 200,
   "headers": {
     "content-type": "application/json",
-    "openai-processing-ms": "71",
-    "x-ratelimit-limit-requests": "5000",
-    "x-ratelimit-limit-tokens": "2000000",
-    "x-ratelimit-remaining-requests": "4996",
-    "x-ratelimit-remaining-tokens": "1999334",
-    "x-ratelimit-reset-requests": "48ms",
-    "x-ratelimit-reset-tokens": "19ms"
+    "openai-processing-ms": "71"
   },
   "body": {
     "model": "gpt-6-luna",

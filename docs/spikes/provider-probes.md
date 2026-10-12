@@ -1,8 +1,8 @@
 # Provider probes: what SubQ Snap, OpenAI Decisions, and TypeSafe Jev really do
 
-This note records the results of GitHub issue #2. On 2026-10-12 a script sent 34 live requests to the three providers, and every question the docs left open now has a measured answer. Each answer names the fixture file that proves it. All fixtures are under `worker/providers/fixtures/<provider>/<case>.json`, so a path such as `subq/three-types` means `worker/providers/fixtures/subq/three-types.json`.
+This note records the results of GitHub issue #2. On 2026-10-12 a script sent 35 live requests to the three providers (34 of them are saved as fixtures, and the 35th is the failed JPEG attempt described in section 2), and every question the docs left open now has a measured answer. Each answer names the fixture file that proves it. All fixtures are under `worker/providers/fixtures/<provider>/<case>.json`, so a path such as `subq/three-types` means `worker/providers/fixtures/subq/three-types.json`.
 
-The probe script is `scripts/probe/run.mjs`. Nothing in `src`, `server`, or the build imports it. Each fixture holds `request`, `status`, `headers`, `body`, and `latencyMs`, plus one extra field, `responseBytes`, which the warm-path comparison needed because the long OpenAI model list is trimmed. Keys never reach a fixture: the request records `Bearer <redacted>`, response headers are limited to a short allow-list, request and organisation identifiers are masked, and the script ends by checking in memory that no key value appears in any fixture file (it printed `redaction check passed`).
+The probe script is `scripts/probe/run.mjs`. Nothing in `src`, `server`, or the build imports it. Each fixture holds `request`, `status`, `headers`, `body`, and `latencyMs`, plus one extra field, `responseBytes`, which the warm-path comparison needed because the long OpenAI model list is trimmed. Keys never reach a fixture: the request records `Bearer <redacted>`, response headers are limited to a short allow-list, request and organisation identifiers are masked, and rate-limit headers are dropped because they reveal the account's usage tier. Each fixture is checked just before it is written, and the script ends by reading the fixture files back from disk to check that no key value, no piece of one (its first 8 or last 4 characters), and no key-shaped `sk-` token appears in any of them. It printed `redaction check passed` on every run. The script needs Node 22.2 or later because it uses `zlib.crc32`.
 
 ## Answers at a glance
 
@@ -48,7 +48,7 @@ The docs say "URLs, `data:` URLs, and bare base64 strings fail the request", whi
 
 The 422 message for both failures is `images/0/base64: must match pattern "^[A-Za-z0-9+/]+={0,2}$"`. So the adapter must send standard base64 (not base64url), with padding at most at the end, and with no newline anywhere, including at the end. `Buffer.toString("base64")` and the Workers `Uint8Array.toBase64()` both produce this form.
 
-A first attempt used a hand-trimmed 134-byte JPEG, which SubQ rejected with 400 and `an image could not be loaded: image file is truncated`. That was a fault in the test image, not in SubQ, so the probe now embeds a 776-byte JPEG made by converting the PNG with macOS `sips`, and that one is accepted. The failed attempt was not kept as a fixture.
+A first attempt used a hand-trimmed 134-byte JPEG, which SubQ rejected with 400 and `an image could not be loaded: image file is truncated`. That was a fault in the test image, not in SubQ, so the probe now embeds a 776-byte JPEG made by converting the PNG with macOS `sips`, and that one is accepted. The failed attempt was not kept as a fixture, which is why 35 requests were sent but only 34 fixtures exist.
 
 ## 3. What is OpenAI's error envelope?
 
@@ -147,25 +147,34 @@ All times are wall-clock milliseconds from the probe script, measured once per c
 
 The earlier project measurement was 330 ms round trip, about 1.3 s cold, and about 0.4 s warm for TypeSafe. This session's TypeSafe numbers (382 ms for a new-connection GET and 390 to 540 ms for reused calls) show a much smaller cold penalty, probably because of a different network path. That prose in the README should be re-measured before it is reused for other providers.
 
-Rate-limit headers appeared on some OpenAI success responses: `x-ratelimit-limit-requests: 5000` and `x-ratelimit-limit-tokens: 2000000` for this account. Not every OpenAI response carried them. SubQ and TypeSafe sent none.
+Some OpenAI success responses carried `x-ratelimit-*` headers, and SubQ and TypeSafe sent none. They are not kept in the fixtures because they reveal the account's usage tier and no adapter needs them. `retry-after` stays on the allow-list.
 
 ## Findings that contradict the research
 
 1. SubQ bad-key status. The docs say a missing or invalid key returns 401. A made-up key that does not start with `sk-` returned 403 `permission_error` with the message "Access denied. Contact support if you believe this is an error." (`subq/bad-key`). The same made-up key with an `sk-` prefix returned 401 `authentication_error` "Missing or invalid API key." (`subq/bad-key-sk-prefix`), and no key returned 401 with "Missing API key. Provide it as `Authorization: Bearer sk-...` or the `X-API-Key` header." (`subq/missing-key`).
 2. SubQ's model list needs no key, although the research quoted the docs saying it is "a quick way to check a key". It cannot check a key, but it can still warm the connection.
 3. SubQ's "bare base64 strings fail" sentence is wrong (section 2).
-4. OpenAI accepts a hosted image URL at validation time. The research found the guide and the SDK typings saying data URLs only, and the reference saying URLs also work. A URL on a server that returned 404 produced "Error while downloading file. Upstream status code: 404." (`openai/image-http-url`), which shows OpenAI tried to download it. This was not tested with a working URL, and this project always sends a data URL, so it does not matter for now.
+4. OpenAI attempted to fetch a hosted image URL. The research found the guide and the SDK typings saying data URLs only, and the reference saying URLs also work. A URL that returned 404 produced "Error while downloading file. Upstream status code: 404." (`openai/image-http-url`), so OpenAI tried to download it and reported the 404. That suggests hosted URLs are accepted, but a working URL is untested. The issue scoped hosted URLs out, and the follow-up "Image URL input" covers them.
 5. OpenAI gave a 401 with `code: null` for a bad key, so the error guide's message table is not a reliable key for the adapter (section 3).
 
 ## What this changes in the other issues
 
-- #5 (provider catalog). Set the OpenAI `scoreLevels` to `{ min: 2, max: 10 }` and remove the "provisional" marker. Give SubQ the warm path `/v1/models` and OpenAI the warm path `/v1/models/gpt-6-luna`. The descriptor must be able to say whether the warm call needs the key, because SubQ's does not, though sending the key anyway is harmless (`subq/models-list` used a valid key and returned 200).
-- #7 (TypeSafe adapter). Use `typesafe/noul`, `typesafe/choice`, `typesafe/score`, and `typesafe/bad-key` as test fixtures. The raw request carries `model: "jev-latest"`, and the answers carry real `output_tokens`.
+- #5 (provider catalog). Set the OpenAI `scoreLevels` to `{ min: 2, max: 10 }` and remove the "provisional" marker. Give SubQ the warm path `/v1/models` and OpenAI the warm path `/v1/models/gpt-6-luna`. A descriptor flag saying whether the warm call needs a key is optional: SubQ's does not, but sending the key anyway is harmless (`subq/models-list` used a valid key and returned 200), and the issue does not ask for the flag.
+- #7 (TypeSafe adapter). Use `typesafe/noul`, `typesafe/choice`, `typesafe/score`, and `typesafe/bad-key` as test fixtures. These fixtures were recorded with `model: "jev-latest"` in the request. The `toWire` tests must assert the issue's pinned `jev-1.13.0` literal, not the fixture's request body, so the fixtures are for `fromWire` (response parsing) only. The answers carry real `output_tokens`.
 - #9 (warm demo). Both new providers have a warm path, so neither hides the warm form. Be aware the lesson is strong for SubQ (about 450 ms saved in one sample) and weak for OpenAI (server time dominates). The README's cold and warm numbers are TypeSafe-specific and should say so. Do not use the OpenAI model list as the warm call: it is 21.5 KB and took 1.6 s on the server.
 - #10 (SubQ adapter). The base64 string must match `^[A-Za-z0-9+/]+={0,2}$` (no `data:` prefix, no newlines). Map 403 `permission_error` as well as 401 to "the key was rejected". The 402 "no credits" status was not probed, so that test stays a stubbed one. `usage.output_tokens` is always 0. The error envelope is identical to TypeSafe's, but the issue is right to keep the adapters separate.
 - #11 (OpenAI adapter). Fill in `scoreLevels.max: 10` and `min: 2`. Recognise a bad key from the 401 status alone, because `error.code` is `null`. Map 400 `invalid_request_error` for the rest, using `error.param` for the detail (for example `questions[0].levels`). Copy `usage` as two fields and expect `output_tokens` to be 0. Answers arrive as an array that carries `name`, and `choice` values and `score` `probabilities[].value` arrive as given (`openai/three-types`).
 - #4 (neutral contract). Wherever the neutral `usage` shape is defined, note that output tokens will read 0 for SubQ and OpenAI, so the readout should not present 0 as an error or as a free-of-charge claim.
 
+## Not probed
+
+These behaviours are documented but were not tested live, so their tests stay stubbed:
+
+- SubQ's 402 (no credits).
+- SubQ's limits of 4 images and 4 MiB per image.
+- The 255-option limit on choice questions.
+- OpenAI's `credit_balance_exhausted` error code.
+
 ## How to re-run the probe
 
-Pass the keys as environment variables for that one process, for example `SUBQ_API_KEY="$(op read '<reference>')" node scripts/probe/run.mjs subq`. Name `provider` or `provider:case,case` to run a subset (the three providers are `typesafe`, `subq`, and `openai`). A full run sends about 34 requests, so re-running it costs a small amount and overwrites the fixtures with new probabilities. Run `vp check --fix` afterwards, because the formatter reflows the fixture JSON.
+Pass the keys as environment variables for that one process, for example `SUBQ_API_KEY="$(op read '<reference>')" node scripts/probe/run.mjs subq`. Name `provider` or `provider:case,case` to run a subset (the three providers are `typesafe`, `subq`, and `openai`). A full run sends about 34 requests (the failed JPEG attempt is not part of it), so re-running it costs a small amount and overwrites the fixtures with new probabilities. The script needs Node 22.2 or later (`zlib.crc32`). Run `vp check --fix` afterwards, because the formatter reflows the fixture JSON.

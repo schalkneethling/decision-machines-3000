@@ -15,14 +15,17 @@
     "undici": "^8.11.2"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.63.1",
     "@types/node": "^26.6.2",
     "@varlock/1password-plugin": "^2.0.4",
+    "@varlock/cloudflare-integration": "^1.6.1",
     "@varlock/vite-integration": "^1.5.2",
     "happy-dom": "^20.14.5",
     "typescript": "~6.0.2",
-    "varlock": "^1.20.0",
+    "varlock": "^1.22.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8",
-    "vite-plus": "0.2.8"
+    "vite-plus": "0.2.8",
+    "wrangler": "^4.149.0"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8"

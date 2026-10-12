@@ -1,4 +1,4 @@
-# Jev 3000
+# DecisionMachines3000
 
 A small demo of [TypeSafe's](https://typesafe.ai) Jev decision model and its three primitives: Noul, Choice, and Score.
 

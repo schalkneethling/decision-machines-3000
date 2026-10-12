@@ -1,5 +1,5 @@
 /*
- * Jev 3000: an instrument for taking readings from Jev.
+ * DecisionMachines3000: an instrument for taking readings from Jev.
  * Written Shared First: top-level rules hold only what is identical at every
  * viewport; everything else sits in a bounded media query.
  * Breakpoint: 60em (960px). Small: width < 60em. Large: width >= 60em.

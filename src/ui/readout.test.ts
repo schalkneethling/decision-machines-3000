@@ -65,7 +65,7 @@ describe("renderResponse for Choice", () => {
 
   it("states the chosen option and its confidence", () => {
     expect(second?.querySelector(".answer-verdict")?.textContent).toBe(
-      "Chose other with confidence 0.68.",
+      "Choice: other, with confidence 0.68.",
     );
   });
 
@@ -83,7 +83,7 @@ describe("renderResponse for Score", () => {
 
   it("states the score on the scale with its confidence", () => {
     expect(readout.querySelector(".answer-verdict")?.textContent).toBe(
-      "Scored this 0.89 on a scale of 0 to 3, with confidence 0.89.",
+      "Score: 0.89 on a scale of 0 to 3, with confidence 0.89.",
     );
   });
 
@@ -114,7 +114,7 @@ describe("renderResponse for Score", () => {
       },
     });
     expect(odd.querySelector(".answer-verdict")?.textContent).toBe(
-      "Scored this 0.89 on a scale of 0 to 2, with confidence 0.89.",
+      "Score: 0.89 on a scale of 0 to 2, with confidence 0.89.",
     );
     const [first] = odd.querySelectorAll(".answer");
     if (!first) throw new Error("expected an answer");
@@ -183,6 +183,23 @@ describe("status renderers", () => {
       "Could not reach the decision endpoint. Is vp dev running?",
     );
     expect(alert.querySelector("code")?.textContent).toBe("vp dev");
+  });
+});
+
+describe("provider-neutral copy", () => {
+  it("names no provider in any state rendered by this module", () => {
+    const model = { model: "test-model" };
+    const rendered = [
+      renderLoading(),
+      renderResponse(noulExample, { ...noulResponse, ...model }),
+      renderResponse(choiceExample, { ...choiceResponse, ...model }),
+      renderResponse(scoreExample, { ...scoreResponse, ...model }),
+      renderUnreachable("Failed to fetch"),
+    ].map((element) => element.textContent ?? "");
+    rendered.push(describeJsonError("{", new SyntaxError("Unexpected end of JSON input")));
+    for (const text of rendered) {
+      expect(text).not.toMatch(/Jev|TypeSafe/);
+    }
   });
 });
 

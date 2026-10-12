@@ -215,6 +215,17 @@ describe("run", () => {
     expect(document.activeElement).toBe(instructions);
   });
 
+  it("names no provider when the endpoint answers with a body that is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<!doctype html>", { status: 200 })),
+    );
+    setupPanels(document);
+    submit("noul");
+    await vi.waitFor(() => expect(document.body.textContent).toContain("was not JSON"));
+    expect(document.body.textContent).not.toMatch(/Jev|TypeSafe/);
+  });
+
   it("posts the JSON text unchanged from the JSON view", async () => {
     const fetchMock = mockFetch();
     setupPanels(document);

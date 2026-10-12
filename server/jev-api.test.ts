@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Primitive } from "../src/decision/contract.ts";
 import { examples } from "../src/decision/examples.ts";
 import { jevApiPlugin } from "./jev-api.ts";
@@ -30,12 +30,15 @@ const stubAnswers: Record<Primitive, unknown> = {
 };
 
 let currentPrimitive: Primitive = "noul";
+/** What the stubbed SDK call received on its latest call. */
+let received: { state: unknown; questions: Record<string, { type: string; criteria?: unknown }> };
 
 vi.mock("@typesafe-ai/sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@typesafe-ai/sdk")>();
   class StubClient {
     baseURL = "https://api.typesafe.test";
-    async systemOne(params: { questions: Record<string, unknown> }) {
+    async systemOne(params: { state: unknown; questions: typeof received.questions }) {
+      received = { state: params.state, questions: params.questions };
       const answers: Record<string, unknown> = {};
       for (const id of Object.keys(params.questions)) answers[id] = stubAnswers[currentPrimitive];
       return { model: "stub-1", usage: { input_tokens: 1, output_tokens: 1 }, answers };
@@ -76,7 +79,17 @@ function post(body: unknown): Promise<Captured> {
   });
 }
 
+type ExampleRequest = {
+  state: unknown;
+  criteria?: unknown;
+  questions: Record<string, { criteria?: unknown }>;
+};
+
 describe("POST /api/jev", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   for (const primitive of ["noul", "choice", "score"] as const) {
     it(`answers the ${primitive} example in the contract shape`, async () => {
       currentPrimitive = primitive;
@@ -86,6 +99,15 @@ describe("POST /api/jev", () => {
       expect(body).toMatchObject({ ok: true, primitive, model: "stub-1" });
       const answers = (body as { answers: Record<string, { type: string }> }).answers;
       expect(Object.values(answers).every((answer) => answer.type === primitive)).toBe(true);
+
+      // What reached the SDK must match what was posted.
+      const sent: ExampleRequest = examples[primitive];
+      expect(Object.keys(received.questions)).toEqual(Object.keys(sent.questions));
+      expect(received.state).toEqual(sent.state);
+      for (const [id, question] of Object.entries(received.questions)) {
+        expect(question.type).toBe(primitive);
+        expect(question.criteria).toEqual(sent.questions[id]?.criteria ?? sent.criteria);
+      }
     });
   }
 

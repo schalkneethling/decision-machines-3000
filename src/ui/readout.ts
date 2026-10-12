@@ -97,9 +97,9 @@ function renderNoul(answer: NoulAnswer): Node[] {
 
 function renderChoice(answer: ChoiceAnswer): Node[] {
   const verdict = create("p", { className: "answer-verdict" }, [
-    "Chose ",
+    "Choice: ",
     create("strong", { text: answer.choice }),
-    ` with confidence ${formatProbability(answer.confidence)}.`,
+    `, with confidence ${formatProbability(answer.confidence)}.`,
   ]);
   const options = Object.entries(answer.probabilities)
     .sort(([, a], [, b]) => b - a)
@@ -160,7 +160,7 @@ function renderScore(answer: ScoreAnswer): Node[] {
   const lowest = scale[0] ?? "0";
   const highest = scale.at(-1) ?? lowest;
   const verdict = create("p", { className: "answer-verdict" }, [
-    "Scored this ",
+    "Score: ",
     create("strong", { text: formatProbability(answer.score) }),
     ` on a scale of ${lowest} to ${highest}, with confidence ${formatProbability(answer.confidence)}.`,
   ]);

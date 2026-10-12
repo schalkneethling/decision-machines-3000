@@ -114,11 +114,17 @@ function renderChoice(answer: ChoiceAnswer): Node[] {
 function compareLevels(a: string, b: string): number {
   const first = Number(a);
   const second = Number(b);
-  const firstIsNumber = !Number.isNaN(first);
-  const secondIsNumber = !Number.isNaN(second);
+  const firstIsNumber = isNumericKey(a, first);
+  const secondIsNumber = isNumericKey(b, second);
   if (firstIsNumber && secondIsNumber) return first - second;
   if (firstIsNumber !== secondIsNumber) return firstIsNumber ? -1 : 1;
-  return a.localeCompare(b);
+  // A plain code-unit comparison, so the order never depends on the runtime's locale.
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Blank keys parse as 0, so they are not numbers; `parsed` is `Number(key)`. */
+function isNumericKey(key: string, parsed: number): boolean {
+  return key.trim() !== "" && Number.isFinite(parsed);
 }
 
 /** Levels in rubric order, taken from the legend, then any extra probability keys. */

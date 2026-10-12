@@ -58,6 +58,10 @@ afterEach(() => {
 });
 
 describe("view switch", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("opens every panel in the tree", () => {
     setupPanels(document);
     for (const primitive of ["noul", "choice", "score"]) {
@@ -95,7 +99,6 @@ describe("view switch", () => {
     expect(setItem).not.toHaveBeenCalled();
     expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
     expect(textarea("score").value).toBe(JSON.stringify(scoreExample, null, 2));
-    vi.restoreAllMocks();
   });
 
   it("opens in the tree when storage throws", () => {
@@ -108,7 +111,6 @@ describe("view switch", () => {
     expect(() => setupPanels(document)).not.toThrow();
     viewButton("noul", "json").click();
     expect(viewButton("noul", "json").getAttribute("aria-pressed")).toBe("true");
-    vi.restoreAllMocks();
   });
 
   it("refuses to switch to the tree while the JSON is invalid", () => {

@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "gpt-6-luna",
+      "input": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": [
+        {
+          "type": "predicate",
+          "name": "urgent",
+          "instructions": "Is this urgent?"
+        }
+      ]
+    }
+  },
+  "status": 401,
+  "headers": {
+    "content-type": "application/json",
+    "openai-processing-ms": "0"
+  },
+  "body": {
+    "error": {
+      "message": "A valid API key is required.",
+      "type": "invalid_request_error",
+      "param": null,
+      "code": null
+    }
+  },
+  "latencyMs": 220,
+  "responseBytes": 108
+}

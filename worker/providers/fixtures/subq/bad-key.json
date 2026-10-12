@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.subq.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "subq-snap-preview",
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": {
+        "escalate": {
+          "type": "noul",
+          "instructions": "Is this urgent?"
+        }
+      }
+    }
+  },
+  "status": 403,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "detail": {
+      "error_type": "permission_error",
+      "message": "Access denied. Contact support if you believe this is an error."
+    }
+  },
+  "latencyMs": 261,
+  "responseBytes": 120
+}

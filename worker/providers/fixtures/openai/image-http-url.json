@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "gpt-6-luna",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "The attached image is the only evidence."
+            },
+            {
+              "type": "input_image",
+              "image_url": "https://example.com/probe-red.png"
+            }
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "type": "predicate",
+          "name": "red",
+          "instructions": "Is the image mostly red?"
+        }
+      ]
+    }
+  },
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "openai-processing-ms": "66"
+  },
+  "body": {
+    "error": {
+      "message": "Error while downloading file. Upstream status code: 404.",
+      "type": "invalid_request_error",
+      "param": "input[0].content[1].image_url",
+      "code": "invalid_value"
+    }
+  },
+  "latencyMs": 707,
+  "responseBytes": 174
+}

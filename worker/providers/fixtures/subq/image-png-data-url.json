@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.subq.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "subq-snap-preview",
+      "state": "The attached image is the only evidence.",
+      "images": [
+        {
+          "mediaType": "image/png",
+          "base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8DwnwGMgRQAH+4D/dJQfRoAAAAASUVORK5CYII="
+        }
+      ],
+      "questions": {
+        "red": {
+          "type": "noul",
+          "instructions": "Is the image mostly red?",
+          "criteria": {
+            "true": "The image is mostly red",
+            "false": "The image is another colour"
+          }
+        }
+      }
+    }
+  },
+  "status": 422,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "detail": {
+      "error_type": "validation_error",
+      "message": "images/0/base64: must match pattern \"^[A-Za-z0-9+/]+={0,2}$\""
+    }
+  },
+  "latencyMs": 382,
+  "responseBytes": 119
+}

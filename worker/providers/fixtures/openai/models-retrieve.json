@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "https://api.openai.com/v1/models/gpt-6-luna",
+    "headers": {
+      "authorization": "Bearer <redacted>"
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "openai-processing-ms": "377"
+  },
+  "body": {
+    "id": "gpt-6-luna",
+    "object": "model",
+    "created": 1789406102,
+    "owned_by": "system",
+    "shutdown_date": null
+  },
+  "latencyMs": 692,
+  "responseBytes": 119
+}

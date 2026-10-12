@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "model": "jev-latest",
+      "questions": {
+        "acuity": {
+          "type": "score",
+          "instructions": "How soon should someone respond?",
+          "criteria": ["Within a week", "Within a day", "Within an hour"]
+        }
+      }
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "acuity": {
+        "type": "score",
+        "score": 1.84,
+        "confidence": 0.76,
+        "legend": {
+          "0": "Within a week",
+          "1": "Within a day",
+          "2": "Within an hour"
+        },
+        "probabilities": {
+          "0": 0,
+          "1": 0.16,
+          "2": 0.84
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 327,
+      "output_tokens": 18
+    }
+  },
+  "latencyMs": 507,
+  "responseBytes": 254
+}

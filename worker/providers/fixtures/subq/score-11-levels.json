@@ -1,0 +1,45 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.subq.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "subq-snap-preview",
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": {
+        "acuity": {
+          "type": "score",
+          "instructions": "How soon should someone respond?",
+          "criteria": [
+            "Level 0",
+            "Level 1",
+            "Level 2",
+            "Level 3",
+            "Level 4",
+            "Level 5",
+            "Level 6",
+            "Level 7",
+            "Level 8",
+            "Level 9",
+            "Level 10"
+          ]
+        }
+      }
+    }
+  },
+  "status": 422,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "detail": {
+      "error_type": "validation_error",
+      "message": "questions/acuity/type: must be equal to constant; questions/acuity/type: must be equal to constant; questions/acuity/criteria: must NOT have more than 10 items; questions/acuity: must match exactly one schema in oneOf"
+    }
+  },
+  "latencyMs": 263,
+  "responseBytes": 274
+}

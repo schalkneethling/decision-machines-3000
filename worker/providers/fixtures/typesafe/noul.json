@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "model": "jev-latest",
+      "questions": {
+        "escalate": {
+          "type": "noul",
+          "instructions": "Should a nurse see this chat before the patient books anything?",
+          "criteria": {
+            "true": "Breathing trouble, chest pain, or a flare of a known condition",
+            "false": "Stable symptoms the patient can book for themselves"
+          }
+        }
+      }
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "escalate": {
+        "type": "noul",
+        "noul": 0.92
+      }
+    },
+    "usage": {
+      "input_tokens": 343,
+      "output_tokens": 22
+    }
+  },
+  "latencyMs": 392,
+  "responseBytes": 121
+}

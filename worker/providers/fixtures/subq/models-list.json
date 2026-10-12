@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "https://api.subq.ai/v1/models",
+    "headers": {
+      "authorization": "Bearer <redacted>"
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "object": "list",
+    "data": [
+      {
+        "id": "subq-snap-preview",
+        "name": "SubQ Snap Preview",
+        "object": "model",
+        "created": 0,
+        "owned_by": "subquadratic"
+      }
+    ]
+  },
+  "latencyMs": 1044,
+  "responseBytes": 135
+}

@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "gpt-6-luna",
+      "input": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning."
+    }
+  },
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "openai-processing-ms": "0"
+  },
+  "body": {
+    "error": {
+      "message": "Missing required parameter: 'questions'.",
+      "type": "invalid_request_error",
+      "param": "questions",
+      "code": "missing_required_parameter"
+    }
+  },
+  "latencyMs": 284,
+  "responseBytes": 151
+}

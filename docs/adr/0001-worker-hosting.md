@@ -43,6 +43,7 @@ Choose **path A**.
 - `/api` without a trailing slash is served by the single-page app, because `run_worker_first: ["/api/*"]` does not match it.
 - After `vp run build`, plain `wrangler dev` and `wrangler deploy` use the redirected, already-bundled config. Pass `-c wrangler.jsonc` to run or deploy a different entry point.
 - No `.dev.vars` file may exist, because `varlockCloudflareVitePlugin` throws when it finds one. `.dev.vars.example` for the Deploy button is allowed.
+- The Deploy button builds with npm 11.16.0, so the `devEngines` pin must accept it (#26).
 - `wrangler.jsonc` does not set `workers_dev` or `preview_urls`, so Wrangler enables both by default and warns on every deploy. Issue #14 (fail closed on deployed instances) has to decide them.
 
 ## Fallback

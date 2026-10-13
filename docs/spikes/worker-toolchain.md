@@ -2,7 +2,7 @@
 
 This records the result of issue #1. It answers whether `@cloudflare/vite-plugin` and `@varlock/cloudflare-integration` work under Vite+ 0.2.8 well enough to serve, build, and deploy a Worker from this repository.
 
-**Short answer.** Yes. `vp dev` runs the Worker inside workerd through `@cloudflare/vite-plugin`, including the Varlock wrapper with the key resolved from 1Password, so ADR-0001 chooses path A. `vp run build` produces the output that `wrangler deploy` and `varlock-wrangler deploy` both deployed to a scratch Worker, which served the UI, `GET /api/providers`, and a JSON 404 for unknown `/api` paths. Two results change the plan: an 8 MiB image request costs 19 to 43 ms of CPU, which is over the Free plan's 10 ms (#15), and `varlock-wrangler deploy` keeps secrets that are not in the schema (#17, #18). Only the Deploy button test is still open, because creating the public test repository was blocked; [step 9](#step-9-deploy-button-still-pending) has the exact commands.
+**Short answer.** Yes. `vp dev` runs the Worker inside workerd through `@cloudflare/vite-plugin`, including the Varlock wrapper with the key resolved from 1Password, so ADR-0001 chooses path A. `vp run build` produces the output that `wrangler deploy` and `varlock-wrangler deploy` both deployed to a scratch Worker, which served the UI, `GET /api/providers`, and a JSON 404 for unknown `/api` paths. The Deploy button works with this repository, but it refuses blank secrets and stores placeholders as live secrets. Several results change other issues: an 8 MiB image request costs 19 to 43 ms of CPU, which is over the Free plan's 10 ms (#15); `varlock-wrangler deploy` keeps secrets that are not in the schema (#17, #18); and Cloudflare's build image needs a looser npm pin (#26). Every scope item is now settled.
 
 Local timings ran on an Apple M3 Pro with Node 24.21.0 and are indicative only. The deployed runs used the owner's account on 2026-10-12.
 
@@ -55,15 +55,17 @@ Each row is one item from the issue's scope. The step numbers refer to [How each
 | Does that fit the Free plan?                                                                         | **No.** 19 to 43 ms is two to four times the Free plan's 10 ms. All 25 requests succeeded, which matches the limits page's tolerance for infrequent overruns, but steady image traffic would be stopped with error 1102. **The image path needs the Workers Paid plan**, or a much smaller image limit.                                                                                                                            | Step 7 and the limits page. Which plan the owner's account is on was not checked.                                                                                                                                                                                                                       |
 | `wrangler secret put` before the first deploy                                                        | **Works.** It creates the Worker first.                                                                                                                                                                                                                                                                                                                                                                                            | Step 3: "There doesn't seem to be a Worker called "decisionmachines3000-scratch". Do you want to create a new Worker with that name and add secrets to it?", "🤖 Using fallback value in non-interactive context: yes", "✨ Success! Uploaded secret SPIKE_EXTRA_SECRET".                               |
 | Which `wrangler secret list` output a script can parse                                               | **`wrangler secret list --name <worker> --format json`.** stdout is a JSON array of `{ "name", "type" }` objects with nothing else around it. `JSON.parse` read it as an array of 1 and later 3 entries. Before the first deploy, the command exits 1 with "Worker ... not found" on stderr.                                                                                                                                       | Steps 3 and 6. `--help`: `--format ... [choices: "json", "pretty"] [default: "json"]`.                                                                                                                                                                                                                  |
-| Can a Deploy-button build run `wrangler secret list` and see the prompted secrets?                   | **Pending.**                                                                                                                                                                                                                                                                                                                                                                                                                       | [Step 9](#step-9-deploy-button-still-pending).                                                                                                                                                                                                                                                          |
-| Deploy button with one key blank                                                                     | **Pending.** The docs say the button clones the repository into the user's account, reads secrets from `.dev.vars.example` or `.env.example`, and runs the `build` script from `package.json`, with `npx wrangler deploy` as the default deploy command.                                                                                                                                                                           | [Step 9](#step-9-deploy-button-still-pending). https://developers.cloudflare.com/workers/platform/deploy-buttons/ : "Repositories must be public in order for others to successfully use your Deploy to Cloudflare button."                                                                             |
+| Can a Deploy-button build run `wrangler secret list` and see the prompted secrets?                   | **Yes.** With the build command `npx wrangler secret list --format json && npm run build` and no extra credentials, the build log printed the three prompted names as a bare JSON array.                                                                                                                                                                                                                                           | Step 9, result 7: `[{"name":"OPENAI_API_KEY","type":"secret_text"},{"name":"SUBQ_API_KEY","type":"secret_text"},{"name":"TYPESAFE_API_KEY","type":"secret_text"}]`.                                                                                                                                     |
+| Deploy button with one key blank                                                                     | **Refused.** Every key in `.dev.vars.example` is a required input, enforced by the browser's own validation.                                                                                                                                                                                                                                                                                                                       | Step 9, result 1.                                                                                                                                                                                                                                                                                       |
+| If blanks are refused, is a placeholder accepted?                                                    | **Yes, and it becomes a live secret.** `unset` was accepted, and all three keys were then listed as `secret_text`. The Worker must treat exactly `unset` as absent.                                                                                                                                                                                                                                                                | Step 9, result 4: `wrangler secret list --format json` on the button-deployed Worker listed `OPENAI_API_KEY`, `SUBQ_API_KEY`, `TYPESAFE_API_KEY`.                                                                                                                                                       |
+| Other Deploy-button behaviour                                                                        | It clones the repository into the deployer's GitHub account under the project name, and fails if that name is taken. It rewrites only `name` in `wrangler.jsonc`. Its first build always fails on Cloudflare's "Uploading template." commit, and the next one succeeds. npm 11.16.0 in the build image needs the `devEngines` range from #26.                                                                                      | Step 9, results 2, 3, 5, and 6.                                                                                                                                                                                                                                                                         |
 | Does an extra secret survive `varlock-wrangler deploy`?                                              | **Yes.** `SPIKE_EXTRA_SECRET`, set with `wrangler secret put` and not in the schema, was still listed after `varlock-wrangler deploy`. Varlock's "replaces all Cloudflare vars and secrets" does not hold for secrets; Wrangler's "Secrets are never deleted by a deployment" does.                                                                                                                                                | Step 5 secret list: `SPIKE_EXTRA_SECRET`, `TYPESAFE_API_KEY`, `__VARLOCK_ENV`, all `secret_text`.                                                                                                                                                                                                       |
 | Why the project does not use `secrets.required`                                                      | **Confirmed from the source.** At deploy, every listed secret that has no value becomes an `inherit` binding, and a missing one fails the deploy with "The following required secrets have not been set". In local dev, defining `secrets` limits the loaded keys to those listed, and the schema says it "Replaces .dev.vars/.env/process.env inference for type generation". A fork with one of three keys would fail to deploy. | `cli.js`, `addRequiredSecretsInheritBindings` (line 176159) and the dev loader near line 191116; `config-schema.json`, `secrets.required`.                                                                                                                                                              |
 | `vp check` and `vp test` never wait on 1Password                                                     | **Confirmed.** Both finish without a prompt. `vp run build` also never imports Varlock, because the build loads only the plain Cloudflare plugin.                                                                                                                                                                                                                                                                                  | `vp check`: "Found no warnings, lint errors, or type errors in 29 files". `vp test`: "Tests 156 passed (156)".                                                                                                                                                                                          |
 
 ## How each step ran
 
-Step 2 (`wrangler login`) was skipped because the owner was already logged in. Every deploy used a scratch name: `decisionmachines3000-scratch` or `decisionmachines3000-bench`. Both were deleted in step 8. No Worker named `decisionmachines3000` was deployed. The key was never printed: a small script read it with `op read` into a shell variable and reported only "found" or "not found", after a positive control in memory that showed the search works.
+Steps 1 and 3 to 8 ran from this worktree; the owner ran step 9 in the browser. Step 2 (`wrangler login`) was skipped because the owner was already logged in. Every deploy used a scratch name: `decisionmachines3000-scratch` or `decisionmachines3000-bench`. Both were deleted in step 8. No Worker named `decisionmachines3000` was deployed. The key was never printed: a small script read it with `op read` into a shell variable and reported only "found" or "not found", after a positive control in memory that showed the search works.
 
 ### Step 1: Varlock under `vp dev`
 
@@ -122,7 +124,6 @@ Uploaded decisionmachines3000-scratch (11.31 sec)
 ▲ [WARNING] Because 'workers_dev' is not in your Wrangler file, it will be enabled for this deployment by default.
 ▲ [WARNING] Because your 'workers.dev' route is enabled and your 'preview_urls' setting is not in your Wrangler file, Preview URLs will be enabled for this deployment by default.
 Deployed decisionmachines3000-scratch triggers (2.87 sec)
-  https://decisionmachines3000-scratch.<subdomain>.workers.dev
 ```
 
 | Request on the deployed Worker | Response                                                                                                                                                                       |
@@ -148,7 +149,7 @@ env.TYPESAFE_API_KEY ("(hidden)")      Environment Variable
 env.__VARLOCK_ENV ("(hidden)")         Environment Variable
 Deployed decisionmachines3000-scratch triggers (2.19 sec)
 
-$ curl -s https://decisionmachines3000-scratch.<subdomain>.workers.dev/api/providers
+$ curl -s <scratch Worker URL>/api/providers
 {"providers":[{"id":"typesafe","name":"TypeSafe"}]}  [200, three times]
 
 $ vp exec wrangler secret list --name decisionmachines3000-scratch --format json
@@ -170,7 +171,6 @@ Wrangler's bindings table labels both values "Environment Variable", but the sec
 ```text
 $ vp exec wrangler deploy -c wrangler.jsonc worker/spike/encode-bench.ts --name decisionmachines3000-bench
 Deployed decisionmachines3000-bench triggers (2.25 sec)
-  https://decisionmachines3000-bench.<subdomain>.workers.dev
 ```
 
 The two 4 MiB `/dev/urandom` files from the local run were posted 25 times with `curl -H "Expect:"`. Every request returned 200 with both parts as `File` objects of 4,194,304 bytes. `wrangler tail --format json` reported:
@@ -196,51 +196,39 @@ Successfully deleted decisionmachines3000-bench
 
 Afterwards the scratch URL returned 404, and no `wrangler tail`, `vp dev`, or workerd process from this worktree was left running.
 
-### Step 9: Deploy button (still pending)
+### Step 9: Deploy button
 
-Creating the throwaway public repository was blocked by the permission system ("Create Public Surface"), so nothing was created or pushed. These are the commands that finish the setup, run from this branch:
+The owner ran this step in the browser, against the owner's throwaway clone of this branch. The clone differs from this branch in three ways: `wrangler.jsonc` uses a throwaway Worker name, the README carries the button, and a `.dev.vars.example` lists the three provider keys with no values. The results are also recorded on issue #17.
 
-```sh
-git switch -c issue-1-deploy-button-test
+1. **The button refuses blank secrets.** Every key in `.dev.vars.example` becomes a required input, and the form enforces it with the browser's own "this field cannot be empty" validation. Leaving the keys you do not have blank is not possible.
+2. **The button clones the repository into the deployer's GitHub account**, using the project name as the repository name. If that name is already taken, the deploy fails, so the deployer has to pick another project name.
+3. **The first deploy failed during `npm install`.** Cloudflare's build image runs npm 11.16.0, which refused the exact `devEngines` pin `12.1.0` with `EBADDEVENGINES`. Issue #26 and PR #28 fix it with the range `^11.16.0 || 12.1.0`, and the retry installed and deployed with that range.
+4. **`unset` is accepted as a value, and it becomes a live secret.** With a real `TYPESAFE_API_KEY` and `unset` for the other two, the deploy succeeded, and `wrangler secret list --format json` on the new Worker listed `OPENAI_API_KEY`, `SUBQ_API_KEY`, and `TYPESAFE_API_KEY`, all `secret_text`. A Worker that lists every provider whose secret is non-empty, as the spike Worker does, would therefore show SubQ and OpenAI as configured. The Worker needs a rule that treats a value of exactly `unset` (trimmed, any case) as absent, which #17 records.
+5. **The button rewrites only `name` in `wrangler.jsonc`**, setting it to the chosen project name. Comments, `run_worker_first`, and `not_found_handling` survive.
+6. **Cloudflare's first build always fails, harmlessly.** It runs on Cloudflare's own "Uploading template." commit, which contains only `wrangler.jsonc`, and fails with `ENOENT … /opt/buildhome/repo/package.json`. The "source repo import" commit that follows builds and deploys.
+7. **A Workers Builds build can list its Worker's secrets.** With the build command `npx wrangler secret list --format json && npm run build`, and no extra credentials, the build log printed `[{"name":"OPENAI_API_KEY","type":"secret_text"},{"name":"SUBQ_API_KEY","type":"secret_text"},{"name":"TYPESAFE_API_KEY","type":"secret_text"}]` as a bare JSON array. The deploy-time key check can therefore run inside the build command on the button path. It sees names only, so a key set to `unset` passes it, and the Worker's runtime rule stays the safeguard for that case.
+
+For reference, this is the `.dev.vars.example` used in the clone. Its "Leave the others blank" line turned out to be wrong for the button path, as result 1 shows, so #17 has to word its file differently.
+
+```dotenv
+# Provider API keys for the Deploy to Cloudflare button test (spike #1).
+# Set at least one of these. Leave the others blank. Never commit real values.
+
+# TypeSafe API key, for the Jev decision model.
+TYPESAFE_API_KEY=
+
+# SubQ API key, for SubQ Snap.
+SUBQ_API_KEY=
+
+# OpenAI API key, for OpenAI Decisions.
+OPENAI_API_KEY=
 ```
 
-Then make three changes and commit them:
+The button snippet follows the Deploy buttons page (https://developers.cloudflare.com/workers/platform/deploy-buttons/):
 
-- In `wrangler.jsonc`, set `"name": "decisionmachines3000-deploy-button-test"`, so the button never offers the real name.
-- Add `.dev.vars.example` with the three keys and no values:
-
-  ```dotenv
-  # Provider API keys for the Deploy to Cloudflare button test (spike #1).
-  # Set at least one of these. Leave the others blank. Never commit real values.
-
-  # TypeSafe API key, for the Jev decision model.
-  TYPESAFE_API_KEY=
-
-  # SubQ API key, for SubQ Snap.
-  SUBQ_API_KEY=
-
-  # OpenAI API key, for OpenAI Decisions.
-  OPENAI_API_KEY=
-  ```
-
-- Under the README's title, add a note that the repository is a throwaway test, and the button:
-
-  ```md
-  [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/decisionmachines3000-deploy-button-test)
-  ```
-
-```sh
-gh repo create schalkneethling/decisionmachines3000-deploy-button-test --public --description "Throwaway: Deploy to Cloudflare button test for jev-3000 spike #1"
-git push git@github.com:schalkneethling/decisionmachines3000-deploy-button-test.git issue-1-deploy-button-test:main
+```md
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=<public repository URL>)
 ```
-
-Pushing by URL adds no remote to the jev-3000 repository. Then, in a browser:
-
-1. Open https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/decisionmachines3000-deploy-button-test.
-2. Fill in only `TYPESAFE_API_KEY` and leave the other two blank. Record whether the form accepts the blanks. If it refuses them, record the message, then try a placeholder such as `unset` and record whether that is accepted.
-3. After the deploy, open `/api/providers` on the new Worker and record the list.
-4. In the new project's Workers Builds settings, put `npx wrangler secret list --format json` before the deploy command, start a build, and record whether the build log shows the secrets the button asked for, or an error.
-5. Delete the Worker the button created. Keep the repository until the results are recorded here.
 
 ## Path A under `vp dev`
 
@@ -363,10 +351,12 @@ One request grew the process by 45 to 59 MiB, while holding the 8 MiB body, an 8
 
 Step 1 confirmed path A, and ADR-0001 records it as accepted.
 
-## Results that change the plan
+## Results that change other issues
 
 - **#15 (server-side images).** One 8 MiB request with two images cost 19 to 43 ms of CPU, against the Free plan's 10 ms. Plan for the Workers Paid plan, or cap uploads well below 8 MiB, and say so in the deploy guide. In-Worker timers read 0 on Cloudflare, so any CPU measurement in #15 has to use `wrangler tail` or the dashboard.
-- **#17 (plain Wrangler profile and deploy-time key check).** `wrangler secret list` exits 1 with "Worker ... not found" before the first deploy, so the check script has to handle a Worker that does not exist yet instead of treating the error as a failure. `wrangler secret put` on a new name creates a placeholder Worker (`export default { fetch() {} }`) before the first real deploy, which contradicts Wrangler's own message for `secrets.required` that "secrets cannot be set in advance with `wrangler secret put`". The Deploy-button questions are still open (step 9).
+- **#17 (plain Wrangler profile and deploy-time key check).** `wrangler secret list` exits 1 with "Worker ... not found" before the first deploy, so the check script has to handle a Worker that does not exist yet instead of treating the error as a failure. `wrangler secret put` on a new name creates a placeholder Worker (`export default { fetch() {} }`) before the first real deploy, which contradicts Wrangler's own message for `secrets.required` that "secrets cannot be set in advance with `wrangler secret put`".
+- **#17 (Deploy button).** The button refuses blank secrets, so every key in `.dev.vars.example` is required on the button path, and the file and guide must not tell people to leave keys blank. A placeholder is accepted but arrives as a live secret, so the Worker must treat a value of exactly `unset` (trimmed, any case) as absent, with tests on both sides of that rule. The deploy-time key check can run on the button path by putting it in the build command before `npm run build`, because a Workers Builds build can list its secrets; it sees names only, so the runtime rule remains the safeguard against `unset`. The guide should also warn that the first build always fails on Cloudflare's "Uploading template." commit, and that a taken repository name fails the deploy.
+- **#26 (npm range in `devEngines`).** Cloudflare's build image runs npm 11.16.0, which refuses the exact pin `12.1.0` with `EBADDEVENGINES`, so no button deploy can install the project until #26 / PR #28 lands with `^11.16.0 || 12.1.0`. This branch still has the exact pin.
 - **#18 (Varlock profile).** `varlock-wrangler deploy` does not remove secrets that are missing from the schema, so a key removed from the vault stays on the Worker until `wrangler secret delete` runs. The guide should say that, and the "one writer" rule cannot rely on Varlock to clean up. Wrangler also labels Varlock's secrets "Environment Variable" in its bindings table; `wrangler secret list` is the way to confirm they are secrets.
 - **#14 (fail closed on deployed instances).** Without `workers_dev` and `preview_urls` in `wrangler.jsonc`, Wrangler enables both on every deploy, so each version also gets a public preview URL. #14 has to set or protect both.
 - **#6 (Worker skeleton).** `/api` without a trailing slash goes to the single-page app, not the Worker. If the Worker should own it, add `"/api"` to `run_worker_first`.
@@ -380,5 +370,4 @@ Step 1 confirmed path A, and ADR-0001 records it as accepted.
 - `lazyPlugins` and `lint.ignorePatterns`: `node_modules/vite-plus/docs/guide/troubleshooting.md` and `lint.md`.
 - `toBase64` types: `node_modules/typescript/lib/lib.esnext.typedarrays.d.ts`.
 - `op read`: `op read --help`.
-- `gh repo create`: `gh repo create --help` (`--public`, `--description`).
 - Deploy button snippet: https://developers.cloudflare.com/workers/platform/deploy-buttons/.

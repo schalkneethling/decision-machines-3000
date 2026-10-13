@@ -96,12 +96,21 @@ describe("POST /api/jev", () => {
       vi.spyOn(console, "info").mockImplementation(() => {});
       const { status, body } = await post(examples[primitive]);
       expect(status).toBe(200);
-      expect(body).toMatchObject({ ok: true, primitive, model: "stub-1" });
-      const answers = (body as { answers: Record<string, { type: string }> }).answers;
-      expect(Object.values(answers).every((answer) => answer.type === primitive)).toBe(true);
+      const sent: ExampleRequest = examples[primitive];
+      expect(body).toEqual({
+        ok: true,
+        primitive,
+        model: "stub-1",
+        usage: { input_tokens: 1, output_tokens: 1 },
+        latencyMs: expect.any(Number),
+        connection: expect.any(String),
+        keepAliveSeconds: expect.any(Number),
+        answers: Object.fromEntries(
+          Object.keys(sent.questions).map((id) => [id, stubAnswers[primitive]]),
+        ),
+      });
 
       // What reached the SDK must match what was posted.
-      const sent: ExampleRequest = examples[primitive];
       expect(Object.keys(received.questions)).toEqual(Object.keys(sent.questions));
       expect(received.state).toEqual(sent.state);
       for (const [id, question] of Object.entries(received.questions)) {
@@ -115,6 +124,10 @@ describe("POST /api/jev", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const { status, body } = await post({ ...examples.noul, primitive: "rank" });
     expect(status).toBe(400);
-    expect(body).toMatchObject({ ok: false });
+    expect(body).toEqual({
+      ok: false,
+      error: expect.stringContaining('Set "primitive" to'),
+      detail: "primitive",
+    });
   });
 });

@@ -83,12 +83,12 @@ Feature: Compare Valibot and Zod Mini on the project's real data shapes and choo
     And it names what Valibot does better, including bundle size
     And it lists the conditions that would reopen the decision
 
-  Scenario: Follow-up issues are drafted, not filed
+  Scenario: Follow-up work is filed after the decision
     Given docs/spikes/schema-library.md
     When its last section is read
-    Then it contains a draft issue for migrating contract.ts and validate.ts with identical messages and tests
-    And a draft issue for using schemas at the new boundaries in #7, #8, #10, #11, and #15
-    And "gh issue list --search schema" shows no new issue created by this spike
+    Then it contains the drafts for migrating contract.ts and validate.ts and for the new boundaries
+    And "gh issue list --state all --search 'Migrate the contract, validator, and response checks to Zod Mini in:title'" finds the migration issue, open or closed
+    And issues #7, #8, #10, #11, and #15 each have a comment headed "Schemas at this boundary (ADR-0004, Zod Mini)"
 
   Scenario: The comparison code stays out of src and the app build, and the checks pass
     When "vp check", "vp test", and "vp run build" run

@@ -141,15 +141,52 @@ const missingKeys = { ok: false, error: "No provider key is set, and at least on
 describe("isProvidersResponse", () => {
   it.each([
     ["every provider, as the Worker lists them", listed],
-    ["an empty list", { ok: true, providers: [] }],
     ["the failure for an instance with no key", missingKeys],
+    // Additive server fields must not break a browser that does not know them yet.
+    ["a success with an unknown top-level field", { ...(listed as object), region: "weur" }],
   ])("accepts %s", (_name, body) => {
     expect(isProvidersResponse(body)).toBe(true);
+  });
+
+  it("carries each provider's model", () => {
+    expect(listed).toMatchObject({ providers: [{ model: typesafe.model }, {}, {}] });
   });
 
   it.each([
     { name: "a list in place of the response", body: [listed], path: "" },
     { name: "a success without providers", body: { ok: true }, path: "providers" },
+    {
+      // The server answers 503 instead of an empty list.
+      name: "a success with no providers",
+      body: { ok: true, providers: [] },
+      path: "providers",
+    },
+    {
+      name: "a provider without a model",
+      body: replaced(listed, "providers.0.model", undefined),
+      path: "providers.0.model",
+    },
+    {
+      name: "a fractional option count",
+      body: replaced(listed, "providers.0.capabilities.choiceOptions.max", 2.5),
+      path: "providers.0.capabilities.choiceOptions.max",
+    },
+    {
+      name: "a fractional question-name limit",
+      body: replaced(listed, "providers.1.capabilities.questionNameMaxLength", 99.9),
+      path: "providers.1.capabilities.questionNameMaxLength",
+    },
+    // `images` is a union with `false`, so Zod reports these at the union itself.
+    {
+      name: "a fractional image count",
+      body: replaced(listed, "providers.2.capabilities.images.maxCount", 1.5),
+      path: "providers.2.capabilities.images",
+    },
+    {
+      name: "a fractional byte limit",
+      body: replaced(listed, "providers.2.capabilities.images.maxBytesPerImage", 1024.5),
+      path: "providers.2.capabilities.images",
+    },
     {
       name: "a provider the catalog does not know",
       body: replaced(listed, "providers.0.id", "anthropic"),

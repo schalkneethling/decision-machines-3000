@@ -12,7 +12,8 @@ Feature: Worker skeleton, Node dev host, and GET /api/providers
     When handle(new Request("/api/providers")) runs
     Then the status is 200
     And the body is { ok: true, providers: [the OpenAI summary] }
-    And the OpenAI summary carries the catalog's id, displayName, and capabilities
+    And the OpenAI summary carries exactly the catalog's id, displayName, model, and capabilities
+    And it never carries the warm path or any server-only field added to the catalog later
     And the string "x" appears nowhere in the body or the headers
 
   Scenario: Configured providers are listed in catalog order
@@ -55,7 +56,21 @@ Feature: Worker skeleton, Node dev host, and GET /api/providers
   Scenario: A wrong method gets a 405
     When POST /api/providers is handled
     Then the status is 405
-    And the Allow header is GET
+    And the Allow header is "GET, HEAD"
+
+  Scenario: HEAD is answered wherever GET is
+    When HEAD /api/providers is handled
+    Then the status and headers equal those of GET
+    And there is no body
+
+  Scenario: A key value that is not a string counts as absent
+    Given env is { OPENAI_API_KEY: 42 }, as a Worker var holding JSON
+    When GET /api/providers is handled
+    Then the response is the 503, not an exception
+
+  Scenario: Every answer forbids content sniffing
+    When any /api request is handled
+    Then X-Content-Type-Options is nosniff
 
   Scenario: A cross-origin preflight gets no CORS headers
     When an OPTIONS request with Origin and Access-Control-Request-Method arrives at /api/providers
@@ -87,6 +102,14 @@ Feature: Worker skeleton, Node dev host, and GET /api/providers
     Then it answers with the body handle produces
     And a path outside /api is passed on to the next middleware
 
+  Scenario: The dev host passes requests to the handler unchanged
+    When a POST with a JSON content type and a non-ASCII body reaches the dev host
+    Then the handler receives the same method, content type, and body bytes
+
+  Scenario: The dev host refuses odd requests the way the Worker would
+    When a request target starts with "//", the Host header is malformed, or the method is TRACE
+    Then the target is passed on, the Host gets a JSON 400, and TRACE gets a JSON 405
+
   Scenario: The dev host warns when it starts with no key
     Given no provider key is set
     When the dev host plugin starts
@@ -107,6 +130,8 @@ Feature: Worker skeleton, Node dev host, and GET /api/providers
   Scenario: The browser checks the providers response
     When getProviders() receives a body
     Then it is accepted only when it matches the Zod Mini providers schema
+    And a success must list at least one provider, with whole-number limits
+    And an unknown top-level field is tolerated
 
   Scenario: Checks and tests never touch 1Password
     When vp check, vp test, and vp run build run

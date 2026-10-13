@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -110,7 +110,7 @@ describe("the dev host middleware", () => {
 
     const posted = await fetch(`${base}/api/providers`, { method: "POST", body: "{}" });
     expect(posted.status).toBe(405);
-    expect(posted.headers.get("allow")).toBe("GET");
+    expect(posted.headers.get("allow")).toBe("GET, HEAD");
   });
 
   it.each(["/", "/index.html", "/apis", "/src/main.ts"])(
@@ -123,6 +123,136 @@ describe("the dev host middleware", () => {
       expect(response.status).toBe(418);
     },
   );
+});
+
+type RawAnswer = { status: number; headers: Record<string, unknown>; body: Buffer };
+
+/**
+ * Sends a request with Node's own client, which, unlike `fetch`, allows a raw
+ * path, any Host header, and methods such as TRACE.
+ */
+function raw(
+  base: string,
+  options: { method?: string; path: string; headers?: Record<string, string>; body?: Buffer },
+): Promise<RawAnswer> {
+  const { hostname, port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        hostname,
+        port,
+        method: options.method ?? "GET",
+        path: options.path,
+        headers: options.headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.end(options.body);
+  });
+}
+
+describe("the dev host's request conversion", () => {
+  it("passes the method, the content type, and the exact body bytes to the handler", async () => {
+    let received: { method: string; contentType: string | null; body: Uint8Array } | undefined;
+    const echo = async (request: Request) => {
+      received = {
+        method: request.method,
+        contentType: request.headers.get("content-type"),
+        body: new Uint8Array(await request.arrayBuffer()),
+      };
+      return new Response(null, { status: 204 });
+    };
+    const base = await serve(apiMiddleware(() => withOpenAI, echo));
+    // Non-ASCII text, plus a byte that is not valid UTF-8, so no decoding step can hide.
+    const body = Buffer.concat([
+      Buffer.from('{"state":"Amélie — 日本 ✓"}', "utf8"),
+      Buffer.from([0xff]),
+    ]);
+
+    const answer = await raw(base, {
+      method: "POST",
+      path: "/api/decide/noul",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body,
+    });
+
+    expect(answer.status).toBe(204);
+    expect(received?.method).toBe("POST");
+    expect(received?.contentType).toBe("application/json; charset=utf-8");
+    expect(Buffer.from(received?.body ?? [])).toEqual(body);
+  });
+
+  it("passes a request with no body to the handler with none", async () => {
+    let bodyWasNull = false;
+    const echo = async (request: Request) => {
+      bodyWasNull = request.body === null;
+      return new Response(null, { status: 204 });
+    };
+    const base = await serve(apiMiddleware(() => withOpenAI, echo));
+
+    await raw(base, { path: "/api/providers" });
+
+    expect(bodyWasNull).toBe(true);
+  });
+
+  it("does not read a path that starts with // as another host", async () => {
+    const base = await serve(apiMiddleware(() => withOpenAI));
+
+    const answer = await raw(base, { path: "//evil.example/api/providers" });
+
+    // Passed on, as the Worker's assets layer would, rather than answered as /api/providers.
+    expect(answer.status).toBe(418);
+  });
+
+  it.each(["bad host", "localhost/api/providers?", "user@localhost"])(
+    "answers a malformed Host header %j with a JSON 400",
+    async (host) => {
+      const base = await serve(apiMiddleware(() => withOpenAI));
+
+      const answer = await raw(base, { path: "/api/providers", headers: { host } });
+
+      expect(answer.status).toBe(400);
+      expect(JSON.parse(answer.body.toString())).toMatchObject({ ok: false });
+    },
+  );
+
+  // CONNECT and TRACK never reach a request listener: Node's server handles
+  // CONNECT separately, and its parser answers TRACK with a 400 itself.
+  it.each(["TRACE"])(
+    "answers %s, which the Fetch API cannot represent, with a JSON 405",
+    async (method) => {
+      const base = await serve(apiMiddleware(() => withOpenAI));
+
+      const answer = await raw(base, { method, path: "/api/providers" });
+
+      expect(answer.status).toBe(405);
+      expect(answer.headers.allow).toBe("GET, HEAD");
+      expect(answer.headers["cache-control"]).toBe("no-store");
+      expect(answer.headers["x-content-type-options"]).toBe("nosniff");
+      expect(JSON.parse(answer.body.toString())).toMatchObject({ ok: false });
+    },
+  );
+
+  it("answers HEAD with the GET headers and no body", async () => {
+    const base = await serve(apiMiddleware(() => withOpenAI));
+
+    const head = await raw(base, { method: "HEAD", path: "/api/providers" });
+
+    expect(head.status).toBe(200);
+    expect(head.headers["content-type"]).toMatch(/^application\/json/);
+    expect(head.body.length).toBe(0);
+  });
 });
 
 describe("the dev host plugin", () => {

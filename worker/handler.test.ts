@@ -27,6 +27,7 @@ function summaryOf(descriptor: ProviderDescriptor) {
   return {
     id: descriptor.id,
     displayName: descriptor.displayName,
+    model: descriptor.model,
     capabilities: descriptor.capabilities,
   };
 }
@@ -142,8 +143,8 @@ describe("routing", () => {
     expect(method.response.status).toBe(405);
   });
 
-  it.each(["POST", "PUT", "DELETE", "HEAD"])(
-    "answers %s /api/providers with 405",
+  it.each(["POST", "PUT", "DELETE", "PATCH"])(
+    "answers %s /api/providers with 405, allowing GET and HEAD",
     async (method) => {
       const response = await handle(
         get("/api/providers", { method }),
@@ -152,10 +153,22 @@ describe("routing", () => {
       );
 
       expect(response.status).toBe(405);
-      expect(response.headers.get("allow")).toBe("GET");
+      expect(response.headers.get("allow")).toBe("GET, HEAD");
       expect(response.headers.get("cache-control")).toBe("no-store");
     },
   );
+
+  it.each([
+    ["a listed provider", { OPENAI_API_KEY: "o" }],
+    ["no key", {}],
+  ])("answers HEAD like GET, with the same headers and no body, for %s", async (_name, env) => {
+    const getResponse = await handle(get("/api/providers"), env, stubDeps());
+    const headResponse = await handle(get("/api/providers", { method: "HEAD" }), env, stubDeps());
+
+    expect(headResponse.status).toBe(getResponse.status);
+    expect([...headResponse.headers]).toEqual([...getResponse.headers]);
+    expect(headResponse.body).toBeNull();
+  });
 
   it("gives a cross-origin preflight no CORS headers", async () => {
     const response = await handle(
@@ -185,5 +198,33 @@ describe("routing", () => {
     const { response } = await run(get(path), env);
 
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it.each([
+    ["a listed provider", get("/api/providers"), { OPENAI_API_KEY: "o" }],
+    ["no key", get("/api/providers"), {}],
+    ["an unknown path", get("/api/unknown"), {}],
+    ["a wrong method", get("/api/providers", { method: "POST" }), {}],
+    ["a HEAD request", get("/api/providers", { method: "HEAD" }), { OPENAI_API_KEY: "o" }],
+  ])("sends X-Content-Type-Options: nosniff for %s", async (_name, request, env: ProviderKeys) => {
+    const response = await handle(request, env, stubDeps());
+
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+});
+
+describe("key values that are not strings", () => {
+  it.each([
+    ["a number", 42],
+    ["a boolean", true],
+    ["an object", { value: "k" }],
+    ["null", null],
+  ])("treats %s as absent instead of throwing", async (_name, value) => {
+    // A Worker `vars` entry in wrangler.jsonc can hold JSON that is not a string.
+    const env = { OPENAI_API_KEY: value } as unknown as ProviderKeys;
+
+    const { response } = await run(get("/api/providers"), env);
+
+    expect(response.status).toBe(503);
   });
 });

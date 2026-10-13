@@ -34,10 +34,12 @@ const PLACEHOLDER = "unset";
 
 /**
  * Whether a key value enables its provider. A missing value, a blank one, and the
- * placeholder `unset` (after trimming, in any case) all count as absent.
+ * placeholder `unset` (after trimming, in any case) all count as absent. So does
+ * a value that is not a string, which a Worker `vars` entry can be, because
+ * `wrangler.jsonc` accepts any JSON there.
  */
-export function isKeySet(value: string | undefined): value is string {
-  if (value === undefined) return false;
+export function isKeySet(value: unknown): value is string {
+  if (typeof value !== "string") return false;
   const trimmed = value.trim();
   return trimmed !== "" && trimmed.toLowerCase() !== PLACEHOLDER;
 }

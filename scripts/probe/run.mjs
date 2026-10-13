@@ -19,6 +19,8 @@
  * Name one or more providers to probe only those; with none named, all three run.
  * Write `provider:case,case` (for example `subq:bad-key,invalid-body`) to run only
  * those cases of a provider.
+ * Naming `openai:score-50-levels` also runs `openai:score-11-levels`, because the 50-level
+ * case is sent only when OpenAI accepts 11 levels; otherwise it is reported as skipped.
  * The run exits with code 1 if a named case does not exist, if a request fails before a
  * response arrives (the fixture is then left as it was), or if the redaction check fails.
  * The script prints status, latency, and size for every call, and never prints a
@@ -29,7 +31,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Agent, fetch } from "undici";
 import { createExchange } from "./exchange.mjs";
-import { parseCaseFilter, unmatchedCases } from "./filter.mjs";
+import { parseCaseFilter, unmatchedCases, withPrerequisites } from "./filter.mjs";
 import { findLeaks } from "./fixtures.mjs";
 import { buildRedPng, buildRedJpeg } from "./images.mjs";
 
@@ -53,9 +55,9 @@ for (const [provider, { envName }] of Object.entries(PROVIDERS)) {
 }
 const secrets = Object.values(keys).filter((key) => key !== "");
 
-const caseFilter = parseCaseFilter(process.argv.slice(2));
+const caseFilter = withPrerequisites(parseCaseFilter(process.argv.slice(2)));
 
-const { exchange, results, failures, ran } = createExchange({
+const { exchange, exchangeAfter, results, failures, ran, skipped } = createExchange({
   keys,
   secrets,
   fixtureRoot: FIXTURE_ROOT,
@@ -474,9 +476,11 @@ async function probeOpenai() {
     body: openaiScoreRequest(11),
   });
   // Only when 11 is accepted is the maximum still unknown, so ask once for a much larger scale.
-  if (eleven?.status === 200) {
-    await exchange("openai", "score-50-levels", { url, agent, body: openaiScoreRequest(50) });
-  }
+  await exchangeAfter(eleven, "OpenAI refused 11 levels", "openai", "score-50-levels", {
+    url,
+    agent,
+    body: openaiScoreRequest(50),
+  });
 
   await exchange("openai", "bad-key", {
     url,
@@ -559,7 +563,7 @@ if (failures.length > 0) {
   process.exitCode = 1;
 }
 
-const unmatched = unmatchedCases(caseFilter, ran);
+const unmatched = unmatchedCases(caseFilter, ran, skipped);
 if (unmatched.length > 0) {
   console.error(`These named cases did not run (check the spelling): ${unmatched.join(", ")}`);
   process.exitCode = 1;

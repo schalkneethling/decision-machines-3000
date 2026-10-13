@@ -41,6 +41,7 @@ export function createExchange({ keys, secrets, fixtureRoot, fetchImpl, caseFilt
   const results = [];
   const failures = [];
   const ran = new Set();
+  const skipped = new Map();
 
   /**
    * Sends one request, saves the sanitised fixture, and prints one summary line.
@@ -124,5 +125,22 @@ export function createExchange({ keys, secrets, fixtureRoot, fetchImpl, caseFilt
     return fixture;
   }
 
-  return { exchange, results, failures, ran };
+  /**
+   * Runs a case only when the fixture of the case it depends on shows status 200. Otherwise
+   * the case is recorded in `skipped` with the reason (when it was selected at all), so it is
+   * not mistaken for a misspelled name. `prerequisite` is what `exchange` returned for the
+   * case it depends on; `undefined` means that case did not finish.
+   */
+  async function exchangeAfter(prerequisite, refusedReason, provider, name, options) {
+    if (prerequisite?.status === 200) return exchange(provider, name, options);
+    if (isSelected(caseFilter, provider, name)) {
+      const reason =
+        prerequisite === undefined ? "the case it depends on did not finish" : refusedReason;
+      skipped.set(`${provider}:${name}`, reason);
+      console.log(`${provider.padEnd(9)} ${name.padEnd(34)} skipped: ${reason}`);
+    }
+    return undefined;
+  }
+
+  return { exchange, exchangeAfter, results, failures, ran, skipped };
 }

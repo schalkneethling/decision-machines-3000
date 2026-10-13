@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createExchange } from "./exchange.mjs";
-import { isSelected, parseCaseFilter, unmatchedCases } from "./filter.mjs";
+import { isSelected, parseCaseFilter, unmatchedCases, withPrerequisites } from "./filter.mjs";
 
 describe("case filter", () => {
   it("selects every case when no filter is given", () => {
@@ -25,6 +25,19 @@ describe("case filter", () => {
     const filter = parseCaseFilter(["subq:bad-key"]);
     expect(unmatchedCases(filter, new Set(["subq:bad-key"]))).toEqual([]);
   });
+
+  it("also selects the 11-level case when only the 50-level case is named", () => {
+    const filter = withPrerequisites(parseCaseFilter(["openai:score-50-levels"]));
+    expect(isSelected(filter, "openai", "score-11-levels")).toBe(true);
+    expect(isSelected(filter, "openai", "score-50-levels")).toBe(true);
+    expect(isSelected(filter, "openai", "bad-key")).toBe(false);
+  });
+
+  it("does not list a deliberately skipped case as unmatched", () => {
+    const filter = parseCaseFilter(["openai:score-50-levels"]);
+    const skipped = new Map([["openai:score-50-levels", "OpenAI refused 11 levels"]]);
+    expect(unmatchedCases(filter, new Set(), skipped)).toEqual([]);
+  });
 });
 
 describe("exchange", () => {
@@ -41,13 +54,13 @@ describe("exchange", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  function setup(fetchImpl) {
+  function setup(fetchImpl, caseFilter = parseCaseFilter([])) {
     return createExchange({
       keys: { subq: "" },
       secrets: [],
       fixtureRoot: root,
       fetchImpl,
-      caseFilter: parseCaseFilter([]),
+      caseFilter,
     });
   }
 
@@ -95,5 +108,51 @@ describe("exchange", () => {
     expect(ran.has("subq:invalid-body")).toBe(true);
     const saved = JSON.parse(await readFile(path.join(root, "subq", "invalid-body.json"), "utf8"));
     expect(saved.status).toBe(422);
+  });
+
+  describe("the 50-level case", () => {
+    const fiftyOptions = { url: "https://example.test/x", body: {} };
+    const respondWith = (status) => () =>
+      Promise.resolve({
+        status,
+        headers: new Headers(),
+        text: () => Promise.resolve("{}"),
+      });
+
+    it("is skipped, not unmatched, when OpenAI refuses 11 levels", async () => {
+      const filter = withPrerequisites(parseCaseFilter(["openai:score-50-levels"]));
+      const { exchange, exchangeAfter, ran, skipped } = setup(respondWith(400), filter);
+
+      const eleven = await exchange("openai", "score-11-levels", fiftyOptions);
+      await exchangeAfter(
+        eleven,
+        "OpenAI refused 11 levels",
+        "openai",
+        "score-50-levels",
+        fiftyOptions,
+      );
+
+      expect(ran.has("openai:score-11-levels")).toBe(true);
+      expect(ran.has("openai:score-50-levels")).toBe(false);
+      expect(skipped.get("openai:score-50-levels")).toBe("OpenAI refused 11 levels");
+      expect(unmatchedCases(filter, ran, skipped)).toEqual([]);
+    });
+
+    it("runs when OpenAI accepts 11 levels", async () => {
+      const filter = withPrerequisites(parseCaseFilter(["openai:score-50-levels"]));
+      const { exchange, exchangeAfter, ran, skipped } = setup(respondWith(200), filter);
+
+      const eleven = await exchange("openai", "score-11-levels", fiftyOptions);
+      await exchangeAfter(
+        eleven,
+        "OpenAI refused 11 levels",
+        "openai",
+        "score-50-levels",
+        fiftyOptions,
+      );
+
+      expect(ran.has("openai:score-50-levels")).toBe(true);
+      expect(skipped.size).toBe(0);
+    });
   });
 });

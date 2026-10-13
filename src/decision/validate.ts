@@ -9,7 +9,7 @@
  */
 
 import { KEEP_ALIVE_SECONDS } from "./contract.ts";
-import { countOf } from "./count.ts";
+import { characterCount, countOf, idTooLongMessage } from "./count.ts";
 import { isPlainObject } from "./json.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type {
@@ -96,12 +96,6 @@ function describeKind(value: unknown): string {
   if (typeof value === "boolean") return `${value}`;
   if (typeof value === "object") return "an object";
   return `a ${typeof value}`;
-}
-
-/** The first `max` characters of `text`, with an ellipsis when something was cut. */
-function truncate(text: string, max: number): string {
-  const characters = Array.from(text);
-  return characters.length <= max ? text : `${characters.slice(0, max).join("")}…`;
 }
 
 function quoteList(items: readonly string[]): string {
@@ -349,13 +343,8 @@ function readRequest<P extends Primitive>(
       throw new ValidationError(`Every question needs a non-empty id.`, "questions");
     }
     const { questionNameMaxLength } = capabilities;
-    // Count characters, not UTF-16 units, so an emoji is one character.
-    const idLength = Array.from(questionId).length;
-    if (questionNameMaxLength !== undefined && idLength > questionNameMaxLength) {
-      throw new ValidationError(
-        `Question id "${truncate(questionId, 40)}" is ${idLength} characters long. Use at most ${questionNameMaxLength}.`,
-        path,
-      );
+    if (questionNameMaxLength !== undefined && characterCount(questionId) > questionNameMaxLength) {
+      throw new ValidationError(idTooLongMessage(questionId, questionNameMaxLength), path);
     }
     if (!isPlainObject(rawQuestion)) {
       throw new ValidationError(

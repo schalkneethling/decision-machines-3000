@@ -22,7 +22,7 @@ import {
   toViewModel,
 } from "./model.ts";
 import type { ComposerModel, CriteriaModel, QuestionModel } from "./model.ts";
-import { DEFAULT_PROVIDER } from "../../providers/catalog.ts";
+import { DEFAULT_PROVIDER, PROVIDERS } from "../../providers/catalog.ts";
 
 function question(model: ComposerModel, index = 0): QuestionModel {
   const found = model.questions[index];
@@ -428,5 +428,47 @@ describe("fan-out by primitive", () => {
     expect(model.questions.map((entry) => entry.id)).toEqual(["positive_0", "positive_1"]);
     expect(model.questions.every((entry) => entry.fanOut === undefined)).toBe(true);
     expect(toRequest(model)).toEqual(request.value);
+  });
+});
+
+describe("question id length", () => {
+  const subq = PROVIDERS.subq.capabilities;
+  const typesafe = PROVIDERS.typesafe.capabilities;
+
+  it("flags a 101-character id on the id field under SubQ", () => {
+    const model = toViewModel(noulExample);
+    question(model, 0).id = "q".repeat(101);
+    const issues = findIssues(model, subq);
+    expect(issues).toEqual([
+      {
+        key: question(model, 0).key,
+        field: "id",
+        message: `Question id "${"q".repeat(40)}…" is 101 characters long. Use at most 100.`,
+      },
+    ]);
+  });
+
+  it("accepts a 100-character id under SubQ", () => {
+    const model = toViewModel(noulExample);
+    question(model, 0).id = "q".repeat(100);
+    expect(findIssues(model, subq)).toEqual([]);
+  });
+
+  it("flags a fan-out whose expanded ids pass 100 characters", () => {
+    const model = toViewModel(choiceExample);
+    const fanOut = question(model);
+    model.state = { films: ["a", "b"] };
+    fanOut.fanOut = "films";
+    fanOut.instructions = "Which genre is {{item}}?";
+    fanOut.id = "q".repeat(99);
+    const issues = findIssues(model, subq);
+    expect(issues.map((issue) => [issue.key, issue.field])).toEqual([[fanOut.key, "id"]]);
+    expect(issues[0]?.message).toMatch(/is 101 characters long. Use at most 100./);
+  });
+
+  it("does not flag the same ids under TypeSafe", () => {
+    const model = toViewModel(noulExample);
+    question(model, 0).id = "q".repeat(101);
+    expect(findIssues(model, typesafe)).toEqual([]);
   });
 });

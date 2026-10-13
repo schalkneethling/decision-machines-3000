@@ -20,7 +20,7 @@ import type {
   ScoreCriteria,
 } from "../../decision/contract.ts";
 import { isPlainObject } from "../../decision/json.ts";
-import { countOf } from "../../decision/count.ts";
+import { characterCount, countOf, idTooLongMessage } from "../../decision/count.ts";
 import type { ProviderCapabilities } from "../../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../../decision/validate.ts";
 
@@ -576,11 +576,25 @@ export function findIssues(model: ComposerModel, capabilities: ProviderCapabilit
       const clash = expandedIds(question, model.state).find(
         (id) => (owners.get(id) ?? []).length > 1,
       );
+      const { questionNameMaxLength } = capabilities;
+      const tooLong =
+        questionNameMaxLength === undefined
+          ? undefined
+          : expandedIds(question, model.state).find(
+              (id) => characterCount(id) > questionNameMaxLength,
+            );
       if (clash !== undefined) {
         issues.push({
           key: question.key,
           field: "id",
           message: `Another question also uses the id "${clash}". Give this one a different id.`,
+        });
+      }
+      if (tooLong !== undefined && questionNameMaxLength !== undefined) {
+        issues.push({
+          key: question.key,
+          field: "id",
+          message: idTooLongMessage(tooLong, questionNameMaxLength),
         });
       }
     }

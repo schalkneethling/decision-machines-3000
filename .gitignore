@@ -28,3 +28,7 @@ dist-ssr
 .env.*
 !.env.example
 !.env.schema
+
+# Git worktrees that Claude Code creates for parallel agents. They are separate checkouts,
+# so they must not be linted, formatted, or shown as untracked in this repository.
+.claude/worktrees/

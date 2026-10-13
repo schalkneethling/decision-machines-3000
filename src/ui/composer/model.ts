@@ -13,15 +13,15 @@ import type {
   ChoiceCriteria,
   Content,
   CriteriaByPrimitive,
-  JevRequest,
+  DecisionRequest,
   JsonValue,
   NoulCriteria,
   Primitive,
   ScoreCriteria,
-} from "../../jev/contract.ts";
-import { isPlainObject } from "../../jev/json.ts";
-import { MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS } from "../../jev/validate.ts";
-import type { ValidJevRequest } from "../../jev/validate.ts";
+} from "../../decision/contract.ts";
+import { isPlainObject } from "../../decision/json.ts";
+import { MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS } from "../../decision/validate.ts";
+import type { ValidDecisionRequest } from "../../decision/validate.ts";
 
 /** A criteria description; `null` leaves the outcome undescribed. */
 export type Description = Content | null;
@@ -66,7 +66,7 @@ export type ComposerModel = {
 
 /**
  * The request the tree currently describes. Typed loosely because a request
- * being edited can be incomplete; `validateJevRequest` narrows it before sending.
+ * being edited can be incomplete; `validateDecisionRequest` narrows it before sending.
  */
 export type DraftRequest = {
   primitive: Primitive;
@@ -306,7 +306,7 @@ function matchFanOut(
 }
 
 function buildModel<P extends Primitive>(
-  request: JevRequest<P>,
+  request: DecisionRequest<P>,
   toCriteria: (model: ComposerModel, criteria: CriteriaByPrimitive[P]) => CriteriaModel,
 ): ComposerModel {
   const model: ComposerModel = {
@@ -344,7 +344,7 @@ function buildModel<P extends Primitive>(
 }
 
 /** Reshapes a valid request for the tree. Per-item questions collapse into one fan-out question. */
-export function toViewModel(request: ValidJevRequest): ComposerModel {
+export function toViewModel(request: ValidDecisionRequest): ComposerModel {
   switch (request.primitive) {
     case "noul":
       return buildModel(request, (_model, meanings) => ({
@@ -404,7 +404,7 @@ export function toRequest(model: ComposerModel): DraftRequest {
       };
 }
 
-/* Issues: what stops the tree from making a request Jev accepts */
+/* Issues: what stops the tree from making a request the server accepts */
 
 /**
  * Where an issue shows: next to the row with `key`. `field` names the control
@@ -442,7 +442,7 @@ function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${options.length} options. Jev accepts at most ${MAX_CHOICE_OPTIONS}.`,
+        message: `${where} have ${options.length} options. Use at most ${MAX_CHOICE_OPTIONS}.`,
       });
     }
     const seen = new Set<string>();
@@ -478,7 +478,7 @@ function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${levels.length} levels. Jev accepts at most ${MAX_SCORE_LEVELS}. Remove ${levels.length - MAX_SCORE_LEVELS}.`,
+        message: `${where} have ${levels.length} levels. Use at most ${MAX_SCORE_LEVELS}. Remove ${levels.length - MAX_SCORE_LEVELS}.`,
       });
     }
   }
@@ -527,7 +527,7 @@ export function findIssues(model: ComposerModel): Issue[] {
     issues.push({
       key: STATE_KEY,
       field: "state",
-      message: "The state is empty. Add the text, object, or list Jev should evaluate.",
+      message: "The state is empty. Add the text, object, or list to evaluate.",
     });
   }
 
@@ -577,7 +577,7 @@ export function findIssues(model: ComposerModel): Issue[] {
       issues.push({
         key: question.key,
         field: "instructions",
-        message: "Write the question you want Jev to answer.",
+        message: "Write the question you want answered.",
       });
     }
     issues.push(...fanOutIssues(question, model.state));

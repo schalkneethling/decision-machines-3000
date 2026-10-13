@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vite-plus/test";
-import type { JevFailure } from "../jev/contract.ts";
-import { choiceExample, noulExample, scoreExample } from "../jev/examples.ts";
-import { isJevResponse } from "./client.ts";
+import type { DecisionFailure } from "../decision/contract.ts";
+import { choiceExample, noulExample, scoreExample } from "../decision/examples.ts";
+import { isDecisionResponse } from "./client.ts";
 import { choiceResponse } from "./fixtures/choice.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { scoreResponse } from "./fixtures/score.ts";
@@ -65,7 +65,7 @@ describe("renderResponse for Choice", () => {
 
   it("states the chosen option and its confidence", () => {
     expect(second?.querySelector(".answer-verdict")?.textContent).toBe(
-      "Jev chose other with confidence 0.68.",
+      "Choice: other, with confidence 0.68.",
     );
   });
 
@@ -83,7 +83,7 @@ describe("renderResponse for Score", () => {
 
   it("states the score on the scale with its confidence", () => {
     expect(readout.querySelector(".answer-verdict")?.textContent).toBe(
-      "Jev scored this 0.89 on a scale of 0 to 3, with confidence 0.89.",
+      "Score: 0.89 on a scale of 0 to 3, with confidence 0.89.",
     );
   });
 
@@ -114,7 +114,7 @@ describe("renderResponse for Score", () => {
       },
     });
     expect(odd.querySelector(".answer-verdict")?.textContent).toBe(
-      "Jev scored this 0.89 on a scale of 0 to 2, with confidence 0.89.",
+      "Score: 0.89 on a scale of 0 to 2, with confidence 0.89.",
     );
     const [first] = odd.querySelectorAll(".answer");
     if (!first) throw new Error("expected an answer");
@@ -151,7 +151,7 @@ describe("scoreLevels", () => {
 });
 
 describe("renderResponse for a failure", () => {
-  const failure: JevFailure = {
+  const failure: DecisionFailure = {
     ok: false,
     error: "TypeSafe rejected the API key.",
     detail: "HTTP 401",
@@ -173,16 +173,33 @@ describe("renderResponse for a failure", () => {
 
 describe("status renderers", () => {
   it("shows the loading sentence", () => {
-    expect(renderLoading().textContent).toBe("Asking Jev…");
+    expect(renderLoading().textContent).toBe("Asking the model…");
   });
 
   it("tells the user to start the dev server when the endpoint is unreachable", () => {
     const alert = renderUnreachable("Failed to fetch");
     expect(alert.getAttribute("role")).toBe("alert");
     expect(alert.querySelector(".readout-error-message")?.textContent).toBe(
-      "Could not reach the Jev endpoint. Is vp dev running?",
+      "Could not reach the decision endpoint. Is vp dev running?",
     );
     expect(alert.querySelector("code")?.textContent).toBe("vp dev");
+  });
+});
+
+describe("provider-neutral copy", () => {
+  it("names no provider in any state rendered by this module", () => {
+    const model = { model: "test-model" };
+    const rendered = [
+      renderLoading(),
+      renderResponse(noulExample, { ...noulResponse, ...model }),
+      renderResponse(choiceExample, { ...choiceResponse, ...model }),
+      renderResponse(scoreExample, { ...scoreResponse, ...model }),
+      renderUnreachable("Failed to fetch"),
+    ].map((element) => element.textContent ?? "");
+    rendered.push(describeJsonError("{", new SyntaxError("Unexpected end of JSON input")));
+    for (const text of rendered) {
+      expect(text).not.toMatch(/Jev|TypeSafe/);
+    }
   });
 });
 
@@ -205,20 +222,20 @@ describe("formatProbability", () => {
   });
 });
 
-describe("isJevResponse", () => {
+describe("isDecisionResponse", () => {
   it("accepts the fixtures and failures", () => {
-    expect(isJevResponse(noulResponse)).toBe(true);
-    expect(isJevResponse(choiceResponse)).toBe(true);
-    expect(isJevResponse(scoreResponse)).toBe(true);
-    expect(isJevResponse({ ok: false, error: "Bad request." })).toBe(true);
+    expect(isDecisionResponse(noulResponse)).toBe(true);
+    expect(isDecisionResponse(choiceResponse)).toBe(true);
+    expect(isDecisionResponse(scoreResponse)).toBe(true);
+    expect(isDecisionResponse({ ok: false, error: "Bad request." })).toBe(true);
   });
 
   it("rejects bodies that do not match the contract", () => {
-    expect(isJevResponse("<!doctype html>")).toBe(false);
-    expect(isJevResponse({ ok: false })).toBe(false);
-    expect(isJevResponse({ ...noulResponse, answers: { a: { type: "noul" } } })).toBe(false);
-    expect(isJevResponse({ ...noulResponse, connection: "warm" })).toBe(false);
-    expect(isJevResponse({ ...noulResponse, keepAliveSeconds: 5 })).toBe(false);
+    expect(isDecisionResponse("<!doctype html>")).toBe(false);
+    expect(isDecisionResponse({ ok: false })).toBe(false);
+    expect(isDecisionResponse({ ...noulResponse, answers: { a: { type: "noul" } } })).toBe(false);
+    expect(isDecisionResponse({ ...noulResponse, connection: "warm" })).toBe(false);
+    expect(isDecisionResponse({ ...noulResponse, keepAliveSeconds: 5 })).toBe(false);
   });
 });
 

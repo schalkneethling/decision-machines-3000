@@ -53,12 +53,12 @@ export type QuestionInput<P extends Primitive> = {
 /**
  * The JSON document a panel textarea holds and posts to `/api/jev`.
  *
- * - `state`: what Jev evaluates.
+ * - `state`: what the model evaluates.
  * - `criteria`: default criteria applied to every question that omits its own.
  *   Choice and Score questions must end up with criteria from one of the two places.
  * - `questions`: at least one question, keyed by an id of your choosing.
  */
-export type JevRequest<P extends Primitive = Primitive> = {
+export type DecisionRequest<P extends Primitive = Primitive> = {
   primitive: P;
   state: Content;
   criteria?: CriteriaByPrimitive[P];
@@ -106,7 +106,7 @@ export type KeepAliveSeconds = (typeof KEEP_ALIVE_SECONDS)[number];
 /** The keep-alive the server starts with: Node's own default. */
 export const DEFAULT_KEEP_ALIVE_SECONDS: KeepAliveSeconds = 4;
 
-export type JevSuccess<P extends Primitive = Primitive> = {
+export type DecisionSuccess<P extends Primitive = Primitive> = {
   ok: true;
   primitive: P;
   model: string;
@@ -119,7 +119,7 @@ export type JevSuccess<P extends Primitive = Primitive> = {
   answers: Record<string, AnswerByPrimitive[P]>;
 };
 
-export type JevFailure = {
+export type DecisionFailure = {
   ok: false;
   /** Short, user-facing explanation of what went wrong and how to fix it. */
   error: string;
@@ -127,9 +127,11 @@ export type JevFailure = {
   detail?: string;
 };
 
-export type JevResponse<P extends Primitive = Primitive> = JevSuccess<P> | JevFailure;
+export type DecisionResponse<P extends Primitive = Primitive> =
+  | DecisionSuccess<P>
+  | DecisionFailure;
 
-export const JEV_ENDPOINT = "/api/jev";
+export const DECISION_ENDPOINT = "/api/jev";
 
 /** The JSON body `POST /api/jev/warm` accepts. */
 export type WarmRequest = {
@@ -144,7 +146,7 @@ export type WarmSuccess = {
   keepAliveSeconds: KeepAliveSeconds;
 };
 
-export type WarmResponse = WarmSuccess | JevFailure;
+export type WarmResponse = WarmSuccess | DecisionFailure;
 
 /**
  * `POST /api/jev/warm`: sets the keep-alive and opens a connection to TypeSafe

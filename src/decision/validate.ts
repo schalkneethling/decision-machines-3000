@@ -14,7 +14,7 @@ import type {
   ChoiceCriteria,
   Content,
   CriteriaByPrimitive,
-  JevRequest,
+  DecisionRequest,
   JsonValue,
   NoulCriteria,
   Primitive,
@@ -35,7 +35,7 @@ export const MAX_SCORE_LEVELS = 10;
 type Description = Content | null;
 
 /** A validated request, discriminated on `primitive`, so narrowing it also narrows every criteria shape. */
-export type ValidJevRequest = { [P in Primitive]: JevRequest<P> }[Primitive];
+export type ValidDecisionRequest = { [P in Primitive]: DecisionRequest<P> }[Primitive];
 
 export type ValidationFailure = {
   ok: false;
@@ -45,7 +45,7 @@ export type ValidationFailure = {
   detail?: string;
 };
 
-export type ValidationResult = { ok: true; value: ValidJevRequest } | ValidationFailure;
+export type ValidationResult = { ok: true; value: ValidDecisionRequest } | ValidationFailure;
 
 const REQUEST_KEYS = ["primitive", "state", "criteria", "questions"] as const;
 const QUESTION_KEYS = ["instructions", "criteria"] as const;
@@ -53,7 +53,7 @@ const NOUL_CRITERIA_KEYS = ["true", "false"] as const;
 
 type PlainObject = Record<string, unknown>;
 
-/** Thrown internally to stop at the first problem; never escapes `validateJevRequest`. */
+/** Thrown internally to stop at the first problem; never escapes `validateDecisionRequest`. */
 class ValidationError extends Error {
   readonly detail: string | undefined;
 
@@ -148,7 +148,7 @@ function readPrimitive(value: unknown): Primitive {
 function readState(value: unknown): Content {
   if (value === undefined) {
     throw new ValidationError(
-      `Add a "state" field with the text, object, or list Jev should evaluate.`,
+      `Add a "state" field with the text, object, or list to evaluate.`,
       "state",
     );
   }
@@ -160,7 +160,7 @@ function readState(value: unknown): Content {
   }
   if (typeof value === "string" && value.trim() === "") {
     throw new ValidationError(
-      `"state" is empty. Add the text, object, or list Jev should evaluate.`,
+      `"state" is empty. Add the text, object, or list to evaluate.`,
       "state",
     );
   }
@@ -171,7 +171,7 @@ function readInstructions(value: unknown, questionId: string): Content {
   const path = `questions.${questionId}.instructions`;
   if (value === undefined) {
     throw new ValidationError(
-      `Question "${questionId}" has no "instructions". Add the question you want Jev to answer.`,
+      `Question "${questionId}" has no "instructions". Add the question you want answered.`,
       path,
     );
   }
@@ -183,7 +183,7 @@ function readInstructions(value: unknown, questionId: string): Content {
   }
   if (typeof value === "string" && value.trim() === "") {
     throw new ValidationError(
-      `The "instructions" of question "${questionId}" are empty. Write the question you want Jev to answer.`,
+      `The "instructions" of question "${questionId}" are empty. Write the question you want answered.`,
       path,
     );
   }
@@ -246,7 +246,7 @@ function readChoiceCriteria(value: unknown, where: string, path: string): Choice
   }
   if (options.length > MAX_CHOICE_OPTIONS) {
     throw new ValidationError(
-      `${where} has ${options.length} options. Jev accepts at most ${MAX_CHOICE_OPTIONS}.`,
+      `${where} has ${options.length} options. Use at most ${MAX_CHOICE_OPTIONS}.`,
       path,
     );
   }
@@ -279,7 +279,7 @@ function readScoreCriteria(value: unknown, where: string, path: string): ScoreCr
   }
   if (value.length > MAX_SCORE_LEVELS) {
     throw new ValidationError(
-      `${where} has ${value.length} levels. Jev accepts at most ${MAX_SCORE_LEVELS}.`,
+      `${where} has ${value.length} levels. Use at most ${MAX_SCORE_LEVELS}.`,
       path,
     );
   }
@@ -311,7 +311,7 @@ function readCriteria(
   }
 }
 
-function readRequest<P extends Primitive>(primitive: P, body: PlainObject): JevRequest<P> {
+function readRequest<P extends Primitive>(primitive: P, body: PlainObject): DecisionRequest<P> {
   const state = readState(body.state);
 
   const defaultCriteria =
@@ -360,7 +360,7 @@ function readRequest<P extends Primitive>(primitive: P, body: PlainObject): JevR
     questions[questionId] = question;
   }
 
-  const request: JevRequest<P> = { primitive, state, questions };
+  const request: DecisionRequest<P> = { primitive, state, questions };
   if (defaultCriteria !== undefined) {
     request.criteria = defaultCriteria;
   }
@@ -372,7 +372,7 @@ function readRequest<P extends Primitive>(primitive: P, body: PlainObject): JevR
  *
  * Stops at the first problem and explains how to fix it.
  */
-export function validateJevRequest(value: unknown): ValidationResult {
+export function validateDecisionRequest(value: unknown): ValidationResult {
   try {
     if (!isPlainObject(value)) {
       throw new ValidationError(
@@ -427,7 +427,7 @@ export function validateWarmRequest(value: unknown): WarmValidationResult {
 }
 
 /** Keeps `primitive` and the criteria shapes correlated in the returned union member. */
-function readRequestFor(primitive: Primitive, body: PlainObject): ValidJevRequest {
+function readRequestFor(primitive: Primitive, body: PlainObject): ValidDecisionRequest {
   switch (primitive) {
     case "noul":
       return readRequest(primitive, body);

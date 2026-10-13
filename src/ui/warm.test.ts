@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { WarmSuccess } from "../jev/contract.ts";
+import type { WarmSuccess } from "../decision/contract.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 import { COLD_TEXT, createCountdown, setupWarm } from "./warm.ts";

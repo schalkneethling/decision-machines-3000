@@ -24,17 +24,17 @@ import {
 import type { Questions } from "@typesafe-ai/sdk";
 import { ENV } from "varlock/env";
 import type { Connect, Plugin } from "vite-plus";
-import { JEV_ENDPOINT, WARM_ENDPOINT } from "../src/jev/contract.ts";
+import { DECISION_ENDPOINT, WARM_ENDPOINT } from "../src/decision/contract.ts";
 import type {
   AnswerByPrimitive,
   ConnectionKind,
-  JevFailure,
-  JevSuccess,
+  DecisionFailure,
+  DecisionSuccess,
   Primitive,
   WarmSuccess,
-} from "../src/jev/contract.ts";
-import { validateJevRequest, validateWarmRequest } from "../src/jev/validate.ts";
-import type { ValidJevRequest } from "../src/jev/validate.ts";
+} from "../src/decision/contract.ts";
+import { validateDecisionRequest, validateWarmRequest } from "../src/decision/validate.ts";
+import type { ValidDecisionRequest } from "../src/decision/validate.ts";
 import { TypeSafeConnection } from "./connection.ts";
 
 /** Largest request body accepted, in bytes. */
@@ -44,14 +44,14 @@ const LOG_PREFIX = "[jev]";
 
 type Reply = {
   status: number;
-  body: JevSuccess | WarmSuccess | JevFailure;
+  body: DecisionSuccess | WarmSuccess | DecisionFailure;
 };
 
 /** Error with a ready-made reply, thrown while reading or handling a request. */
 class ReplyError extends Error {
   readonly reply: Reply;
 
-  constructor(status: number, failure: Omit<JevFailure, "ok">) {
+  constructor(status: number, failure: Omit<DecisionFailure, "ok">) {
     super(failure.error);
     this.name = "ReplyError";
     this.reply = { status, body: { ok: false, ...failure } };
@@ -140,7 +140,7 @@ function isJsonContentType(req: IncomingMessage): boolean {
 }
 
 /** Build SDK questions, resolving each question's criteria from itself or the request default. */
-function buildQuestions(request: ValidJevRequest): Questions {
+function buildQuestions(request: ValidDecisionRequest): Questions {
   const questions: Questions = {};
   switch (request.primitive) {
     case "noul":
@@ -267,8 +267,8 @@ async function readJsonRequest(req: IncomingMessage, endpoint: string): Promise<
   return parseJson(await readBody(req));
 }
 
-async function handleJevRequest(req: IncomingMessage): Promise<HandledRequest> {
-  const validation = validateJevRequest(await readJsonRequest(req, JEV_ENDPOINT));
+async function handleDecisionRequest(req: IncomingMessage): Promise<HandledRequest> {
+  const validation = validateDecisionRequest(await readJsonRequest(req, DECISION_ENDPOINT));
   if (!validation.ok) {
     throw new ReplyError(400, { error: validation.error, detail: validation.detail });
   }
@@ -288,7 +288,7 @@ async function handleJevRequest(req: IncomingMessage): Promise<HandledRequest> {
     } = await pool.measure(typesafe.baseURL, () =>
       typesafe.systemOne({ state: request.state, questions }),
     );
-    const success: JevSuccess = {
+    const success: DecisionSuccess = {
       ok: true,
       primitive: request.primitive,
       model: result.model,
@@ -403,7 +403,7 @@ function logRequest(outcome: HandledRequest): void {
 }
 
 const handlers: Record<string, (req: IncomingMessage) => Promise<HandledRequest>> = {
-  [JEV_ENDPOINT]: handleJevRequest,
+  [DECISION_ENDPOINT]: handleDecisionRequest,
   [WARM_ENDPOINT]: handleWarmRequest,
 };
 

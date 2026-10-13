@@ -1,5 +1,10 @@
-import { DEFAULT_KEEP_ALIVE_SECONDS, WARM_ENDPOINT } from "../jev/contract.ts";
-import type { JevSuccess, KeepAliveSeconds, WarmRequest, WarmResponse } from "../jev/contract.ts";
+import { DEFAULT_KEEP_ALIVE_SECONDS, WARM_ENDPOINT } from "../decision/contract.ts";
+import type {
+  DecisionSuccess,
+  KeepAliveSeconds,
+  WarmRequest,
+  WarmResponse,
+} from "../decision/contract.ts";
 import { isKeepAliveSeconds, isWarmResponse, postJson, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { PostResult } from "./client.ts";
 import { required } from "./dom.ts";
@@ -107,7 +112,7 @@ export function warmFailureText(result: PostResult<WarmResponse>): string | unde
 
 export type WarmControl = {
   /** Restart the countdown after any successful run. A property, so it can be passed on unbound. */
-  noteAnswered: (response: JevSuccess) => void;
+  noteAnswered: (response: DecisionSuccess) => void;
 };
 
 /** Wires the warm form: the keep-alive select, the Warm connection button, and the countdown output. */

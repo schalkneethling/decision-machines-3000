@@ -18,8 +18,8 @@ import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import type { Fetch } from "@typesafe-ai/sdk";
 import { Agent, fetch as undiciFetch } from "undici";
 import type { DiagnosticsChannel, RequestInit as UndiciRequestInit } from "undici";
-import { DEFAULT_KEEP_ALIVE_SECONDS } from "../src/jev/contract.ts";
-import type { ConnectionKind, KeepAliveSeconds } from "../src/jev/contract.ts";
+import { DEFAULT_KEEP_ALIVE_SECONDS } from "../src/decision/contract.ts";
+import type { ConnectionKind, KeepAliveSeconds } from "../src/decision/contract.ts";
 
 /** Published by undici each time one of its clients finishes opening a socket. */
 export const CONNECTED_CHANNEL = "undici:client:connected";

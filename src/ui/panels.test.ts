@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { choiceExample, noulExample, scoreExample } from "../jev/examples.ts";
+import { choiceExample, noulExample, scoreExample } from "../decision/examples.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 
@@ -210,9 +210,20 @@ describe("run", () => {
     instructions.dispatchEvent(new Event("input", { bubbles: true }));
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(status("noul").textContent).toBe("Write the question you want Jev to answer.");
+    expect(status("noul").textContent).toBe("Write the question you want answered.");
     expect(status("noul").dataset.tone).toBe("alert");
     expect(document.activeElement).toBe(instructions);
+  });
+
+  it("names no provider when the endpoint answers with a body that is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<!doctype html>", { status: 200 })),
+    );
+    setupPanels(document);
+    submit("noul");
+    await vi.waitFor(() => expect(document.body.textContent).toContain("was not JSON"));
+    expect(document.body.textContent).not.toMatch(/Jev|TypeSafe/);
   });
 
   it("posts the JSON text unchanged from the JSON view", async () => {

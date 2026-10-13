@@ -1,4 +1,4 @@
-import type { JevRequest } from "./contract.ts";
+import type { DecisionRequest } from "./contract.ts";
 
 /**
  * Prepopulated, runnable examples for each panel.
@@ -14,7 +14,7 @@ import type { JevRequest } from "./contract.ts";
  * `films[2]` point the model at one part of a structured state.
  */
 
-export const noulExample: JevRequest<"noul"> = {
+export const noulExample: DecisionRequest<"noul"> = {
   primitive: "noul",
   state: {
     review:
@@ -78,7 +78,7 @@ const genreQuestion = (index: number) => ({
   instructions: `Which genre best fits the film described in \`films[${index}]\`?`,
 });
 
-export const choiceExample: JevRequest<"choice"> = {
+export const choiceExample: DecisionRequest<"choice"> = {
   primitive: "choice",
   state: { films },
   criteria: {
@@ -121,7 +121,7 @@ const intensityQuestion = (index: number) => ({
   instructions: `How intense is the content described in \`films[${index}].notes\` for a young audience?`,
 });
 
-export const scoreExample: JevRequest<"score"> = {
+export const scoreExample: DecisionRequest<"score"> = {
   primitive: "score",
   state: { films: contentNotes },
   criteria: [

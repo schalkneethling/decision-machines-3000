@@ -1,11 +1,11 @@
 import type {
   ChoiceAnswer,
-  JevResponse,
-  JevSuccess,
+  DecisionResponse,
+  DecisionSuccess,
   JsonValue,
   NoulAnswer,
   ScoreAnswer,
-} from "../jev/contract.ts";
+} from "../decision/contract.ts";
 import { create } from "./dom.ts";
 
 /**
@@ -97,9 +97,9 @@ function renderNoul(answer: NoulAnswer): Node[] {
 
 function renderChoice(answer: ChoiceAnswer): Node[] {
   const verdict = create("p", { className: "answer-verdict" }, [
-    "Jev chose ",
+    "Choice: ",
     create("strong", { text: answer.choice }),
-    ` with confidence ${formatProbability(answer.confidence)}.`,
+    `, with confidence ${formatProbability(answer.confidence)}.`,
   ]);
   const options = Object.entries(answer.probabilities)
     .sort(([, a], [, b]) => b - a)
@@ -160,7 +160,7 @@ function renderScore(answer: ScoreAnswer): Node[] {
   const lowest = scale[0] ?? "0";
   const highest = scale.at(-1) ?? lowest;
   const verdict = create("p", { className: "answer-verdict" }, [
-    "Jev scored this ",
+    "Score: ",
     create("strong", { text: formatProbability(answer.score) }),
     ` on a scale of ${lowest} to ${highest}, with confidence ${formatProbability(answer.confidence)}.`,
   ]);
@@ -192,14 +192,14 @@ export function renderAnswer(question: string, answer: Answer): HTMLLIElement {
   return create("li", { className: "answer" }, [heading, ...renderReading(answer)]);
 }
 
-export function metadataSentence(response: JevSuccess): string {
+export function metadataSentence(response: DecisionSuccess): string {
   const latency = numberFormat.format(Math.round(response.latencyMs));
   const tokens = numberFormat.format(response.usage.input_tokens);
   const connection = response.connection === "new" ? "a new connection" : "the warm connection";
   return `Answered by ${response.model} in ${latency} ms using ${tokens} input tokens over ${connection}.`;
 }
 
-function rawResponse(response: JevResponse): HTMLDetailsElement {
+function rawResponse(response: DecisionResponse): HTMLDetailsElement {
   const code = create("code", { text: JSON.stringify(response, null, 2) });
   const details = create("details", { className: "raw" }, [
     create("summary", { className: "raw-summary", text: "Raw response" }),
@@ -210,7 +210,7 @@ function rawResponse(response: JevResponse): HTMLDetailsElement {
 }
 
 export function renderLoading(): HTMLElement {
-  return create("p", { className: "readout-status", text: "Asking Jev…" });
+  return create("p", { className: "readout-status", text: "Asking the model…" });
 }
 
 export function renderError(message: string | (Node | string)[], detail?: string): HTMLElement {
@@ -226,13 +226,13 @@ export function renderError(message: string | (Node | string)[], detail?: string
 
 export function renderUnreachable(detail?: string): HTMLElement {
   return renderError(
-    ["Could not reach the Jev endpoint. Is ", create("code", { text: "vp dev" }), " running?"],
+    ["Could not reach the decision endpoint. Is ", create("code", { text: "vp dev" }), " running?"],
     detail,
   );
 }
 
 /** The full readout for a finished run: failure, or metadata, answers, and raw JSON. */
-export function renderResponse(sent: unknown, response: JevResponse): HTMLElement {
+export function renderResponse(sent: unknown, response: DecisionResponse): HTMLElement {
   if (!response.ok) {
     return create("div", { className: "reading" }, [
       renderError(response.error, response.detail),

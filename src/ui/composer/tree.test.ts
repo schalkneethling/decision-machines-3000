@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vite-plus/test";
-import { choiceExample, noulExample, scoreExample } from "../../jev/examples.ts";
-import { validateJevRequest } from "../../jev/validate.ts";
-import type { ValidJevRequest } from "../../jev/validate.ts";
+import { choiceExample, noulExample, scoreExample } from "../../decision/examples.ts";
+import { validateDecisionRequest } from "../../decision/validate.ts";
+import type { ValidDecisionRequest } from "../../decision/validate.ts";
 import { toRequest, toViewModel } from "./model.ts";
 import { createComposer } from "./tree.ts";
 import type { Composer } from "./tree.ts";
@@ -15,7 +15,7 @@ type Harness = {
   all: (selector: string) => HTMLElement[];
 };
 
-function mount(request: ValidJevRequest): Harness {
+function mount(request: ValidDecisionRequest): Harness {
   document.body.replaceChildren();
   const announcements: string[] = [];
   const harness: Harness = {
@@ -129,7 +129,7 @@ describe("editing", () => {
   });
 
   it("hides the fan-out control until the state holds a list", () => {
-    const request = validateJevRequest({
+    const request = validateDecisionRequest({
       ...choiceExample,
       state: { film: "A radio astronomer intercepts a signal from three years in the future." },
       questions: { genre: { instructions: "Which genre best fits `film`?" } },
@@ -168,9 +168,7 @@ describe("editing", () => {
     const issue = harness.get(`#test-${second}-issue`);
     expect(issue.hidden).toBe(true);
     const issues = harness.composer.revealIssues();
-    expect(issues.map((found) => found.message)).toEqual([
-      "Write the question you want Jev to answer.",
-    ]);
+    expect(issues.map((found) => found.message)).toEqual(["Write the question you want answered."]);
     expect(issue.hidden).toBe(false);
   });
 });
@@ -304,7 +302,7 @@ describe("inherit or override", () => {
 });
 
 describe("typing touches only the edited row", () => {
-  const manyQuestions: ValidJevRequest = {
+  const manyQuestions: ValidDecisionRequest = {
     primitive: "noul",
     state: "A review.",
     questions: Object.fromEntries(

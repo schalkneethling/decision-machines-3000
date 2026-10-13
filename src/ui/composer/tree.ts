@@ -7,7 +7,7 @@
  * whole tree, then puts focus back where the reader expects it.
  */
 
-import type { Primitive } from "../../jev/contract.ts";
+import type { Primitive } from "../../decision/contract.ts";
 import {
   addQuestion,
   addSharedCriteria,
@@ -525,7 +525,7 @@ export function createComposer(options: ComposerOptions): Composer {
       label: "Id",
       value: question.id,
       slug: true,
-      hint: "For your code only. Jev never sees the id.",
+      hint: "For your code only. The model never sees the id.",
       className: "field-id",
       onInput: (value) => {
         question.id = value;

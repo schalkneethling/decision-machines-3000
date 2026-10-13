@@ -30,7 +30,7 @@
   "devEngines": {
     "packageManager": {
       "name": "npm",
-      "version": "12.1.0",
+      "version": "^11.16.0 || 12.1.0",
       "onFail": "download"
     }
   }

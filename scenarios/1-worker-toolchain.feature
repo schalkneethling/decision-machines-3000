@@ -2,6 +2,8 @@
 # deploy to a real Cloudflare account, read secrets from 1Password, or press the
 # Deploy to Cloudflare button in a browser, so a person runs them by hand.
 # The commands and the recorded results are in docs/spikes/worker-toolchain.md.
+# The spike's code, including worker/spike/encode-bench.ts, is on the branch
+# issue-1-worker-toolchain-spike, not on main.
 # Deploy only to scratch Worker names, never to "decisionmachines3000", and delete
 # the scratch Workers afterwards.
 

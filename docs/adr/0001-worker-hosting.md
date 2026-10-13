@@ -8,7 +8,7 @@
 
 The app will be hosted as a Cloudflare Worker that serves the Vite-built single-page app as static assets and answers `/api/*` itself. The project's toolchain is Vite+ 0.2.8, where `vite` is an alias for `@voidzero-dev/vite-plus-core`. Secrets come from 1Password through Varlock, and nothing that runs in `vp check`, `vp test`, or `vp run build` may wait on a 1Password prompt.
 
-In both options below, dev serving goes through `server/vite-host.ts`, a Node host that calls the Worker's `handle(request, env)`. The open question was whether `vp dev` can also run the real Worker runtime (workerd) through `@cloudflare/vite-plugin`.
+In both options below, dev serving goes through `server/vite-host.ts`, a planned Node host (not written yet; #6 adds it) that calls the Worker's `handle(request, env)`. The open question was whether `vp dev` can also run the real Worker runtime (workerd) through `@cloudflare/vite-plugin`.
 
 - **Path A:** `vp dev` loads `@cloudflare/vite-plugin`, wrapped by `varlockCloudflareVitePlugin` from `@varlock/cloudflare-integration`, so the `/api/*` routes the Node host does not claim run in workerd with the 1Password-resolved environment. `vp run build` uses the plain Cloudflare plugin to produce the deployable output.
 - **Path B:** `vp dev` does not load the Cloudflare plugin. Only the Node host serves `/api/*`. The build would still need a way to bundle the Worker, either the plain Cloudflare plugin in the build only or Wrangler's own bundler at deploy time.
@@ -16,6 +16,8 @@ In both options below, dev serving goes through `server/vite-host.ts`, a Node ho
 ## Decision
 
 Choose **path A**.
+
+The files named below are on the spike branch `issue-1-worker-toolchain-spike`, not on `main`. Issue #6 applies this decision to `main`.
 
 1. `vite.config.ts` loads the plugins inside `lazyPlugins`, behind the existing Varlock gate:
    - `vp dev` and `vp preview`: `[jevApiPlugin(), varlockCloudflareVitePlugin()]`, imported dynamically, because importing `@varlock/cloudflare-integration` runs `varlock load` at once.

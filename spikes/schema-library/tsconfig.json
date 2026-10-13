@@ -1,0 +1,17 @@
+{
+  // Type-checks the spike with the app's compiler settings. The root tsconfig
+  // includes only src and server, so the spike is checked separately with
+  // `vp exec tsc -p spikes/schema-library/tsconfig.json`.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "resolveJsonModule": true
+  },
+  "include": [
+    "**/*.ts",
+    "../../src/decision/*.ts",
+    "../../src/providers/*.ts",
+    "../../src/ui/client.ts",
+    "../../src/ui/fixtures/*.ts"
+  ],
+  "exclude": ["dist"]
+}

@@ -28,3 +28,6 @@ dist-ssr
 .env.*
 !.env.example
 !.env.schema
+
+# Local Wrangler state from the schema-library spike Workers
+.wrangler

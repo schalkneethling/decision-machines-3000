@@ -1,0 +1,9 @@
+// Local-only Worker for the workerd check of Valibot (spike #31). Never deployed.
+// Keys checked against node_modules/wrangler/config-schema.json. The compatibility
+// date is the newest the installed workerd (1.20261006.1) supports.
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "schema-library-spike-valibot",
+  "main": "./valibot.ts",
+  "compatibility_date": "2026-10-06",
+}

@@ -28,3 +28,11 @@ dist-ssr
 .env.*
 !.env.example
 !.env.schema
+
+# Wrangler and @cloudflare/vite-plugin local state
+.wrangler
+
+# Wrangler local secrets. Only the example file, which holds no values, is committed.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

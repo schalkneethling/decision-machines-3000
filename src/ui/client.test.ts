@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { decisionResponseSchema, warmResponseSchema } from "../decision/contract.ts";
-import { isDecisionResponse, isWarmResponse } from "./client.ts";
+import { openai, subq, typesafe } from "../providers/catalog.ts";
+import { providersResponseSchema, toProviderSummary } from "../providers/contract.ts";
+import { getProviders, isDecisionResponse, isProvidersResponse, isWarmResponse } from "./client.ts";
 import { choiceResponse } from "./fixtures/choice.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { scoreResponse } from "./fixtures/score.ts";
@@ -17,7 +19,10 @@ function replaced(body: unknown, dotPath: string, replacement: unknown): unknown
 
 /** The dotted path of the first problem the schema finds, or undefined when it accepts the body. */
 function firstIssuePath(
-  schema: typeof decisionResponseSchema | typeof warmResponseSchema,
+  schema:
+    | typeof decisionResponseSchema
+    | typeof warmResponseSchema
+    | typeof providersResponseSchema,
   body: unknown,
 ) {
   const result = schema.safeParse(body);
@@ -123,5 +128,95 @@ describe("isWarmResponse", () => {
   ])("rejects $name", ({ body, path }) => {
     expect(isWarmResponse(body)).toBe(false);
     expect(firstIssuePath(warmResponseSchema, body)).toBe(path);
+  });
+});
+
+/** A success as the Worker builds it, round-tripped through JSON as the browser receives it. */
+const listed = JSON.parse(
+  JSON.stringify({ ok: true, providers: [typesafe, subq, openai].map(toProviderSummary) }),
+) as unknown;
+
+const missingKeys = { ok: false, error: "No provider key is set, and at least one is required." };
+
+describe("isProvidersResponse", () => {
+  it.each([
+    ["every provider, as the Worker lists them", listed],
+    ["an empty list", { ok: true, providers: [] }],
+    ["the failure for an instance with no key", missingKeys],
+  ])("accepts %s", (_name, body) => {
+    expect(isProvidersResponse(body)).toBe(true);
+  });
+
+  it.each([
+    { name: "a list in place of the response", body: [listed], path: "" },
+    { name: "a success without providers", body: { ok: true }, path: "providers" },
+    {
+      name: "a provider the catalog does not know",
+      body: replaced(listed, "providers.0.id", "anthropic"),
+      path: "providers.0.id",
+    },
+    {
+      name: "a provider without a display name",
+      body: replaced(listed, "providers.0.displayName", undefined),
+      path: "providers.0.displayName",
+    },
+    {
+      name: "image support given as true",
+      body: replaced(listed, "providers.0.capabilities.images", true),
+      path: "providers.0.capabilities.images",
+    },
+    {
+      name: "a score range that is text",
+      body: replaced(listed, "providers.1.capabilities.scoreLevels.max", "10"),
+      path: "providers.1.capabilities.scoreLevels.max",
+    },
+    { name: "a failure without an error", body: { ok: false }, path: "error" },
+  ])("rejects $name", ({ body, path }) => {
+    expect(isProvidersResponse(body)).toBe(false);
+    expect(firstIssuePath(providersResponseSchema, body)).toBe(path);
+  });
+});
+
+describe("getProviders", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function answering(status: number, body: string) {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(new Response(body, { status })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("sends GET /api/providers and returns a recognised body", async () => {
+    const fetchMock = answering(200, JSON.stringify(listed));
+
+    const result = await getProviders();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("/api/providers");
+    expect(init?.method).toBe("GET");
+    expect(result).toEqual({ kind: "response", response: listed });
+  });
+
+  it("returns the 503 failure as a response, so the UI can show its error", async () => {
+    answering(503, JSON.stringify(missingKeys));
+
+    expect(await getProviders()).toEqual({ kind: "response", response: missingKeys });
+  });
+
+  it("reports a body that does not match the schema as unrecognised", async () => {
+    answering(200, JSON.stringify({ ok: true, providers: [{ id: "openai" }] }));
+
+    expect(await getProviders()).toEqual({ kind: "unrecognised", status: 200 });
+  });
+
+  it("reports HTML in place of JSON as unreachable", async () => {
+    answering(200, "<!doctype html>");
+
+    expect(await getProviders()).toMatchObject({ kind: "unreachable" });
   });
 });

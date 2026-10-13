@@ -12,8 +12,8 @@ The probe script is `scripts/probe/run.mjs`. Nothing in `src`, `server`, or the 
 | What does the SubQ base64 wording mean?   | The `base64` field takes plain base64 on one line. A `data:` URL and a line-wrapped string both fail with 422.                                                           | `subq/image-png-plain-base64`, `subq/image-png-data-url`, `subq/image-png-wrapped-base64`, `subq/image-jpeg-plain-base64` |
 | What is OpenAI's error envelope?          | The standard `{ "error": { message, type, param, code } }`, with 400 for a bad body and 401 for a bad key.                                                               | `openai/invalid-body`, `openai/score-11-levels`, `openai/bad-key`, `openai/models-list-no-auth`                           |
 | How many score levels does OpenAI accept? | Between 2 and 10. Two and ten are accepted, and eleven returns 400.                                                                                                      | `openai/score-2-levels`, `openai/score-10-levels`, `openai/score-11-levels`                                               |
-| Are output tokens reported?               | The field is always present, but SubQ and OpenAI always report 0. TypeSafe reports real output tokens.                                                                   | `subq/three-types`, `openai/three-types`, `typesafe/choice`                                                               |
-| Is SubQ's `confidence` present?           | Yes on choice and score answers, and never on a Yes/no (`noul`) answer.                                                                                                  | `subq/three-types`                                                                                                        |
+| Are output tokens reported?               | The field is present in every captured success. SubQ and OpenAI report 0 in all of them, and TypeSafe reports real values.                                               | `subq/three-types`, `openai/three-types`, `typesafe/choice`                                                               |
+| Is SubQ's `confidence` present?           | The captured choice and score answers include it, and the captured Yes/no (`noul`) answer does not.                                                                      | `subq/three-types`                                                                                                        |
 | Which warm paths exist?                   | SubQ: `GET /v1/models`, with no auth needed. OpenAI: `GET /v1/models/gpt-6-luna` (not the full list). TypeSafe: `GET /v1/models`.                                        | `subq/models-list`, `openai/models-retrieve`, `typesafe/models-list`                                                      |
 | What are the latencies?                   | See the table near the end. A three-question call takes about 0.5 to 1.0 s on SubQ and about 2.0 s on OpenAI, with TypeSafe single-question calls at about 0.4 to 0.5 s. | The `latencyMs` field in every fixture                                                                                    |
 
@@ -29,7 +29,7 @@ Yes, for everything this project sends. The evidence is a side-by-side read of t
 The differences an adapter has to know about:
 
 1. SubQ takes an `images` array (`{ mediaType, base64 }`). Jev is text only.
-2. SubQ always reports `output_tokens: 0`, while TypeSafe reports real values (22, 55, and 18 in `typesafe/noul`, `typesafe/choice`, and `typesafe/score`).
+2. SubQ reports `output_tokens: 0` in every captured success, while TypeSafe reports real values (22, 55, and 18 in `typesafe/noul`, `typesafe/choice`, and `typesafe/score`).
 3. SubQ returns unrounded probabilities such as `0.9565181732177734`, while TypeSafe rounds to two decimals.
 4. The model list has a different shape. TypeSafe returns `{ models: [{ name, description, release_date }] }` and SubQ returns an OpenAI-style `{ object: "list", data: [{ id, name, object, created, owned_by }] }`. This matters only if code reads the warm response, which the warm path does not.
 
@@ -83,17 +83,17 @@ This matches SubQ and TypeSafe, so all three providers share a 2-to-10 range.
 
 ## 5. Are output tokens reported, and what are the usage fields?
 
-| Provider | Fields                                                                                                                                                      | Output tokens           | Fixture                                              |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ---------------------------------------------------- |
-| TypeSafe | `input_tokens`, `output_tokens`                                                                                                                             | Real values: 22, 55, 18 | `typesafe/noul`, `typesafe/choice`, `typesafe/score` |
-| SubQ     | `input_tokens`, `output_tokens`                                                                                                                             | Always 0                | `subq/three-types`                                   |
-| OpenAI   | `input_tokens`, `input_tokens_details { cached_tokens, cache_write_tokens }`, `output_tokens`, `output_tokens_details { reasoning_tokens }`, `total_tokens` | Always 0                | `openai/three-types`                                 |
+| Provider | Fields                                                                                                                                                      | Output tokens               | Fixture                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------- |
+| TypeSafe | `input_tokens`, `output_tokens`                                                                                                                             | Real values: 22, 55, 18     | `typesafe/noul`, `typesafe/choice`, `typesafe/score` |
+| SubQ     | `input_tokens`, `output_tokens`                                                                                                                             | 0 in every captured success | `subq/three-types`                                   |
+| OpenAI   | `input_tokens`, `input_tokens_details { cached_tokens, cache_write_tokens }`, `output_tokens`, `output_tokens_details { reasoning_tokens }`, `total_tokens` | 0 in every captured success | `openai/three-types`                                 |
 
 The fixtures confirm the research. An image adds little input: the 2x2 test images produced 163 input tokens on SubQ and 164 on OpenAI for a one-line question.
 
 ## 6. Is SubQ's `confidence` field present?
 
-On choice and score answers, yes (`0.942...` and `0.319...` in `subq/three-types`). On a Yes/no (`noul`) answer it is absent, which matches the docs and TypeSafe. OpenAI behaves the same way: `predicate` answers have no `confidence`, and `choice` and `score` answers do (`openai/three-types`).
+The captured choice and score answers include `confidence` (`0.942...` and `0.319...` in `subq/three-types`). The captured Yes/no (`noul`) answer omits it, which matches the docs and TypeSafe. In `openai/three-types` the captured `predicate` answer omits `confidence`, while the captured choice and score answers include it.
 
 ## 7. Which warm paths exist?
 

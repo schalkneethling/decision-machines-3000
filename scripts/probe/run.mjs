@@ -19,6 +19,8 @@
  * Name one or more providers to probe only those; with none named, all three run.
  * Write `provider:case,case` (for example `subq:bad-key,invalid-body`) to run only
  * those cases of a provider.
+ * The run exits with code 1 if a named case does not exist, if a request fails before a
+ * response arrives (the fixture is then left as it was), or if the redaction check fails.
  * The script prints status, latency, and size for every call, and never prints a
  * key or a response body. Calls are sent one at a time and never retried.
  */
@@ -26,21 +28,15 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Agent, fetch } from "undici";
-import { findLeaks, pickSafeHeaders, scrub, writeFixture } from "./fixtures.mjs";
+import { createExchange } from "./exchange.mjs";
+import { parseCaseFilter, unmatchedCases } from "./filter.mjs";
+import { findLeaks } from "./fixtures.mjs";
 import { buildRedPng, buildRedJpeg } from "./images.mjs";
 
 const FIXTURE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../worker/providers/fixtures",
 );
-
-/** A made-up key that is sent for the bad-key probes. It belongs to nobody. */
-const BAD_KEY = "probe-invalid-key-0000000000000000";
-
-/** The same made-up key with the `sk-` prefix that real keys usually carry. */
-const BAD_KEY_WITH_PREFIX = `sk-${BAD_KEY}`;
-
-const REQUEST_TIMEOUT_MS = 60_000;
 
 const STATE =
   "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.";
@@ -57,113 +53,19 @@ for (const [provider, { envName }] of Object.entries(PROVIDERS)) {
 }
 const secrets = Object.values(keys).filter((key) => key !== "");
 
-const results = [];
+const caseFilter = parseCaseFilter(process.argv.slice(2));
 
-/**
- * Which cases to run per provider, parsed from the command line. A provider
- * mapped to `null` runs every case; a set limits it to the cases named.
- */
-const caseFilter = new Map();
-for (const argument of process.argv.slice(2)) {
-  const [provider, cases] = argument.split(":");
-  caseFilter.set(provider, cases === undefined ? null : new Set(cases.split(",")));
-}
-
-function isSelected(provider, name) {
-  const cases = caseFilter.get(provider);
-  return cases === undefined || cases === null || cases.has(name);
-}
+const { exchange, results, failures, ran } = createExchange({
+  keys,
+  secrets,
+  fixtureRoot: FIXTURE_ROOT,
+  fetchImpl: fetch,
+  caseFilter,
+});
 
 /** A connection pool that keeps idle sockets for 30 s, so a "warm" call really reuses one. */
 function newAgent() {
   return new Agent({ keepAliveTimeout: 30_000, keepAliveMaxTimeout: 30_000 });
-}
-
-/** Keep a long model list readable: the first few entries plus any that matter to this project. */
-function trimModelList(body) {
-  if (typeof body !== "object" || body === null || !Array.isArray(body.data)) return body;
-  if (JSON.stringify(body).length < 8_000) return body;
-  const relevant = /luna|decision|snap|subq|jev/i;
-  const kept = body.data.filter((model, index) => index < 3 || relevant.test(model?.id ?? ""));
-  return { ...body, data: kept, trimmed: { originalCount: body.data.length } };
-}
-
-/**
- * Sends one request, saves the sanitised fixture, and prints one summary line.
- *
- * `auth` is "valid" (the real key), "bad" (a made-up key), or "none" (no header).
- */
-async function exchange(provider, name, options) {
-  if (!isSelected(provider, name)) return undefined;
-
-  const { method = "POST", url, body, auth = "valid", agent, trim = false } = options;
-  const headers = {};
-  if (body !== undefined) headers["content-type"] = "application/json";
-  if (auth === "valid") headers.authorization = `Bearer ${keys[provider]}`;
-  if (auth === "bad") headers.authorization = `Bearer ${BAD_KEY}`;
-  if (auth === "bad-sk") headers.authorization = `Bearer ${BAD_KEY_WITH_PREFIX}`;
-
-  const recordedRequest = {
-    method,
-    url,
-    headers: {
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-      authorization: auth === "none" ? "none" : "Bearer <redacted>",
-    },
-    ...(body === undefined ? {} : { body }),
-  };
-
-  const startedAt = performance.now();
-  let status = 0;
-  let responseHeaders = {};
-  let text = "";
-  let failure;
-  try {
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      dispatcher: agent,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    status = response.status;
-    responseHeaders = pickSafeHeaders(response.headers);
-    text = await response.text();
-  } catch (error) {
-    failure = error instanceof Error ? `${error.name}: ${error.message}` : "unknown failure";
-  }
-  const latencyMs = Math.round(performance.now() - startedAt);
-
-  let parsed;
-  if (failure !== undefined) {
-    parsed = { networkError: failure };
-  } else {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text.slice(0, 2_000);
-    }
-  }
-
-  const fixture = scrub(
-    {
-      request: recordedRequest,
-      status,
-      headers: responseHeaders,
-      body: trim ? trimModelList(parsed) : parsed,
-      latencyMs,
-      responseBytes: Buffer.byteLength(text),
-    },
-    secrets,
-  );
-  await writeFixture(path.join(FIXTURE_ROOT, provider), name, fixture, secrets);
-
-  const line = { provider, name, status, latencyMs, bytes: fixture.responseBytes };
-  results.push(line);
-  console.log(
-    `${provider.padEnd(9)} ${name.padEnd(34)} status=${String(status).padEnd(3)} latency=${String(latencyMs).padStart(5)}ms bytes=${fixture.responseBytes}`,
-  );
-  return fixture;
 }
 
 // ---------------------------------------------------------------------------
@@ -640,12 +542,25 @@ try {
   process.exit(1);
 }
 
-console.log(`\n${results.length} calls sent.`);
+console.log(`\n${results.length} calls saved.`);
 
 const leaks = await findLeaks(FIXTURE_ROOT, secrets);
 if (leaks.length === 0) {
   console.log("redaction check passed");
 } else {
   console.error(`redaction check FAILED: ${leaks.join(", ")}`);
-  process.exit(1);
+  process.exitCode = 1;
+}
+
+if (failures.length > 0) {
+  console.error(
+    `These cases failed before a response arrived, so their fixtures were not replaced: ${failures.join(", ")}`,
+  );
+  process.exitCode = 1;
+}
+
+const unmatched = unmatchedCases(caseFilter, ran);
+if (unmatched.length > 0) {
+  console.error(`These named cases did not run (check the spelling): ${unmatched.join(", ")}`);
+  process.exitCode = 1;
 }

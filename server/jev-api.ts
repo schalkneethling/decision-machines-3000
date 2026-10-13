@@ -27,6 +27,7 @@ import type { Connect, Plugin } from "vite-plus";
 import { DECISION_ENDPOINT, WARM_ENDPOINT } from "../src/decision/contract.ts";
 import type {
   AnswerByPrimitive,
+  RefusalAnswer,
   ConnectionKind,
   DecisionFailure,
   DecisionSuccess,
@@ -34,6 +35,7 @@ import type {
   WarmSuccess,
 } from "../src/decision/contract.ts";
 import { validateDecisionRequest, validateWarmRequest } from "../src/decision/validate.ts";
+import { DEFAULT_PROVIDER } from "../src/providers/catalog.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
 import { TypeSafeConnection } from "./connection.ts";
 
@@ -268,7 +270,10 @@ async function readJsonRequest(req: IncomingMessage, endpoint: string): Promise<
 }
 
 async function handleDecisionRequest(req: IncomingMessage): Promise<HandledRequest> {
-  const validation = validateDecisionRequest(await readJsonRequest(req, DECISION_ENDPOINT));
+  const validation = validateDecisionRequest(
+    await readJsonRequest(req, DECISION_ENDPOINT),
+    DEFAULT_PROVIDER.capabilities,
+  );
   if (!validation.ok) {
     throw new ReplyError(400, { error: validation.error, detail: validation.detail });
   }
@@ -350,13 +355,13 @@ async function handleWarmRequest(req: IncomingMessage): Promise<HandledRequest> 
   }
 }
 
-type ContractAnswer = AnswerByPrimitive[Primitive];
+type ContractAnswer = AnswerByPrimitive[Primitive] | RefusalAnswer;
 
 /**
  * The SDK answer shapes already match the contract field for field; copy them
  * into plain objects so the response is exactly the contract and nothing more.
  */
-function toContractAnswers(
+export function toContractAnswers(
   answers: Readonly<Record<string, Readonly<ContractAnswer>>>,
 ): Record<string, ContractAnswer> {
   const mapped: Record<string, ContractAnswer> = {};
@@ -382,6 +387,16 @@ function toContractAnswers(
           probabilities: { ...answer.probabilities },
         };
         break;
+      case "refusal":
+        mapped[id] = { type: "refusal" };
+        break;
+      default: {
+        // Fails the type check when a new answer type is added to the contract without a case.
+        const unknown: never = answer;
+        throw new Error(`The provider returned an unknown answer type for question "${id}".`, {
+          cause: unknown,
+        });
+      }
     }
   }
   return mapped;

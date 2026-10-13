@@ -4,6 +4,7 @@ import type {
   DecisionSuccess,
   JsonValue,
   NoulAnswer,
+  RefusalAnswer,
   ScoreAnswer,
 } from "../decision/contract.ts";
 import { create } from "./dom.ts";
@@ -13,7 +14,10 @@ import { create } from "./dom.ts";
  * `panels.ts` decides when to put it in the page.
  */
 
-type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer;
+type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer;
+
+/** What the readout says in place of bars when the model declines a question. */
+export const REFUSAL_TEXT = "The model declined to answer this question.";
 
 const numberFormat = new Intl.NumberFormat("en");
 
@@ -174,8 +178,14 @@ function renderScore(answer: ScoreAnswer): Node[] {
   return [verdict, scoreTrack(answer.score, scale), barList(entries, "bars-stacked")];
 }
 
+function renderRefusal(): Node[] {
+  return [create("p", { className: "answer-refusal", text: REFUSAL_TEXT })];
+}
+
 function renderReading(answer: Answer): Node[] {
   switch (answer.type) {
+    case "refusal":
+      return renderRefusal();
     case "noul":
       return renderNoul(answer);
     case "choice":

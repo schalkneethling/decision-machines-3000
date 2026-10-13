@@ -668,7 +668,8 @@ textarea.tree-field {
   line-height: 1.3;
 }
 
-.answer-verdict {
+.answer-verdict,
+.answer-refusal {
   margin: 0;
 }
 

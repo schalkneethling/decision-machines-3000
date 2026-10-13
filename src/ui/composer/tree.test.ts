@@ -6,6 +6,7 @@ import type { ValidDecisionRequest } from "../../decision/validate.ts";
 import { toRequest, toViewModel } from "./model.ts";
 import { createComposer } from "./tree.ts";
 import type { Composer } from "./tree.ts";
+import { DEFAULT_PROVIDER } from "../../providers/catalog.ts";
 
 type Harness = {
   composer: Composer;
@@ -32,6 +33,7 @@ function mount(request: ValidDecisionRequest): Harness {
   harness.composer = createComposer({
     prefix: "test",
     model: toViewModel(request),
+    capabilities: DEFAULT_PROVIDER.capabilities,
     announce: (message) => announcements.push(message),
     onChange: () => {
       harness.changes += 1;
@@ -129,11 +131,14 @@ describe("editing", () => {
   });
 
   it("hides the fan-out control until the state holds a list", () => {
-    const request = validateDecisionRequest({
-      ...choiceExample,
-      state: { film: "A radio astronomer intercepts a signal from three years in the future." },
-      questions: { genre: { instructions: "Which genre best fits `film`?" } },
-    });
+    const request = validateDecisionRequest(
+      {
+        ...choiceExample,
+        state: { film: "A radio astronomer intercepts a signal from three years in the future." },
+        questions: { genre: { instructions: "Which genre best fits `film`?" } },
+      },
+      DEFAULT_PROVIDER.capabilities,
+    );
     if (!request.ok) throw new Error(request.error);
     const harness = mount(request.value);
     const [question] = questionKeys(harness);
@@ -255,7 +260,7 @@ describe("add, remove, and move", () => {
     harness.get<HTMLButtonElement>(control(second!, "remove")).click();
     expect(document.activeElement).toBe(harness.get(control(first!, "description")));
     expect(harness.get("#test-shared-issue").textContent).toBe(
-      "Shared levels need at least two levels. Add one more.",
+      "Shared levels need at least 2 levels. Add one more.",
     );
   });
 

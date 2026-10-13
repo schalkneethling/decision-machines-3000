@@ -85,6 +85,14 @@ export type ScoreAnswer = {
   probabilities: Record<string, number>;
 };
 
+/**
+ * The model declined to answer this question. It carries no probabilities, so
+ * it has no primitive of its own and can stand in for any primitive's answer.
+ */
+export type RefusalAnswer = {
+  type: "refusal";
+};
+
 export type AnswerByPrimitive = {
   noul: NoulAnswer;
   choice: ChoiceAnswer;
@@ -116,7 +124,7 @@ export type DecisionSuccess<P extends Primitive = Primitive> = {
   connection: ConnectionKind;
   /** The keep-alive the server's connection to TypeSafe had when it answered. */
   keepAliveSeconds: KeepAliveSeconds;
-  answers: Record<string, AnswerByPrimitive[P]>;
+  answers: Record<string, AnswerByPrimitive[P] | RefusalAnswer>;
 };
 
 export type DecisionFailure = {

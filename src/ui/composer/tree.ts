@@ -44,12 +44,15 @@ import {
   textButton,
   textField,
 } from "./rows.ts";
+import type { ProviderCapabilities } from "../../providers/catalog.ts";
 import type { FocusTarget, RowContext, StructuralChange } from "./rows.ts";
 
 export type ComposerOptions = {
   /** Prefix for element ids, unique per panel. */
   prefix: string;
   model: ComposerModel;
+  /** The limits the tree reports problems against. */
+  capabilities: ProviderCapabilities;
   /** Speaks a change through the panel's status line. */
   announce: (message: string) => void;
   /** The model changed; the panel re-derives its request. */
@@ -202,7 +205,7 @@ export function createComposer(options: ComposerOptions): Composer {
    * whose messages or invalid fields differ from what they show now.
    */
   function showIssues(): Issue[] {
-    const issues = findIssues(model);
+    const issues = findIssues(model, options.capabilities);
     const next = new Map<string, ShownIssues>();
     for (const issue of issues) {
       if (!revealAll && !touched.has(issue.key)) continue;

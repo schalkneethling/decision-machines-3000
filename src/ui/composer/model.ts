@@ -20,7 +20,8 @@ import type {
   ScoreCriteria,
 } from "../../decision/contract.ts";
 import { isPlainObject } from "../../decision/json.ts";
-import { MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS } from "../../decision/validate.ts";
+import { characterCount, countOf, idTooLongMessage } from "../../decision/count.ts";
+import type { ProviderCapabilities } from "../../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../../decision/validate.ts";
 
 /** A criteria description; `null` leaves the outcome undescribed. */
@@ -427,22 +428,33 @@ function isBlank(value: Content): boolean {
   return typeof value === "string" && value.trim() === "";
 }
 
-function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string): Issue[] {
+/** "Add two." or "Add one more.": how many entries a list still needs to reach its minimum. */
+function addHint(have: number, min: number): string {
+  const missing = min - have;
+  return missing === 1 ? "one more" : `${missing} more`;
+}
+
+function criteriaIssues(
+  criteria: CriteriaModel,
+  ownerKey: string,
+  where: string,
+  { choiceOptions, scoreLevels }: ProviderCapabilities,
+): Issue[] {
   const issues: Issue[] = [];
   if (criteria.kind === "choice") {
     const { options } = criteria;
-    if (options.length < 2) {
+    if (options.length < choiceOptions.min) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} need at least two options. Add ${options.length === 0 ? "two" : "one more"}.`,
+        message: `${where} need at least ${countOf(choiceOptions.min, "option")}. Add ${addHint(options.length, choiceOptions.min)}.`,
       });
     }
-    if (options.length > MAX_CHOICE_OPTIONS) {
+    if (choiceOptions.max !== undefined && options.length > choiceOptions.max) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${options.length} options. Use at most ${MAX_CHOICE_OPTIONS}.`,
+        message: `${where} have ${options.length} options. Use at most ${choiceOptions.max}.`,
       });
     }
     const seen = new Set<string>();
@@ -467,18 +479,18 @@ function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string
   }
   if (criteria.kind === "score") {
     const { levels } = criteria;
-    if (levels.length < 2) {
+    if (levels.length < scoreLevels.min) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} need at least two levels. Add ${levels.length === 0 ? "two" : "one more"}.`,
+        message: `${where} need at least ${countOf(scoreLevels.min, "level")}. Add ${addHint(levels.length, scoreLevels.min)}.`,
       });
     }
-    if (levels.length > MAX_SCORE_LEVELS) {
+    if (scoreLevels.max !== undefined && levels.length > scoreLevels.max) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${levels.length} levels. Use at most ${MAX_SCORE_LEVELS}. Remove ${levels.length - MAX_SCORE_LEVELS}.`,
+        message: `${where} have ${levels.length} levels. Use at most ${scoreLevels.max}. Remove ${levels.length - scoreLevels.max}.`,
       });
     }
   }
@@ -520,7 +532,7 @@ function fanOutIssues(question: QuestionModel, state: Content): Issue[] {
 }
 
 /** Every problem in the model, in tree order, so the first one is the first a reader meets. */
-export function findIssues(model: ComposerModel): Issue[] {
+export function findIssues(model: ComposerModel, capabilities: ProviderCapabilities): Issue[] {
   const issues: Issue[] = [];
 
   if (isBlank(model.state)) {
@@ -533,7 +545,7 @@ export function findIssues(model: ComposerModel): Issue[] {
 
   const noun = model.primitive === "score" ? "levels" : "options";
   if (model.criteria !== undefined) {
-    issues.push(...criteriaIssues(model.criteria, SHARED_KEY, `Shared ${noun}`));
+    issues.push(...criteriaIssues(model.criteria, SHARED_KEY, `Shared ${noun}`, capabilities));
   }
 
   if (model.questions.length === 0) {
@@ -564,11 +576,25 @@ export function findIssues(model: ComposerModel): Issue[] {
       const clash = expandedIds(question, model.state).find(
         (id) => (owners.get(id) ?? []).length > 1,
       );
+      const { questionNameMaxLength } = capabilities;
+      const tooLong =
+        questionNameMaxLength === undefined
+          ? undefined
+          : expandedIds(question, model.state).find(
+              (id) => characterCount(id) > questionNameMaxLength,
+            );
       if (clash !== undefined) {
         issues.push({
           key: question.key,
           field: "id",
           message: `Another question also uses the id "${clash}". Give this one a different id.`,
+        });
+      }
+      if (tooLong !== undefined && questionNameMaxLength !== undefined) {
+        issues.push({
+          key: question.key,
+          field: "id",
+          message: idTooLongMessage(tooLong, questionNameMaxLength),
         });
       }
     }
@@ -583,7 +609,9 @@ export function findIssues(model: ComposerModel): Issue[] {
     issues.push(...fanOutIssues(question, model.state));
 
     if (question.criteria !== undefined) {
-      issues.push(...criteriaIssues(question.criteria, question.key, `This question's ${noun}`));
+      issues.push(
+        ...criteriaIssues(question.criteria, question.key, `This question's ${noun}`, capabilities),
+      );
     } else if (model.primitive !== "noul" && model.criteria === undefined) {
       issues.push({
         key: question.key,

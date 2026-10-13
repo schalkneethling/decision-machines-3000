@@ -16,9 +16,13 @@
  * `EntryType`, `NoulQuestion`, `ChoiceQuestion`, and `ScoreQuestion` types.
  * Zod Mini APIs used, read from node_modules/zod/v4/mini/schemas.d.ts and
  * checks.d.ts and node_modules/zod/v4/core/errors.d.ts: `discriminatedUnion`,
- * `strictObject`, `record`, `exactOptional`, `literal`, `array`, `unknown`,
- * `tuple` with a rest item, `pipe`, `.check()`, `refine`, `minLength`,
- * `maxLength`, `safeParse`, and the `$ZodErrorMap` and `$ZodRawIssue` types.
+ * `object`, `strictObject`, `record`, `optional`, `exactOptional`, `literal`,
+ * `unknown`, `custom`, `transform`, `tuple` with a rest item, `pipe`,
+ * `.check()`, `refine`, `minLength`, `maxLength`, `safeParse`, and the
+ * `$ZodErrorMap`, `$ZodRawIssue`, and `$ZodIssue` types. How a record reports a
+ * failed key (`invalid_key`, with the key as the last path segment, and its
+ * value skipped) and how an object treats a present `undefined` were read from
+ * `$ZodRecord` and `handlePropertyResult` in node_modules/zod/v4/core/schemas.js.
  */
 
 import * as z from "zod/mini";
@@ -142,14 +146,46 @@ const noulDescription = content(
     `The "${keyOf(issue)}" description in ${criteriaPlaceOf(issue)} must be text, an object, or a list, not ${describeKind(issue.input)}.`,
 );
 
-const noulCriteria = z.strictObject(
-  { true: z.exactOptional(noulDescription), false: z.exactOptional(noulDescription) },
-  {
-    error: (issue) =>
-      issue.code === "unrecognized_keys"
-        ? unknownFieldMessage(criteriaPlaceOf(issue), issue.keys[0], NOUL_CRITERIA_KEYS)
-        : `${criteriaPlaceOf(issue)} must be an object with optional "true" and "false" descriptions, not ${describeKind(issue.input)}.`,
-  },
+/** `{ a: 1, b: undefined }` → `{ a: 1 }`: a field set to `undefined` counts as absent. */
+function withoutUndefined(fields: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Runs `schema` on an object only after checking that every field is one of
+ * `keys`, and drops the fields set to `undefined` first.
+ *
+ * Why a stage of its own: an unknown field is often a typo ("statee",
+ * "instruction", or "type" in a question), and the message that names it is
+ * the useful one, so it has to win over the "missing field" message the typo
+ * also causes. Zod checks an object's known fields before its unknown keys, and
+ * a discriminated union with a mistyped "primitive" never reaches its members'
+ * keys at all, so `schema` alone would report the missing field instead. A
+ * field set to `undefined` is treated as absent, so a request built in memory
+ * can leave optional criteria `undefined`.
+ *
+ * `error` words both of this stage's problems: a value that is not an object,
+ * and an `unrecognized_keys` issue, whose first key it names.
+ */
+function knownFieldsFirst<S extends z.core.$ZodType<unknown, Record<string, unknown>>>(
+  keys: readonly string[],
+  error: z.core.$ZodErrorMap,
+  schema: S,
+) {
+  const known = z.strictObject(
+    Object.fromEntries(keys.map((key) => [key, z.optional(z.unknown())])),
+    { error },
+  );
+  return z.pipe(z.pipe(known, z.transform(withoutUndefined)), schema);
+}
+
+const noulCriteria = knownFieldsFirst(
+  NOUL_CRITERIA_KEYS,
+  (issue) =>
+    issue.code === "unrecognized_keys"
+      ? unknownFieldMessage(criteriaPlaceOf(issue), issue.keys[0], NOUL_CRITERIA_KEYS)
+      : `${criteriaPlaceOf(issue)} must be an object with optional "true" and "false" descriptions, not ${describeKind(issue.input)}.`,
+  z.object({ true: z.exactOptional(noulDescription), false: z.exactOptional(noulDescription) }),
 );
 
 const optionDescription = description(
@@ -162,18 +198,23 @@ const levelDescription = description(
     `Level ${keyOf(issue)} in ${criteriaPlaceOf(issue)} must be text, an object, a list, or null, not ${describeKind(issue.input)}.`,
 );
 
+/** A name or id that holds more than whitespace. */
+const nonBlankKey = z.string().check(z.refine((key) => key.trim() !== ""));
+
 // ---------------------------------------------------------------------------
 // The parts a provider's capabilities limit
 // ---------------------------------------------------------------------------
 
 /**
  * Choice criteria: option name to description. Zod has no record-size check,
- * so the option count is a `refine` with the limits in a closure.
+ * so the option count is a `refine` with the limits in a closure. The count is
+ * checked in a first stage, before any option, and each option's name before
+ * its description, which is the order the messages had before the schemas.
  */
 function choiceCriteria({ min, max }: Readonly<CountRange>) {
   const optionCount = (issue: RawIssue) => Object.keys(issue.input as object).length;
-  return z
-    .record(z.string(), optionDescription, {
+  const counted = z
+    .record(z.string(), z.unknown(), {
       error: (issue) =>
         `${criteriaPlaceOf(issue)} must be an object that maps each option name to its description, not ${describeKind(issue.input)}.`,
     })
@@ -186,24 +227,35 @@ function choiceCriteria({ min, max }: Readonly<CountRange>) {
         error: (issue) =>
           `${criteriaPlaceOf(issue)} has ${optionCount(issue)} options. Use at most ${max}.`,
       }),
-      z.refine((options) => Object.keys(options).every((name) => name.trim() !== ""), {
-        error: (issue) =>
-          `${criteriaPlaceOf(issue)} has an option with an empty name. Give it a name.`,
-      }),
     );
+  const options = z.record(nonBlankKey, optionDescription, {
+    // A blank name is the only way the key schema fails.
+    error: (issue) => `${criteriaPlaceOf(issue)} has an option with an empty name. Give it a name.`,
+  });
+  return z.pipe(counted, options);
+}
+
+/** The fewest levels a Score question can have, whatever a provider's range says. */
+const SCORE_LEVEL_FLOOR = 2;
+
+/** `["Cold", , "Hot"]` → `["Cold", null, "Hot"]`: a hole in a list is an undescribed level. */
+function holesAsNull(levels: unknown[]): unknown[] {
+  return Array.from(levels, (level, index) => (index in levels ? level : null));
 }
 
 /**
  * Score criteria: level descriptions, lowest first. The length checks run
  * before the tuple, so a short list is reported as too few levels at the list's
  * own path rather than as a missing item at `criteria.1`; `z.pipe` stops at the
- * first side's issues. The tuple of two plus a rest item keeps the inferred
- * type at least two levels long, whatever a provider's range says.
+ * first side's issues. The tuple of two plus a rest item keeps the inferred type
+ * at least two levels long, and the floor check keeps the runtime there too when
+ * a provider's minimum is lower. A hole in the list, which only a request built
+ * in memory can have, becomes `null`; an explicit `undefined` is still refused.
  */
 function scoreCriteria({ min, max }: Readonly<CountRange>) {
   const levelCount = (issue: RawIssue) => (issue.input as unknown[]).length;
   const list = z
-    .array(z.unknown(), {
+    .custom<unknown[]>((value) => Array.isArray(value), {
       error: (issue) =>
         `${criteriaPlaceOf(issue)} must be a list of level descriptions, lowest level first, not ${describeKind(issue.input)}.`,
     })
@@ -220,8 +272,15 @@ function scoreCriteria({ min, max }: Readonly<CountRange>) {
                 `${criteriaPlaceOf(issue)} has ${levelCount(issue)} levels. Use at most ${max}.`,
             }),
           ]),
+      z.minLength(SCORE_LEVEL_FLOOR, {
+        error: (issue) =>
+          `${criteriaPlaceOf(issue)} needs at least ${SCORE_LEVEL_FLOOR} levels to score between.`,
+      }),
     );
-  return z.pipe(list, z.tuple([levelDescription, levelDescription], levelDescription));
+  return z.pipe(
+    z.pipe(list, z.transform(holesAsNull)),
+    z.tuple([levelDescription, levelDescription], levelDescription),
+  );
 }
 
 /** The questions record, keyed by question id, with the provider's id-length limit. */
@@ -229,40 +288,34 @@ function questionsSchema<C extends z.ZodMiniType>(
   criteria: C,
   questionNameMaxLength: number | undefined,
 ) {
-  const questionId = z
-    .string()
-    .check(
-      z.refine(
-        (id) => questionNameMaxLength === undefined || characterCount(id) <= questionNameMaxLength,
-      ),
-    );
-  const question = z.strictObject(
-    { instructions, criteria: z.exactOptional(criteria) },
-    {
-      error: (issue) =>
-        issue.code === "unrecognized_keys"
-          ? unknownFieldMessage(`Question "${questionIdOf(issue)}"`, issue.keys[0], QUESTION_KEYS)
-          : `Question "${questionIdOf(issue)}" must be an object with "instructions" and optional "criteria", not ${describeKind(issue.input)}.`,
-    },
+  const questionId = nonBlankKey.check(
+    z.refine(
+      (id) => questionNameMaxLength === undefined || characterCount(id) <= questionNameMaxLength,
+    ),
+  );
+  const question = knownFieldsFirst(
+    QUESTION_KEYS,
+    (issue) =>
+      issue.code === "unrecognized_keys"
+        ? unknownFieldMessage(`Question "${questionIdOf(issue)}"`, issue.keys[0], QUESTION_KEYS)
+        : `Question "${questionIdOf(issue)}" must be an object with "instructions" and optional "criteria", not ${describeKind(issue.input)}.`,
+    z.object({ instructions, criteria: z.exactOptional(criteria) }),
   );
   return z
     .record(questionId, question, {
       // A key that fails its schema arrives as one `invalid_key` issue whose `input` is the
-      // key, so the record words it rather than the key schema.
-      error: (issue) =>
-        issue.code === "invalid_key" && typeof issue.input === "string"
-          ? idTooLongMessage(issue.input, questionNameMaxLength ?? Number.POSITIVE_INFINITY)
-          : ADD_QUESTIONS,
+      // key, so the record words it rather than the key schema. The record checks each id
+      // before its question, so an empty id is named even when its question is broken too.
+      error: (issue) => {
+        if (issue.code !== "invalid_key") return ADD_QUESTIONS;
+        // The key is the last segment of the issue's path, `questions.<id>`.
+        const id = keyOf(issue);
+        return id.trim() === ""
+          ? `Every question needs a non-empty id.`
+          : idTooLongMessage(id, questionNameMaxLength ?? Number.POSITIVE_INFINITY);
+      },
     })
-    .check(
-      z.refine((questions) => Object.keys(questions).length > 0, ADD_QUESTIONS),
-      // On the record rather than the key schema, because a key issue for an empty id would
-      // carry the path `questions.` and the message belongs at `questions`.
-      z.refine(
-        (questions) => Object.keys(questions).every((id) => id.trim() !== ""),
-        `Every question needs a non-empty id.`,
-      ),
-    );
+    .check(z.refine((questions) => Object.keys(questions).length > 0, ADD_QUESTIONS));
 }
 
 function requestFor<P extends string, C extends z.ZodMiniType>(
@@ -270,25 +323,17 @@ function requestFor<P extends string, C extends z.ZodMiniType>(
   criteria: C,
   capabilities: ProviderCapabilities,
 ) {
-  return z.strictObject(
-    {
-      primitive: z.literal(primitive),
-      state,
-      criteria: z.exactOptional(criteria),
-      questions: questionsSchema(criteria, capabilities.questionNameMaxLength),
-    },
-    {
-      error: (issue) =>
-        issue.code === "unrecognized_keys"
-          ? unknownFieldMessage("The request", issue.keys[0], REQUEST_KEYS)
-          : NOT_AN_OBJECT(issue.input),
-    },
-  );
+  return z.object({
+    primitive: z.literal(primitive),
+    state,
+    criteria: z.exactOptional(criteria),
+    questions: questionsSchema(criteria, capabilities.questionNameMaxLength),
+  });
 }
 
 /** Builds the request schema for one provider's limits. */
 function decisionRequestSchema(capabilities: ProviderCapabilities) {
-  return z
+  const request = z
     .discriminatedUnion(
       "primitive",
       [
@@ -300,7 +345,8 @@ function decisionRequestSchema(capabilities: ProviderCapabilities) {
         error: (issue) => {
           // The declared issue type is `invalid_union` only, but the parser also raises
           // `invalid_type` for an input that is not an object (`$ZodDiscriminatedUnion` in
-          // node_modules/zod/v4/core/schemas.js), hence the negative test.
+          // node_modules/zod/v4/core/schemas.js). `knownFieldsFirst` rejects such an input
+          // before this schema runs, but the error map still has to word it.
           if (issue.code !== "invalid_union") return NOT_AN_OBJECT(issue.input);
           const primitive = (issue.input as Record<string, unknown>).primitive;
           const received =
@@ -311,20 +357,28 @@ function decisionRequestSchema(capabilities: ProviderCapabilities) {
     )
     .check((payload) => {
       // A Choice or Score question needs criteria on itself or a default at the top.
-      const request = payload.value;
-      if (request.primitive === "noul" || request.criteria !== undefined) return;
-      for (const [id, question] of Object.entries(request.questions)) {
+      const value = payload.value;
+      if (value.primitive === "noul" || value.criteria !== undefined) return;
+      for (const [id, question] of Object.entries(value.questions)) {
         if (question.criteria !== undefined) continue;
-        const kind = request.primitive === "choice" ? "options" : "levels";
+        const kind = value.primitive === "choice" ? "options" : "levels";
         payload.issues.push({
           code: "custom",
-          input: request,
+          input: value,
           path: ["questions", id, "criteria"],
           message: `Question "${id}" has no criteria. Add "criteria" with its ${kind} to the question, or a default "criteria" at the top of the request.`,
         });
         return;
       }
     });
+  return knownFieldsFirst(
+    REQUEST_KEYS,
+    (issue) =>
+      issue.code === "unrecognized_keys"
+        ? unknownFieldMessage("The request", issue.keys[0], REQUEST_KEYS)
+        : NOT_AN_OBJECT(issue.input),
+    request,
+  );
 }
 
 type DecisionRequestSchema = ReturnType<typeof decisionRequestSchema>;
@@ -338,22 +392,36 @@ export type ValidDecisionRequest = z.output<DecisionRequestSchema>;
 export type ValidationResult = { ok: true; value: ValidDecisionRequest } | ValidationFailure;
 
 /**
- * One schema per capabilities object. The catalog's descriptors are long-lived,
- * so each provider's schema is built once; a `WeakMap` lets a capabilities
- * object made for a single call, as the tests do, be collected with its schema.
- * A capabilities object must not be changed after its first use, because the
- * schema read its limits when it was built.
+ * One schema per distinct set of limits, keyed by the limits the schema reads.
+ * Keying by value rather than by the capabilities object means a changed limit
+ * takes effect on the next call, as it did when the limits were read on every
+ * call, while the providers that share limits share one schema. The number of
+ * entries is the number of distinct limit sets in use, a handful in practice.
  */
-const schemas = new WeakMap<ProviderCapabilities, DecisionRequestSchema>();
+const schemas = new Map<string, DecisionRequestSchema>();
 
-function schemaFor(capabilities: ProviderCapabilities): DecisionRequestSchema {
-  let schema = schemas.get(capabilities);
+function limitsKey({ choiceOptions, scoreLevels, questionNameMaxLength }: ProviderCapabilities) {
+  return JSON.stringify([
+    choiceOptions.min,
+    choiceOptions.max ?? null,
+    scoreLevels.min,
+    scoreLevels.max ?? null,
+    questionNameMaxLength ?? null,
+  ]);
+}
+
+/** The request schema for `capabilities`' limits, built on first use and reused after that. */
+export function requestSchemaFor(capabilities: ProviderCapabilities): DecisionRequestSchema {
+  const key = limitsKey(capabilities);
+  let schema = schemas.get(key);
   if (schema === undefined) {
     schema = decisionRequestSchema(capabilities);
-    schemas.set(capabilities, schema);
+    schemas.set(key, schema);
   }
   return schema;
 }
+
+const TOO_DEEP = `The request is nested too deeply to check. Use fewer levels of lists and objects inside each other.`;
 
 /**
  * Check that `value` is a request `/api/jev` can send to a provider.
@@ -365,16 +433,35 @@ export function validateDecisionRequest(
   value: unknown,
   capabilities: ProviderCapabilities,
 ): ValidationResult {
-  const result = schemaFor(capabilities).safeParse(value);
+  let result: ReturnType<DecisionRequestSchema["safeParse"]>;
+  try {
+    result = requestSchemaFor(capabilities).safeParse(value);
+  } catch (error) {
+    // Zod checks nested JSON by recursion, so thousands of levels exhaust the call stack.
+    // That is a problem with the request, not a crash, and is reported like any other.
+    if (error instanceof RangeError) return { ok: false, error: TOO_DEEP };
+    throw error;
+  }
   if (result.success) return { ok: true, value: result.data };
   const [issue] = result.error.issues;
-  // An unknown-field issue sits on the object and names the field in `keys`, so the field
-  // is added to the path to point at it, as in `questions.greeting.type`.
-  const path = issue.code === "unrecognized_keys" ? [...issue.path, issue.keys[0]] : issue.path;
   const failure: ValidationFailure = { ok: false, error: issue.message };
+  const path = pathOf(issue);
   // Joined by hand: `z.core.toDotPath` writes a list index as `[0]`, and paths here read `criteria.0`.
   if (path.length > 0) failure.detail = path.map(String).join(".");
   return failure;
+}
+
+/** Where an issue points, adjusted so a dotted path can show it. */
+function pathOf(issue: z.core.$ZodIssue): PropertyKey[] {
+  // An unknown-field issue sits on the object and names the field in `keys`, so the field
+  // is added to point at it, as in `questions.greeting.type`.
+  if (issue.code === "unrecognized_keys") return [...issue.path, issue.keys[0]];
+  // A blank key cannot be read at the end of a dotted path (`questions.`), so an empty
+  // question id or option name is reported at its record, `questions` or `criteria`.
+  if (issue.code === "invalid_key" && String(issue.path.at(-1)).trim() === "") {
+    return issue.path.slice(0, -1);
+  }
+  return issue.path;
 }
 
 export type WarmValidationResult = { ok: true; value: WarmRequest } | ValidationFailure;

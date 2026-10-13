@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vite-plus/test";
 import { examples } from "./examples.ts";
-import { validateDecisionRequest } from "./validate.ts";
+import { requestSchemaFor, validateDecisionRequest } from "./validate.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 
@@ -489,16 +489,297 @@ describe("validateDecisionRequest accepts what the hand-written validator accept
   });
 });
 
-describe("validateDecisionRequest builds one schema per capabilities object", () => {
-  it("keeps the limits a capabilities object had when it was first used", () => {
+/*
+ * Behaviours of the hand-written validator that the first version of the schemas lost,
+ * found in review. Each expected value is what the hand-written validator returned.
+ */
+
+const question = { instructions: "Is it?" };
+
+/** An unknown field is reported before any problem with the object's known fields. */
+const unknownFieldFirstCases: InvalidCase[] = [
+  {
+    name: "a misspelt state, which also leaves state missing",
+    request: { primitive: "noul", statee: "Hello", questions: { q: question } },
+    error: `The request has an unknown field "statee". It can only contain "primitive", "state", "criteria", and "questions".`,
+    detail: "statee",
+  },
+  {
+    name: "question written for questions",
+    request: { primitive: "noul", state: "Hello", question: { q: question } },
+    error: `The request has an unknown field "question". It can only contain "primitive", "state", "criteria", and "questions".`,
+    detail: "question",
+  },
+  {
+    name: "a misspelt primitive",
+    request: { primitve: "noul", state: "Hello", questions: { q: question } },
+    error: `The request has an unknown field "primitve". It can only contain "primitive", "state", "criteria", and "questions".`,
+    detail: "primitve",
+  },
+  {
+    name: "an unknown top-level field with an unknown primitive",
+    request: { primitive: "rank", stat: "Hello", questions: { q: question } },
+    error: `The request has an unknown field "stat". It can only contain "primitive", "state", "criteria", and "questions".`,
+    detail: "stat",
+  },
+  {
+    name: "a misspelt instructions, which also leaves instructions missing",
+    request: { primitive: "noul", state: "Hello", questions: { q: { instruction: "Is it?" } } },
+    error: `Question "q" has an unknown field "instruction". It can only contain "instructions", and "criteria".`,
+    detail: "questions.q.instruction",
+  },
+  {
+    name: "a type field in a question without instructions, with the primitive hint",
+    request: { primitive: "noul", state: "Hello", questions: { q: { type: "noul" } } },
+    error: `Question "q" has an unknown field "type". It can only contain "instructions", and "criteria". The primitive is set once, with "primitive" at the top of the request.`,
+    detail: "questions.q.type",
+  },
+  {
+    name: "an unknown Noul criteria field with a broken description",
+    request: {
+      primitive: "noul",
+      state: "Hello",
+      questions: { q: { instructions: "Is it?", criteria: { yes: "It is.", true: 5 } } },
+    },
+    error: `The "criteria" of question "q" has an unknown field "yes". It can only contain "true", and "false".`,
+    detail: "questions.q.criteria.yes",
+  },
+  {
+    name: "an unknown top-level field with an unknown question field",
+    request: { primitive: "noul", stat: "Hello", questions: { q: { instruction: "Is it?" } } },
+    error: `The request has an unknown field "stat". It can only contain "primitive", "state", "criteria", and "questions".`,
+    detail: "stat",
+  },
+  {
+    name: "a broken state before an unknown question field",
+    request: { primitive: "noul", state: 5, questions: { q: { instruction: "Is it?" } } },
+    error: `"state" must be text, an object, or a list, not a number.`,
+    detail: "state",
+  },
+];
+
+/** A blank key is reported at its record before anything about its value. */
+const blankKeyCases: InvalidCase[] = [
+  {
+    name: "an empty question id whose question is not an object",
+    request: { primitive: "noul", state: "Hello", questions: { "": 5 } },
+    error: `Every question needs a non-empty id.`,
+    detail: "questions",
+  },
+  {
+    name: "a broken question before an empty question id",
+    request: { primitive: "noul", state: "Hello", questions: { a: 5, "": question } },
+    error: `Question "a" must be an object with "instructions" and optional "criteria", not a number.`,
+    detail: "questions.a",
+  },
+  {
+    name: "an empty option name whose description is a number",
+    request: {
+      primitive: "choice",
+      state: "Hello",
+      criteria: { "": 5, cold: null },
+      questions: { q: question },
+    },
+    error: `The default "criteria" has an option with an empty name. Give it a name.`,
+    detail: "criteria",
+  },
+  {
+    name: "an empty option name in too few options",
+    request: {
+      primitive: "choice",
+      state: "Hello",
+      criteria: { "": null },
+      questions: { q: question },
+    },
+    error: `The default "criteria" needs at least 2 options to choose between. It has 1.`,
+    detail: "criteria",
+  },
+];
+
+/** Whatever a provider's minimum, a Score question needs two levels. */
+const scoreFloorCases: InvalidCase[] = [
+  {
+    name: "one level when scoreLevels.min is 1",
+    request: { primitive: "score", state: "Hello", criteria: ["Cold"], questions: { q: question } },
+    capabilities: { ...typesafe, scoreLevels: { min: 1, max: 10 } },
+    error: `The default "criteria" needs at least 2 levels to score between.`,
+    detail: "criteria",
+  },
+  {
+    name: "no levels when scoreLevels.min is 0",
+    request: { primitive: "score", state: "Hello", criteria: [], questions: { q: question } },
+    capabilities: { ...typesafe, scoreLevels: { min: 0 } },
+    error: `The default "criteria" needs at least 2 levels to score between.`,
+    detail: "criteria",
+  },
+];
+
+/** An explicit `undefined` inside a list or as an option's description is still refused. */
+const undefinedValueCases: InvalidCase[] = [
+  {
+    name: "an undefined criteria on a Choice question with no default",
+    request: {
+      primitive: "choice",
+      state: "Hello",
+      questions: { q: { instructions: "Which?", criteria: undefined } },
+    },
+    error: `Question "q" has no criteria. Add "criteria" with its options to the question, or a default "criteria" at the top of the request.`,
+    detail: "questions.q.criteria",
+  },
+  {
+    name: "an undefined level",
+    request: {
+      primitive: "score",
+      state: "Hello",
+      criteria: ["Cold", undefined, "Hot"],
+      questions: { q: question },
+    },
+    error: `Level 1 in The default "criteria" must be text, an object, a list, or null, not missing.`,
+    detail: "criteria.1",
+  },
+  {
+    name: "an undefined option description",
+    request: {
+      primitive: "choice",
+      state: "Hello",
+      criteria: { a: undefined, b: null },
+      questions: { q: question },
+    },
+    error: `The description of option "a" in The default "criteria" must be text, an object, a list, or null, not missing.`,
+    detail: "criteria.a",
+  },
+];
+
+describe("validateDecisionRequest keeps the order the hand-written validator reported problems in", () => {
+  it.each([
+    ...unknownFieldFirstCases,
+    ...blankKeyCases,
+    ...scoreFloorCases,
+    ...undefinedValueCases,
+  ])("rejects $name", (testCase) => {
+    expect(validateDecisionRequest(testCase.request, testCase.capabilities ?? typesafe)).toEqual(
+      expectedFailure(testCase),
+    );
+  });
+});
+
+/** A list with a hole at index 1, as only a request built in memory can be. */
+function sparseLevels(): unknown[] {
+  const levels: unknown[] = ["Cold"];
+  levels[2] = "Hot";
+  return levels;
+}
+
+describe("validateDecisionRequest treats a field set to undefined as absent", () => {
+  it.each([
+    {
+      name: "an undefined default and question criteria on a Noul request",
+      request: {
+        primitive: "noul",
+        state: "Hello",
+        criteria: undefined,
+        questions: { q: { instructions: "Is it?", criteria: undefined } },
+      },
+      value: { primitive: "noul", state: "Hello", questions: { q: { instructions: "Is it?" } } },
+    },
+    {
+      name: "an undefined Noul description",
+      request: {
+        primitive: "noul",
+        state: "Hello",
+        questions: { q: { instructions: "Is it?", criteria: { true: undefined, false: "No." } } },
+      },
+      value: {
+        primitive: "noul",
+        state: "Hello",
+        questions: { q: { instructions: "Is it?", criteria: { false: "No." } } },
+      },
+    },
+    {
+      name: "an undefined default criteria on a Choice request",
+      request: {
+        primitive: "choice",
+        state: "Hello",
+        criteria: undefined,
+        questions: { q: { instructions: "Which?", criteria: { a: null, b: null } } },
+      },
+      value: {
+        primitive: "choice",
+        state: "Hello",
+        questions: { q: { instructions: "Which?", criteria: { a: null, b: null } } },
+      },
+    },
+    {
+      name: "an undefined question criteria under a Score default",
+      request: {
+        primitive: "score",
+        state: "Hello",
+        criteria: ["Cold", "Hot"],
+        questions: { q: { instructions: "How warm?", criteria: undefined } },
+      },
+      value: {
+        primitive: "score",
+        state: "Hello",
+        criteria: ["Cold", "Hot"],
+        questions: { q: { instructions: "How warm?" } },
+      },
+    },
+  ])("accepts $name and leaves the field out", ({ request, value }) => {
+    expect(validateDecisionRequest(request, typesafe)).toStrictEqual({ ok: true, value });
+  });
+
+  it("accepts a hole in a score list as an undescribed level", () => {
+    // The hand-written validator returned `undefined` in the hole; the schema returns
+    // `null`, the type's own value for an undescribed level, which is what JSON sends.
+    expect(
+      validateDecisionRequest(
+        {
+          primitive: "score",
+          state: "Hello",
+          criteria: sparseLevels(),
+          questions: { q: question },
+        },
+        typesafe,
+      ),
+    ).toStrictEqual({
+      ok: true,
+      value: {
+        primitive: "score",
+        state: "Hello",
+        criteria: ["Cold", null, "Hot"],
+        questions: { q: question },
+      },
+    });
+  });
+});
+
+describe("validateDecisionRequest builds one schema per set of limits", () => {
+  it("applies a limit changed after the first call", () => {
     const capabilities: ProviderCapabilities = { ...typesafe, scoreLevels: { min: 2, max: 10 } };
     expect(validateDecisionRequest(scoreOf(11), capabilities).ok).toBe(false);
 
-    // The cached schema read the limit when it was built, so a later change is not seen.
     capabilities.scoreLevels = { min: 2 };
-    expect(validateDecisionRequest(scoreOf(11), capabilities).ok).toBe(false);
+    expect(validateDecisionRequest(scoreOf(11), capabilities).ok).toBe(true);
+  });
 
-    // A new object with the same values gets its own schema.
-    expect(validateDecisionRequest(scoreOf(11), { ...capabilities }).ok).toBe(true);
+  it("reuses one schema for equal limits and builds another for different ones", () => {
+    const schema = requestSchemaFor(typesafe);
+    expect(requestSchemaFor({ ...typesafe })).toBe(schema);
+    expect(requestSchemaFor(PROVIDERS.openai.capabilities)).toBe(schema);
+    expect(requestSchemaFor(subq)).not.toBe(schema);
+  });
+});
+
+describe("validateDecisionRequest on a deeply nested request", () => {
+  it("reports that it is too deep instead of throwing", () => {
+    // Built in a loop, so building it needs no stack.
+    let state: unknown = "leaf";
+    for (let depth = 0; depth < 100_000; depth++) state = [state];
+    expect(
+      validateDecisionRequest({ primitive: "noul", state, questions: { q: question } }, typesafe),
+    ).toEqual({
+      ok: false,
+      error: `The request is nested too deeply to check. Use fewer levels of lists and objects inside each other.`,
+    });
   });
 });

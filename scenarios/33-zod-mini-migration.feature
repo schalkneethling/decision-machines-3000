@@ -27,10 +27,44 @@ Feature: The contract, the request validator, and the browser's response checks 
     When the migrated validator checks it
     Then the result is { ok: true, value } with the request unchanged
 
-  Scenario: One schema is built per capabilities object
-    Given a capabilities object
-    When two requests are validated with it
-    Then the request schema is built once and reused
+  Scenario: One schema is built per set of limits
+    Given two capabilities objects with the same limits
+    When requests are validated with each
+    Then both use the same request schema
+    And a limit changed after the first call takes effect on the next one
+
+  Scenario Outline: An unknown field is reported before the field it was meant to be
+    Given a request with <typo>
+    When the migrated validator checks it
+    Then the message names the unknown field, as the hand-written validator did
+
+    Examples:
+      | typo                                         |
+      | "statee" instead of "state"                  |
+      | "question" instead of "questions"            |
+      | "primitve" instead of "primitive"            |
+      | "instruction" instead of "instructions"      |
+      | "type" in a question, with the primitive hint |
+
+  Scenario: A field set to undefined counts as absent
+    Given a request built in memory whose optional criteria are undefined
+    When the migrated validator checks it
+    Then it is accepted and the undefined fields are left out
+
+  Scenario: An empty question id is named before its question
+    Given the questions { "": 5 }
+    When the migrated validator checks it
+    Then validation fails with "Every question needs a non-empty id." at "questions"
+
+  Scenario: A Score question needs two levels whatever the provider's minimum
+    Given capabilities with scoreLevels.min = 1
+    When a request has one level
+    Then validation fails with "needs at least 2 levels to score between."
+
+  Scenario: A request nested too deeply is refused, not crashed on
+    Given a state nested 100,000 lists deep
+    When the migrated validator checks it
+    Then validation fails with "The request is nested too deeply to check."
 
   Scenario: The inferred types equal the hand-written contract
     Given the spike's compile-time assertions

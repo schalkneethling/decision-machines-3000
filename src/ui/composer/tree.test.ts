@@ -33,6 +33,7 @@ function mount(request: ValidDecisionRequest): Harness {
   harness.composer = createComposer({
     prefix: "test",
     model: toViewModel(request),
+    capabilities: DEFAULT_PROVIDER.capabilities,
     announce: (message) => announcements.push(message),
     onChange: () => {
       harness.changes += 1;
@@ -259,7 +260,7 @@ describe("add, remove, and move", () => {
     harness.get<HTMLButtonElement>(control(second!, "remove")).click();
     expect(document.activeElement).toBe(harness.get(control(first!, "description")));
     expect(harness.get("#test-shared-issue").textContent).toBe(
-      "Shared levels need at least two levels. Add one more.",
+      "Shared levels need at least 2 levels. Add one more.",
     );
   });
 

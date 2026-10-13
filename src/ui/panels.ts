@@ -2,6 +2,7 @@ import type { DecisionSuccess, Primitive } from "../decision/contract.ts";
 import { examples } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
+import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../decision/validate.ts";
 import { askDecision, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
@@ -19,6 +20,8 @@ const VIEWS = ["tree", "json"] as const satisfies readonly View[];
 
 type Panel = {
   primitive: Primitive;
+  /** The limits this panel validates against. */
+  capabilities: ProviderCapabilities;
   form: HTMLFormElement;
   field: HTMLTextAreaElement;
   error: HTMLElement;
@@ -68,7 +71,7 @@ function setStatus(panel: Panel, message: string, tone: "note" | "alert" = "note
   panel.status.dataset.tone = tone;
 }
 
-function setupPanel(form: HTMLFormElement): Panel {
+function setupPanel(form: HTMLFormElement, capabilities: ProviderCapabilities): Panel {
   const primitive = form.dataset.primitive;
   if (!isPrimitive(primitive)) {
     throw new Error(`Unknown primitive "${primitive ?? ""}" on a panel form.`);
@@ -83,6 +86,7 @@ function setupPanel(form: HTMLFormElement): Panel {
   const composer = createComposer({
     prefix: `${primitive}-tree`,
     model: toViewModel(example),
+    capabilities,
     announce: (message) => {
       if (panel) setStatus(panel, message);
     },
@@ -96,6 +100,7 @@ function setupPanel(form: HTMLFormElement): Panel {
 
   panel = {
     primitive,
+    capabilities,
     form,
     field: required(form, "textarea.request-field", HTMLTextAreaElement),
     error: required(form, ".field-error", HTMLElement),
@@ -144,7 +149,7 @@ function readJson(panel: Panel): ValidDecisionRequest | undefined {
     return undefined;
   }
 
-  const validation = validateDecisionRequest(parsed, DEFAULT_PROVIDER.capabilities);
+  const validation = validateDecisionRequest(parsed, panel.capabilities);
   if (!validation.ok) {
     const where = validation.detail ? ` Path: ${validation.detail}.` : "";
     showFieldError(panel, `${validation.error}${where}`);
@@ -221,7 +226,7 @@ function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } 
   }
 
   // The tree found nothing wrong; the shared validator has the final word.
-  const validation = validateDecisionRequest(panel.request, DEFAULT_PROVIDER.capabilities);
+  const validation = validateDecisionRequest(panel.request, panel.capabilities);
   if (!validation.ok) {
     const where = validation.detail ? ` Path: ${validation.detail}.` : "";
     setStatus(panel, `${validation.error}${where}`, "alert");
@@ -264,8 +269,10 @@ export type PanelOptions = {
 /** Fills each panel with its example, wires the Tree and JSON views, and wires Run to the shared readout. */
 export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): void {
   const readout = required(root, "#readout-body", HTMLElement);
-  const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map(
-    setupPanel,
+  // The one place the panels learn which provider's limits apply.
+  const capabilities = DEFAULT_PROVIDER.capabilities;
+  const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
+    setupPanel(form, capabilities),
   );
   let running = false;
 
@@ -325,7 +332,7 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
     panel.field.addEventListener("input", () => {
       const parsed = tryParse(panel.field.value);
       const validation = parsed.ok
-        ? validateDecisionRequest(parsed.value, DEFAULT_PROVIDER.capabilities)
+        ? validateDecisionRequest(parsed.value, panel.capabilities)
         : undefined;
       if (validation?.ok) {
         panel.request = validation.value;

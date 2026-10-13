@@ -2,6 +2,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { DecisionFailure, DecisionSuccess } from "../decision/contract.ts";
 import { choiceExample, noulExample, scoreExample } from "../decision/examples.ts";
+import { validateDecisionRequest } from "../decision/validate.ts";
+import { DEFAULT_PROVIDER, PROVIDERS } from "../providers/catalog.ts";
 import { isDecisionResponse } from "./client.ts";
 import { choiceResponse } from "./fixtures/choice.ts";
 import { noulResponse } from "./fixtures/noul.ts";
@@ -11,6 +13,7 @@ import {
   formatProbability,
   metadataSentence,
   questionText,
+  renderError,
   renderLoading,
   renderResponse,
   renderUnreachable,
@@ -187,18 +190,58 @@ describe("status renderers", () => {
 });
 
 describe("provider-neutral copy", () => {
+  // Every word that names a provider: each display name and each word in it,
+  // matched case-sensitively so the lowercase model id "jev-1.13.0" is not flagged.
+  const providerWords = [
+    ...new Set(
+      Object.values(PROVIDERS).flatMap(({ displayName }) => [
+        displayName,
+        ...displayName.split(" "),
+      ]),
+    ),
+  ];
+
+  /** Everything a reader or a screen reader can get from an element: text, titles, and labels. */
+  function visibleStrings(root: Element): string[] {
+    const withAttributes = [root, ...root.querySelectorAll("[title], [aria-label]")];
+    return [
+      root.textContent ?? "",
+      ...withAttributes.flatMap((element) => [
+        element.getAttribute("title") ?? "",
+        element.getAttribute("aria-label") ?? "",
+      ]),
+    ];
+  }
+
+  it("derives the words to look for from the catalog", () => {
+    expect(providerWords).toEqual(
+      expect.arrayContaining(["TypeSafe", "SubQ", "OpenAI", "Jev", "TypeSafe Jev"]),
+    );
+  });
+
   it("names no provider in any state rendered by this module", () => {
     const model = { model: "test-model" };
+    const invalid = validateDecisionRequest({ primitive: "rank" }, DEFAULT_PROVIDER.capabilities);
+    if (invalid.ok) throw new Error("Expected the request to be invalid.");
+    const refusal: DecisionSuccess<"noul"> = {
+      ...noulResponse,
+      ...model,
+      answers: { recommends: { type: "refusal" } },
+    };
     const rendered = [
       renderLoading(),
       renderResponse(noulExample, { ...noulResponse, ...model }),
       renderResponse(choiceExample, { ...choiceResponse, ...model }),
       renderResponse(scoreExample, { ...scoreResponse, ...model }),
+      renderResponse(noulExample, refusal),
+      renderError(invalid.error, invalid.detail),
       renderUnreachable("Failed to fetch"),
-    ].map((element) => element.textContent ?? "");
+    ].flatMap(visibleStrings);
     rendered.push(describeJsonError("{", new SyntaxError("Unexpected end of JSON input")));
     for (const text of rendered) {
-      expect(text).not.toMatch(/Jev|TypeSafe/);
+      for (const word of providerWords) {
+        expect(text).not.toContain(word);
+      }
     }
   });
 });

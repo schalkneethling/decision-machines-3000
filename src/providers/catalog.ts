@@ -7,7 +7,11 @@
  * place a provider's name belongs: everything the UI renders takes the name
  * from `displayName`.
  *
- * Limits come from the live probes recorded in `docs/spikes/provider-probes.md`.
+ * Where each limit comes from is noted beside it. Score levels (2 to 10) and
+ * SubQ's question-name limit were measured by the live probes in
+ * `docs/spikes/provider-probes.md`. The 255 choice options and SubQ's four
+ * images come from the providers' documentation and were not probed. The image
+ * byte caps and OpenAI's image count are this project's own limits (issue #15).
  */
 
 export type ProviderId = "typesafe" | "subq" | "openai";
@@ -26,14 +30,14 @@ export type ImageCapabilities = {
   maxBytesPerImage: number;
   /** The most bytes all decoded images in one request may hold together. */
   maxBytesPerRequest: number;
-  mediaTypes: readonly string[];
+  readonly mediaTypes: readonly string[];
 };
 
 export type ProviderCapabilities = {
   /** How many options a Choice question may offer. */
-  choiceOptions: CountRange;
+  choiceOptions: Readonly<CountRange>;
   /** How many levels a Score question may have. */
-  scoreLevels: CountRange;
+  scoreLevels: Readonly<CountRange>;
   /** The longest question id, in characters. Undefined when the provider sets no limit. */
   questionNameMaxLength?: number;
   /** Image limits, or `false` when the provider accepts no images. */
@@ -58,25 +62,31 @@ const MIB = 1024 * 1024;
 
 /**
  * This project's own image caps for SubQ and OpenAI: 2 MiB per image and 2 MiB
- * per request. They sit below SubQ's documented 4 MiB per image and 8 MiB total.
+ * per request (issue #15). They sit below SubQ's documented 4 MiB per image
+ * and 8 MiB total. The descriptors below refer to these two constants.
  */
 export const MAX_IMAGE_BYTES = 2 * MIB;
 export const MAX_IMAGE_REQUEST_BYTES = 2 * MIB;
 
-/** SubQ's documented limit is four images per request. */
+/** SubQ's documentation states four images per request. This was not probed. */
 const SUBQ_MAX_IMAGES = 4;
 
-/** This project's own choice for OpenAI, which documents no count of its own. */
+/** This project's own choice for OpenAI (issue #15); OpenAI's documentation gives no count. */
 const OPENAI_MAX_IMAGES = 8;
 
+/**
+ * The media types the project accepts. The probes sent PNG and JPEG only, so
+ * WebP rests on the providers' documentation.
+ */
 const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 
-/** Every probed provider accepts 255 options in a Choice question. */
-const CHOICE_OPTIONS: CountRange = { min: 2, max: 255 };
+/** The providers' documentation states 255 options in a Choice question. This was not probed. */
+const CHOICE_OPTIONS: Readonly<CountRange> = Object.freeze({ min: 2, max: 255 });
 
-/** Every probed provider accepts 2 to 10 levels in a Score question. */
-const SCORE_LEVELS: CountRange = { min: 2, max: 10 };
+/** Probed: 2 and 10 levels were accepted and 11 was refused by all three providers. */
+const SCORE_LEVELS: Readonly<CountRange> = Object.freeze({ min: 2, max: 10 });
 
+const OPENAI_MODEL = "gpt-6-luna";
 export const typesafe: ProviderDescriptor = {
   id: "typesafe",
   displayName: "TypeSafe Jev",
@@ -110,8 +120,8 @@ export const subq: ProviderDescriptor = {
 export const openai: ProviderDescriptor = {
   id: "openai",
   displayName: "OpenAI Decisions",
-  model: "gpt-6-luna",
-  warmPath: "/v1/models/gpt-6-luna",
+  model: OPENAI_MODEL,
+  warmPath: `/v1/models/${OPENAI_MODEL}`,
   capabilities: {
     choiceOptions: CHOICE_OPTIONS,
     scoreLevels: SCORE_LEVELS,
@@ -124,7 +134,14 @@ export const openai: ProviderDescriptor = {
   },
 };
 
-export const PROVIDERS: Record<ProviderId, ProviderDescriptor> = { typesafe, subq, openai };
+export const PROVIDERS: Readonly<Record<ProviderId, ProviderDescriptor>> = {
+  typesafe,
+  subq,
+  openai,
+};
+
+/** The order providers are listed in, set here so it never depends on object key order. */
+export const PROVIDER_ORDER: readonly ProviderId[] = ["typesafe", "subq", "openai"];
 
 /** The provider every request uses until the provider select lands. */
 export const DEFAULT_PROVIDER: ProviderDescriptor = typesafe;

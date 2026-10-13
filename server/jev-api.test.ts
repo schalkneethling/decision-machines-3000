@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Primitive } from "../src/decision/contract.ts";
 import { examples } from "../src/decision/examples.ts";
-import { jevApiPlugin } from "./jev-api.ts";
+import { jevApiPlugin, toContractAnswers } from "./jev-api.ts";
 
 /*
  * Drives the real middleware, validation included, with the SDK call stubbed so
@@ -129,5 +129,16 @@ describe("POST /api/jev", () => {
       error: expect.stringContaining('Set "primitive" to'),
       detail: "primitive",
     });
+  });
+});
+
+describe("toContractAnswers", () => {
+  it("passes a refusal through", () => {
+    expect(toContractAnswers({ q: { type: "refusal" } })).toEqual({ q: { type: "refusal" } });
+  });
+
+  it("fails loudly on an answer type it does not know", () => {
+    const odd = JSON.parse('{"q": {"type": "mystery"}}');
+    expect(() => toContractAnswers(odd)).toThrow(/unknown answer type for question "q"/);
   });
 });

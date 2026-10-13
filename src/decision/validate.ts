@@ -9,6 +9,7 @@
  */
 
 import { KEEP_ALIVE_SECONDS } from "./contract.ts";
+import { countOf } from "./count.ts";
 import { isPlainObject } from "./json.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type {
@@ -95,6 +96,12 @@ function describeKind(value: unknown): string {
   if (typeof value === "boolean") return `${value}`;
   if (typeof value === "object") return "an object";
   return `a ${typeof value}`;
+}
+
+/** The first `max` characters of `text`, with an ellipsis when something was cut. */
+function truncate(text: string, max: number): string {
+  const characters = Array.from(text);
+  return characters.length <= max ? text : `${characters.slice(0, max).join("")}…`;
 }
 
 function quoteList(items: readonly string[]): string {
@@ -240,7 +247,7 @@ function readChoiceCriteria(
   const options = Object.keys(value);
   if (options.length < min) {
     throw new ValidationError(
-      `${where} needs at least ${min} options to choose between. It has ${options.length}.`,
+      `${where} needs at least ${countOf(min, "option")} to choose between. It has ${options.length}.`,
       path,
     );
   }
@@ -275,7 +282,7 @@ function readScoreCriteria(
   }
   if (value.length < min) {
     throw new ValidationError(
-      `${where} needs at least ${min} levels to score between. It has ${value.length}.`,
+      `${where} needs at least ${countOf(min, "level")} to score between. It has ${value.length}.`,
       path,
     );
   }
@@ -342,9 +349,11 @@ function readRequest<P extends Primitive>(
       throw new ValidationError(`Every question needs a non-empty id.`, "questions");
     }
     const { questionNameMaxLength } = capabilities;
-    if (questionNameMaxLength !== undefined && questionId.length > questionNameMaxLength) {
+    // Count characters, not UTF-16 units, so an emoji is one character.
+    const idLength = Array.from(questionId).length;
+    if (questionNameMaxLength !== undefined && idLength > questionNameMaxLength) {
       throw new ValidationError(
-        `Question id "${questionId}" is ${questionId.length} characters long. Use at most ${questionNameMaxLength}.`,
+        `Question id "${truncate(questionId, 40)}" is ${idLength} characters long. Use at most ${questionNameMaxLength}.`,
         path,
       );
     }

@@ -20,7 +20,8 @@ import type {
   ScoreCriteria,
 } from "../../decision/contract.ts";
 import { isPlainObject } from "../../decision/json.ts";
-import { DEFAULT_PROVIDER } from "../../providers/catalog.ts";
+import { countOf } from "../../decision/count.ts";
+import type { ProviderCapabilities } from "../../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../../decision/validate.ts";
 
 /** A criteria description; `null` leaves the outcome undescribed. */
@@ -427,17 +428,26 @@ function isBlank(value: Content): boolean {
   return typeof value === "string" && value.trim() === "";
 }
 
-const { choiceOptions, scoreLevels: scoreLevelRange } = DEFAULT_PROVIDER.capabilities;
+/** "Add two." or "Add one more.": how many entries a list still needs to reach its minimum. */
+function addHint(have: number, min: number): string {
+  const missing = min - have;
+  return missing === 1 ? "one more" : `${missing} more`;
+}
 
-function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string): Issue[] {
+function criteriaIssues(
+  criteria: CriteriaModel,
+  ownerKey: string,
+  where: string,
+  { choiceOptions, scoreLevels }: ProviderCapabilities,
+): Issue[] {
   const issues: Issue[] = [];
   if (criteria.kind === "choice") {
     const { options } = criteria;
-    if (options.length < 2) {
+    if (options.length < choiceOptions.min) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} need at least two options. Add ${options.length === 0 ? "two" : "one more"}.`,
+        message: `${where} need at least ${countOf(choiceOptions.min, "option")}. Add ${addHint(options.length, choiceOptions.min)}.`,
       });
     }
     if (choiceOptions.max !== undefined && options.length > choiceOptions.max) {
@@ -469,18 +479,18 @@ function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string
   }
   if (criteria.kind === "score") {
     const { levels } = criteria;
-    if (levels.length < 2) {
+    if (levels.length < scoreLevels.min) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} need at least two levels. Add ${levels.length === 0 ? "two" : "one more"}.`,
+        message: `${where} need at least ${countOf(scoreLevels.min, "level")}. Add ${addHint(levels.length, scoreLevels.min)}.`,
       });
     }
-    if (scoreLevelRange.max !== undefined && levels.length > scoreLevelRange.max) {
+    if (scoreLevels.max !== undefined && levels.length > scoreLevels.max) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${levels.length} levels. Use at most ${scoreLevelRange.max}. Remove ${levels.length - scoreLevelRange.max}.`,
+        message: `${where} have ${levels.length} levels. Use at most ${scoreLevels.max}. Remove ${levels.length - scoreLevels.max}.`,
       });
     }
   }
@@ -522,7 +532,7 @@ function fanOutIssues(question: QuestionModel, state: Content): Issue[] {
 }
 
 /** Every problem in the model, in tree order, so the first one is the first a reader meets. */
-export function findIssues(model: ComposerModel): Issue[] {
+export function findIssues(model: ComposerModel, capabilities: ProviderCapabilities): Issue[] {
   const issues: Issue[] = [];
 
   if (isBlank(model.state)) {
@@ -535,7 +545,7 @@ export function findIssues(model: ComposerModel): Issue[] {
 
   const noun = model.primitive === "score" ? "levels" : "options";
   if (model.criteria !== undefined) {
-    issues.push(...criteriaIssues(model.criteria, SHARED_KEY, `Shared ${noun}`));
+    issues.push(...criteriaIssues(model.criteria, SHARED_KEY, `Shared ${noun}`, capabilities));
   }
 
   if (model.questions.length === 0) {
@@ -585,7 +595,9 @@ export function findIssues(model: ComposerModel): Issue[] {
     issues.push(...fanOutIssues(question, model.state));
 
     if (question.criteria !== undefined) {
-      issues.push(...criteriaIssues(question.criteria, question.key, `This question's ${noun}`));
+      issues.push(
+        ...criteriaIssues(question.criteria, question.key, `This question's ${noun}`, capabilities),
+      );
     } else if (model.primitive !== "noul" && model.criteria === undefined) {
       issues.push({
         key: question.key,

@@ -41,7 +41,7 @@ function levels(criteria: CriteriaModel | undefined) {
 }
 
 function messages(model: ComposerModel): string[] {
-  return findIssues(model).map((issue) => issue.message);
+  return findIssues(model, DEFAULT_PROVIDER.capabilities).map((issue) => issue.message);
 }
 
 describe("round trip", () => {
@@ -64,7 +64,7 @@ describe("round trip", () => {
   );
 
   it.each(Object.entries(examples))("finds no issues in the %s example", (_name, example) => {
-    expect(findIssues(toViewModel(example))).toEqual([]);
+    expect(findIssues(toViewModel(example), DEFAULT_PROVIDER.capabilities)).toEqual([]);
   });
 
   it("gives every row a unique key", () => {
@@ -238,7 +238,7 @@ describe("question ids", () => {
   it("flags every question that shares an id", () => {
     const model = toViewModel(noulExample);
     question(model, 1).id = "recommends";
-    const issues = findIssues(model);
+    const issues = findIssues(model, DEFAULT_PROVIDER.capabilities);
     expect(issues.map((issue) => issue.key)).toEqual([
       question(model, 0).key,
       question(model, 1).key,
@@ -251,7 +251,10 @@ describe("question ids", () => {
     const plain = addQuestion(model);
     plain.id = "film_2";
     plain.instructions = "Is this a film?";
-    expect(findIssues(model).map((issue) => issue.key)).toEqual([question(model).key, plain.key]);
+    expect(findIssues(model, DEFAULT_PROVIDER.capabilities).map((issue) => issue.key)).toEqual([
+      question(model).key,
+      plain.key,
+    ]);
   });
 
   it("gives an added question an unused id", () => {
@@ -275,14 +278,14 @@ describe("options and levels", () => {
     ]);
   });
 
-  it("needs at least two options and two levels", () => {
+  it("needs at least 2 options and 2 levels", () => {
     const choice = toViewModel(choiceExample);
     options(choice.criteria).options.splice(1);
-    expect(messages(choice)).toEqual(["Shared options need at least two options. Add one more."]);
+    expect(messages(choice)).toEqual(["Shared options need at least 2 options. Add one more."]);
 
     const score = toViewModel(scoreExample);
     levels(score.criteria).levels.splice(0);
-    expect(messages(score)).toEqual(["Shared levels need at least two levels. Add two."]);
+    expect(messages(score)).toEqual(["Shared levels need at least 2 levels. Add 2 more."]);
   });
 
   it("moves and removes levels by key", () => {
@@ -304,7 +307,10 @@ describe("state and instructions", () => {
     const model = toViewModel(noulExample);
     model.state = "  ";
     question(model, 2).instructions = "";
-    expect(findIssues(model).map((issue) => issue.field)).toEqual(["state", "instructions"]);
+    expect(findIssues(model, DEFAULT_PROVIDER.capabilities).map((issue) => issue.field)).toEqual([
+      "state",
+      "instructions",
+    ]);
   });
 
   it("reads state as JSON when it is an object or a list, otherwise as text", () => {

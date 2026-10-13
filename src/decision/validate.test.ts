@@ -339,3 +339,63 @@ describe("validateDecisionRequest limits taken from capabilities", () => {
     expect(validateDecisionRequest(longIdRequest(101), typesafe).ok).toBe(true);
   });
 });
+
+describe("validateDecisionRequest boundaries", () => {
+  const { capabilities } = DEFAULT_PROVIDER;
+
+  function scoreOf(count: number) {
+    return {
+      primitive: "score",
+      state: "Hello",
+      criteria: Array.from({ length: count }, (_, index) => `Level ${index}`),
+      questions: { warmth: { instructions: "How warm is it?" } },
+    };
+  }
+
+  function choiceOf(count: number) {
+    return {
+      primitive: "choice",
+      state: "Hello",
+      criteria: Object.fromEntries(
+        Array.from({ length: count }, (_, index) => [`o${index}`, null]),
+      ),
+      questions: { pick: { instructions: "Which?" } },
+    };
+  }
+
+  it("accepts exactly 10 levels and refuses 11", () => {
+    expect(validateDecisionRequest(scoreOf(10), capabilities).ok).toBe(true);
+    expect(validateDecisionRequest(scoreOf(11), capabilities).ok).toBe(false);
+  });
+
+  it("accepts exactly 255 options and refuses 256", () => {
+    expect(validateDecisionRequest(choiceOf(255), capabilities).ok).toBe(true);
+    expect(validateDecisionRequest(choiceOf(256), capabilities).ok).toBe(false);
+  });
+
+  it("names the minimum from the capabilities when there are too few levels", () => {
+    const strict: ProviderCapabilities = { ...capabilities, scoreLevels: { min: 3, max: 10 } };
+    const failure = expectFailure(validateDecisionRequest(scoreOf(2), strict));
+    expect(failure.error).toMatch(/at least 3 levels/);
+  });
+
+  it("uses the singular for a minimum of 1", () => {
+    const lenient: ProviderCapabilities = { ...capabilities, choiceOptions: { min: 1, max: 255 } };
+    const failure = expectFailure(validateDecisionRequest(choiceOf(0), lenient));
+    expect(failure.error).toMatch(/at least 1 option to/);
+  });
+
+  it("counts an emoji as one character in a question id", () => {
+    const id = "\u{1F600}".repeat(60);
+    const request = { ...examples.noul, questions: { [id]: { instructions: "Is it?" } } };
+    expect(validateDecisionRequest(request, PROVIDERS.subq.capabilities).ok).toBe(true);
+  });
+
+  it("truncates a long question id echoed in the error", () => {
+    const id = "q".repeat(150);
+    const request = { ...examples.noul, questions: { [id]: { instructions: "Is it?" } } };
+    const failure = expectFailure(validateDecisionRequest(request, PROVIDERS.subq.capabilities));
+    expect(failure.error).toContain(`"${"q".repeat(40)}…"`);
+    expect(failure.error).toContain("150 characters");
+  });
+});

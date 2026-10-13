@@ -93,5 +93,5 @@ Feature: Compare Valibot and Zod Mini on the project's real data shapes and choo
   Scenario: The comparison code stays out of src and the app build, and the checks pass
     When "vp check", "vp test", and "vp run build" run
     Then all three pass
-    And "git diff --stat origin/main -- src server" shows no changes
+    And, on the spike branch, "git diff --stat $(git merge-base origin/main HEAD) -- src server" shows no changes
     And the built dist/assets/index-*.js contains neither "valibot" nor "zod"

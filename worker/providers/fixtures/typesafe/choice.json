@@ -1,0 +1,52 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.typesafe.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "model": "jev-latest",
+      "questions": {
+        "queue": {
+          "type": "choice",
+          "instructions": "Which team should own this chat?",
+          "criteria": {
+            "nurse_line": "Needs a nurse to assess symptoms today",
+            "primary_care": "Book with the patient's own doctor",
+            "pharmacy": "Refill or medication question only",
+            "front_desk": null
+          }
+        }
+      }
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "queue": {
+        "type": "choice",
+        "choice": "nurse_line",
+        "confidence": 1,
+        "probabilities": {
+          "nurse_line": 1,
+          "primary_care": 0,
+          "pharmacy": 0,
+          "front_desk": 0
+        }
+      }
+    },
+    "usage": {
+      "input_tokens": 375,
+      "output_tokens": 55
+    }
+  },
+  "latencyMs": 539,
+  "responseBytes": 233
+}

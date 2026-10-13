@@ -1,0 +1,84 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.subq.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "subq-snap-preview",
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": {
+        "escalate": {
+          "type": "noul",
+          "instructions": "Should a nurse see this chat before the patient books anything?",
+          "criteria": {
+            "true": "Breathing trouble, chest pain, or a flare of a known condition",
+            "false": "Stable symptoms the patient can book for themselves"
+          }
+        },
+        "queue": {
+          "type": "choice",
+          "instructions": "Which team should own this chat?",
+          "criteria": {
+            "nurse_line": "Needs a nurse to assess symptoms today",
+            "primary_care": "Book with the patient's own doctor",
+            "pharmacy": "Refill or medication question only",
+            "front_desk": null
+          }
+        },
+        "acuity": {
+          "type": "score",
+          "instructions": "How soon should someone respond?",
+          "criteria": ["Within a week", "Within a day", "Within an hour"]
+        }
+      }
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "model": "subq-snap-preview",
+    "answers": {
+      "escalate": {
+        "type": "noul",
+        "noul": 0.9503210186958313
+      },
+      "queue": {
+        "type": "choice",
+        "choice": "nurse_line",
+        "probabilities": {
+          "nurse_line": 0.9565181732177734,
+          "primary_care": 0.026082415133714676,
+          "pharmacy": 0.006210224702954292,
+          "front_desk": 0.01118919812142849
+        },
+        "confidence": 0.9420242309570312
+      },
+      "acuity": {
+        "type": "score",
+        "score": 1.379208505153656,
+        "legend": {
+          "0": "Within a week",
+          "1": "Within a day",
+          "2": "Within an hour"
+        },
+        "probabilities": {
+          "0": 0.03738556429743767,
+          "1": 0.5460203886032104,
+          "2": 0.4165940582752228
+        },
+        "confidence": 0.31903056614100933
+      }
+    },
+    "usage": {
+      "input_tokens": 260,
+      "output_tokens": 0
+    }
+  },
+  "latencyMs": 514,
+  "responseBytes": 616
+}

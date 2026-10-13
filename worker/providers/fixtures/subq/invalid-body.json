@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.subq.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "subq-snap-preview",
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": {
+        "queue": {
+          "type": "choice",
+          "instructions": "Which team should own this chat?"
+        }
+      }
+    }
+  },
+  "status": 422,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "detail": {
+      "error_type": "validation_error",
+      "message": "questions/queue/type: must be equal to constant; questions/queue: must have required property 'criteria'; questions/queue: must have required property 'criteria'; questions/queue: must match exactly one schema in oneOf"
+    }
+  },
+  "latencyMs": 262,
+  "responseBytes": 275
+}

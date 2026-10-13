@@ -1,0 +1,71 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "gpt-6-luna",
+      "input": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": [
+        {
+          "type": "score",
+          "name": "acuity",
+          "instructions": "How soon should someone respond? Level 0 is the least urgent.",
+          "levels": [
+            {
+              "label": "Level 0"
+            },
+            {
+              "label": "Level 1"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "openai-processing-ms": "136"
+  },
+  "body": {
+    "model": "gpt-6-luna",
+    "answers": [
+      {
+        "type": "score",
+        "name": "acuity",
+        "score": 0.97,
+        "probabilities": [
+          {
+            "value": 0,
+            "label": "Level 0",
+            "probability": 0.03
+          },
+          {
+            "value": 1,
+            "label": "Level 1",
+            "probability": 0.97
+          }
+        ],
+        "confidence": 0.94
+      }
+    ],
+    "usage": {
+      "input_tokens": 143,
+      "input_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 143
+    }
+  },
+  "latencyMs": 368,
+  "responseBytes": 393
+}

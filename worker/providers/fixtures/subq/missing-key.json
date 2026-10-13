@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.subq.ai/v1/systemone",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "none"
+    },
+    "body": {
+      "model": "subq-snap-preview",
+      "state": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": {
+        "escalate": {
+          "type": "noul",
+          "instructions": "Is this urgent?"
+        }
+      }
+    }
+  },
+  "status": 401,
+  "headers": {
+    "content-type": "application/json; charset=utf-8"
+  },
+  "body": {
+    "detail": {
+      "error_type": "authentication_error",
+      "message": "Missing API key. Provide it as `Authorization: Bearer sk-...` or the `X-API-Key` header."
+    }
+  },
+  "latencyMs": 258,
+  "responseBytes": 149
+}

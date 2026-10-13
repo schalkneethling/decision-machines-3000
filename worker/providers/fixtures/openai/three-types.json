@@ -1,0 +1,135 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/decisions",
+    "headers": {
+      "content-type": "application/json",
+      "authorization": "Bearer <redacted>"
+    },
+    "body": {
+      "model": "gpt-6-luna",
+      "input": "Patient with asthma reports a sore throat, fever since yesterday, and shortness of breath walking to the kitchen this morning.",
+      "questions": [
+        {
+          "type": "predicate",
+          "name": "escalate",
+          "instructions": "Should a nurse see this chat before the patient books anything?"
+        },
+        {
+          "type": "choice",
+          "name": "queue",
+          "instructions": "Which team should own this chat?",
+          "choices": [
+            {
+              "value": "nurse_line",
+              "description": "Needs a nurse to assess symptoms today"
+            },
+            {
+              "value": "primary_care",
+              "description": "Book with the patient's own doctor"
+            },
+            {
+              "value": "pharmacy",
+              "description": "Refill or medication question only"
+            },
+            {
+              "value": "front_desk"
+            }
+          ]
+        },
+        {
+          "type": "score",
+          "name": "acuity",
+          "instructions": "How soon should someone respond?",
+          "levels": [
+            {
+              "label": "Within a week"
+            },
+            {
+              "label": "Within a day"
+            },
+            {
+              "label": "Within an hour"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "openai-processing-ms": "1022"
+  },
+  "body": {
+    "model": "gpt-6-luna",
+    "answers": [
+      {
+        "type": "predicate",
+        "name": "escalate",
+        "probability": 0.98
+      },
+      {
+        "type": "choice",
+        "name": "queue",
+        "choice": "nurse_line",
+        "probabilities": [
+          {
+            "value": "nurse_line",
+            "probability": 1
+          },
+          {
+            "value": "primary_care",
+            "probability": 0
+          },
+          {
+            "value": "pharmacy",
+            "probability": 0
+          },
+          {
+            "value": "front_desk",
+            "probability": 0
+          }
+        ],
+        "confidence": 1
+      },
+      {
+        "type": "score",
+        "name": "acuity",
+        "score": 1.9,
+        "probabilities": [
+          {
+            "value": 0,
+            "label": "Within a week",
+            "probability": 0
+          },
+          {
+            "value": 1,
+            "label": "Within a day",
+            "probability": 0.1
+          },
+          {
+            "value": 2,
+            "label": "Within an hour",
+            "probability": 0.9
+          }
+        ],
+        "confidence": 0.85
+      }
+    ],
+    "usage": {
+      "input_tokens": 436,
+      "input_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 436
+    }
+  },
+  "latencyMs": 2088,
+  "responseBytes": 768
+}

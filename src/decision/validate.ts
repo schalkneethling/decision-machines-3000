@@ -1,37 +1,39 @@
 /**
  * Validation for the JSON a panel posts to `/api/jev`.
  *
- * Pure and dependency-free so it runs in the browser (to check a textarea
- * before sending) and on the server (to guard the TypeSafe call).
+ * Pure, so it runs in the browser (to check a textarea before sending) and on
+ * the server (to guard the TypeSafe call).
+ *
+ * The request is a Zod Mini schema (ADR-0004) built from a provider's
+ * capabilities. Every message sits on the schema that raises it, as an `error`
+ * function. A message can name the enclosing question because Zod words an
+ * issue only after every parent has added its key to `issue.path`
+ * (`finalizeIssue` in node_modules/zod/v4/core/util.js), and the
+ * error-customisation guide says the function "receives the issue, so it can
+ * use input, code, path, and other properties" (https://zod.dev/error-customization).
  *
  * Grammar source: https://docs.typesafe.ai/api.md and the `@typesafe-ai/sdk`
  * `EntryType`, `NoulQuestion`, `ChoiceQuestion`, and `ScoreQuestion` types.
+ * Zod Mini APIs used, read from node_modules/zod/v4/mini/schemas.d.ts and
+ * checks.d.ts and node_modules/zod/v4/core/errors.d.ts: `discriminatedUnion`,
+ * `strictObject`, `record`, `exactOptional`, `literal`, `array`, `unknown`,
+ * `tuple` with a rest item, `pipe`, `.check()`, `refine`, `minLength`,
+ * `maxLength`, `safeParse`, and the `$ZodErrorMap` and `$ZodRawIssue` types.
  */
 
-import { KEEP_ALIVE_SECONDS } from "./contract.ts";
+import * as z from "zod/mini";
+import { KEEP_ALIVE_SECONDS, content, description } from "./contract.ts";
+import type { WarmRequest } from "./contract.ts";
 import { characterCount, countOf, idTooLongMessage } from "./count.ts";
 import { isPlainObject } from "./json.ts";
-import type { ProviderCapabilities } from "../providers/catalog.ts";
-import type {
-  ChoiceCriteria,
-  Content,
-  CriteriaByPrimitive,
-  DecisionRequest,
-  JsonValue,
-  NoulCriteria,
-  Primitive,
-  QuestionInput,
-  ScoreCriteria,
-  WarmRequest,
-} from "./contract.ts";
+import type { CountRange, ProviderCapabilities } from "../providers/catalog.ts";
 
-export const PRIMITIVES = ["noul", "choice", "score"] as const satisfies readonly Primitive[];
-
-/** A criteria description; `null` leaves the outcome undescribed. */
-type Description = Content | null;
-
-/** A validated request, discriminated on `primitive`, so narrowing it also narrows every criteria shape. */
-export type ValidDecisionRequest = { [P in Primitive]: DecisionRequest<P> }[Primitive];
+/**
+ * The primitives a request can name, for the message that lists them. Not
+ * checked against `Primitive` here, because `Primitive` is inferred from the
+ * schema whose message uses this list; `contract.type-check.ts` checks it.
+ */
+export const PRIMITIVES = ["noul", "choice", "score"] as const;
 
 export type ValidationFailure = {
   ok: false;
@@ -41,50 +43,15 @@ export type ValidationFailure = {
   detail?: string;
 };
 
-export type ValidationResult = { ok: true; value: ValidDecisionRequest } | ValidationFailure;
-
 const REQUEST_KEYS = ["primitive", "state", "criteria", "questions"] as const;
 const QUESTION_KEYS = ["instructions", "criteria"] as const;
 const NOUL_CRITERIA_KEYS = ["true", "false"] as const;
 
-type PlainObject = Record<string, unknown>;
+type RawIssue = z.core.$ZodRawIssue;
 
-/** Thrown internally to stop at the first problem; never escapes `validateDecisionRequest`. */
-class ValidationError extends Error {
-  readonly detail: string | undefined;
-
-  constructor(message: string, detail?: string) {
-    super(message);
-    this.name = "ValidationError";
-    this.detail = detail;
-  }
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return true;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (Array.isArray(value)) {
-    return value.every(isJsonValue);
-  }
-  if (isPlainObject(value)) {
-    return Object.values(value).every(isJsonValue);
-  }
-  return false;
-}
-
-function isContent(value: unknown): value is Content {
-  return (
-    (typeof value === "string" || typeof value === "object") && value !== null && isJsonValue(value)
-  );
-}
-
-function isDescription(value: unknown): value is Description {
-  return value === null || isContent(value);
-}
+// ---------------------------------------------------------------------------
+// Wording helpers
+// ---------------------------------------------------------------------------
 
 /** Plain-language name for a value's kind, for "…, not a number" style messages. */
 function describeKind(value: unknown): string {
@@ -98,319 +65,316 @@ function describeKind(value: unknown): string {
   return `a ${typeof value}`;
 }
 
+/** `"a", "b", and "c"`: how a message lists the fields an object may contain. */
 function quoteList(items: readonly string[]): string {
   const quoted = items.map((item) => `"${item}"`);
   if (quoted.length <= 1) return quoted.join("");
   return `${quoted.slice(0, -1).join(", ")}, and ${quoted.at(-1)}`;
 }
 
+/** `"a", "b", or "c"`: how a message lists the values a field may take. */
 function quoteChoices(items: readonly string[]): string {
   const quoted = items.map((item) => `"${item}"`);
   if (quoted.length <= 1) return quoted.join("");
   return `${quoted.slice(0, -1).join(", ")}, or ${quoted.at(-1)}`;
 }
 
-function rejectUnknownKeys(
-  value: PlainObject,
-  allowed: readonly string[],
-  where: string,
-  path: string,
-): void {
-  for (const key of Object.keys(value)) {
-    if (allowed.includes(key)) continue;
-    const hint =
-      key === "type"
-        ? ` The primitive is set once, with "primitive" at the top of the request.`
-        : "";
-    throw new ValidationError(
-      `${where} has an unknown field "${key}". It can only contain ${quoteList(allowed)}.${hint}`,
-      path ? `${path}.${key}` : key,
-    );
-  }
+/** The message for an unknown field, with a hint when the field is `type`. */
+function unknownFieldMessage(where: string, key: string, allowed: readonly string[]): string {
+  const hint =
+    key === "type" ? ` The primitive is set once, with "primitive" at the top of the request.` : "";
+  return `${where} has an unknown field "${key}". It can only contain ${quoteList(allowed)}.${hint}`;
 }
 
-function readPrimitive(value: unknown): Primitive {
-  const primitive = PRIMITIVES.find((candidate) => candidate === value);
-  if (primitive === undefined) {
-    const received = typeof value === "string" ? `"${value}"` : describeKind(value);
-    throw new ValidationError(
-      `Set "primitive" to ${quoteChoices(PRIMITIVES)}. It is currently ${received}.`,
-      "primitive",
-    );
-  }
-  return primitive;
+/** Text must hold more than whitespace. Objects and lists always pass. */
+function isNotBlank(value: unknown): boolean {
+  return typeof value !== "string" || value.trim() !== "";
 }
 
-function readState(value: unknown): Content {
-  if (value === undefined) {
-    throw new ValidationError(
-      `Add a "state" field with the text, object, or list to evaluate.`,
-      "state",
-    );
-  }
-  if (!isContent(value)) {
-    throw new ValidationError(
-      `"state" must be text, an object, or a list, not ${describeKind(value)}.`,
-      "state",
-    );
-  }
-  if (typeof value === "string" && value.trim() === "") {
-    throw new ValidationError(
-      `"state" is empty. Add the text, object, or list to evaluate.`,
-      "state",
-    );
-  }
-  return value;
+const NOT_AN_OBJECT = (input: unknown) =>
+  `The request must be a JSON object with "primitive", "state", and "questions", not ${describeKind(input)}.`;
+const ADD_STATE = `Add a "state" field with the text, object, or list to evaluate.`;
+const ADD_QUESTIONS = `Add a "questions" object with at least one question, keyed by an id of your choosing.`;
+
+// Messages read where they are from the finished path: `questions.<id>.…` or `criteria.…`.
+
+/** `questions.tone.criteria` → `tone`: the question an issue belongs to. */
+function questionIdOf(issue: RawIssue): string {
+  return String(issue.path?.[1]);
 }
 
-function readInstructions(value: unknown, questionId: string): Content {
-  const path = `questions.${questionId}.instructions`;
-  if (value === undefined) {
-    throw new ValidationError(
-      `Question "${questionId}" has no "instructions". Add the question you want answered.`,
-      path,
-    );
-  }
-  if (!isContent(value)) {
-    throw new ValidationError(
-      `The "instructions" of question "${questionId}" must be text, an object, or a list, not ${describeKind(value)}.`,
-      path,
-    );
-  }
-  if (typeof value === "string" && value.trim() === "") {
-    throw new ValidationError(
-      `The "instructions" of question "${questionId}" are empty. Write the question you want answered.`,
-      path,
-    );
-  }
-  return value;
+/** `The default "criteria"` or `The "criteria" of question "tone"`. */
+function criteriaPlaceOf(issue: RawIssue): string {
+  const path = issue.path ?? [];
+  return path[0] === "criteria"
+    ? `The default "criteria"`
+    : `The "criteria" of question "${String(path[1])}"`;
 }
 
-function requireContent(value: unknown, label: string, path: string): Content {
-  if (!isContent(value)) {
-    throw new ValidationError(
-      `${label} must be text, an object, or a list, not ${describeKind(value)}.`,
-      path,
-    );
-  }
-  return value;
+/** The key an issue is about: the last path segment. */
+function keyOf(issue: RawIssue): string {
+  return String(issue.path?.at(-1));
 }
 
-function requireDescription(value: unknown, label: string, path: string): Description {
-  if (!isDescription(value)) {
-    throw new ValidationError(
-      `${label} must be text, an object, a list, or null, not ${describeKind(value)}.`,
-      path,
+// ---------------------------------------------------------------------------
+// The parts every provider shares
+// ---------------------------------------------------------------------------
+
+const state = content((issue) =>
+  issue.input === undefined
+    ? ADD_STATE
+    : `"state" must be text, an object, or a list, not ${describeKind(issue.input)}.`,
+).check(z.refine(isNotBlank, `"state" is empty. Add the text, object, or list to evaluate.`));
+
+const instructions = content((issue) =>
+  issue.input === undefined
+    ? `Question "${questionIdOf(issue)}" has no "instructions". Add the question you want answered.`
+    : `The "instructions" of question "${questionIdOf(issue)}" must be text, an object, or a list, not ${describeKind(issue.input)}.`,
+).check(
+  z.refine(isNotBlank, {
+    error: (issue) =>
+      `The "instructions" of question "${questionIdOf(issue)}" are empty. Write the question you want answered.`,
+  }),
+);
+
+const noulDescription = content(
+  (issue) =>
+    `The "${keyOf(issue)}" description in ${criteriaPlaceOf(issue)} must be text, an object, or a list, not ${describeKind(issue.input)}.`,
+);
+
+const noulCriteria = z.strictObject(
+  { true: z.exactOptional(noulDescription), false: z.exactOptional(noulDescription) },
+  {
+    error: (issue) =>
+      issue.code === "unrecognized_keys"
+        ? unknownFieldMessage(criteriaPlaceOf(issue), issue.keys[0], NOUL_CRITERIA_KEYS)
+        : `${criteriaPlaceOf(issue)} must be an object with optional "true" and "false" descriptions, not ${describeKind(issue.input)}.`,
+  },
+);
+
+const optionDescription = description(
+  (issue) =>
+    `The description of option "${keyOf(issue)}" in ${criteriaPlaceOf(issue)} must be text, an object, a list, or null, not ${describeKind(issue.input)}.`,
+);
+
+const levelDescription = description(
+  (issue) =>
+    `Level ${keyOf(issue)} in ${criteriaPlaceOf(issue)} must be text, an object, a list, or null, not ${describeKind(issue.input)}.`,
+);
+
+// ---------------------------------------------------------------------------
+// The parts a provider's capabilities limit
+// ---------------------------------------------------------------------------
+
+/**
+ * Choice criteria: option name to description. Zod has no record-size check,
+ * so the option count is a `refine` with the limits in a closure.
+ */
+function choiceCriteria({ min, max }: Readonly<CountRange>) {
+  const optionCount = (issue: RawIssue) => Object.keys(issue.input as object).length;
+  return z
+    .record(z.string(), optionDescription, {
+      error: (issue) =>
+        `${criteriaPlaceOf(issue)} must be an object that maps each option name to its description, not ${describeKind(issue.input)}.`,
+    })
+    .check(
+      z.refine((options) => Object.keys(options).length >= min, {
+        error: (issue) =>
+          `${criteriaPlaceOf(issue)} needs at least ${countOf(min, "option")} to choose between. It has ${optionCount(issue)}.`,
+      }),
+      z.refine((options) => max === undefined || Object.keys(options).length <= max, {
+        error: (issue) =>
+          `${criteriaPlaceOf(issue)} has ${optionCount(issue)} options. Use at most ${max}.`,
+      }),
+      z.refine((options) => Object.keys(options).every((name) => name.trim() !== ""), {
+        error: (issue) =>
+          `${criteriaPlaceOf(issue)} has an option with an empty name. Give it a name.`,
+      }),
     );
-  }
-  return value;
 }
 
-function readNoulCriteria(value: unknown, where: string, path: string): NoulCriteria {
-  if (!isPlainObject(value)) {
-    throw new ValidationError(
-      `${where} must be an object with optional "true" and "false" descriptions, not ${describeKind(value)}.`,
-      path,
+/**
+ * Score criteria: level descriptions, lowest first. The length checks run
+ * before the tuple, so a short list is reported as too few levels at the list's
+ * own path rather than as a missing item at `criteria.1`; `z.pipe` stops at the
+ * first side's issues. The tuple of two plus a rest item keeps the inferred
+ * type at least two levels long, whatever a provider's range says.
+ */
+function scoreCriteria({ min, max }: Readonly<CountRange>) {
+  const levelCount = (issue: RawIssue) => (issue.input as unknown[]).length;
+  const list = z
+    .array(z.unknown(), {
+      error: (issue) =>
+        `${criteriaPlaceOf(issue)} must be a list of level descriptions, lowest level first, not ${describeKind(issue.input)}.`,
+    })
+    .check(
+      z.minLength(min, {
+        error: (issue) =>
+          `${criteriaPlaceOf(issue)} needs at least ${countOf(min, "level")} to score between. It has ${levelCount(issue)}.`,
+      }),
+      ...(max === undefined
+        ? []
+        : [
+            z.maxLength(max, {
+              error: (issue) =>
+                `${criteriaPlaceOf(issue)} has ${levelCount(issue)} levels. Use at most ${max}.`,
+            }),
+          ]),
     );
-  }
-  rejectUnknownKeys(value, NOUL_CRITERIA_KEYS, where, path);
-  const criteria: NoulCriteria = {};
-  for (const key of NOUL_CRITERIA_KEYS) {
-    if (value[key] === undefined) continue;
-    criteria[key] = requireContent(
-      value[key],
-      `The "${key}" description in ${where}`,
-      `${path}.${key}`,
-    );
-  }
-  return criteria;
+  return z.pipe(list, z.tuple([levelDescription, levelDescription], levelDescription));
 }
 
-function readChoiceCriteria(
-  value: unknown,
-  where: string,
-  path: string,
-  { min, max }: ProviderCapabilities["choiceOptions"],
-): ChoiceCriteria {
-  if (!isPlainObject(value)) {
-    throw new ValidationError(
-      `${where} must be an object that maps each option name to its description, not ${describeKind(value)}.`,
-      path,
+/** The questions record, keyed by question id, with the provider's id-length limit. */
+function questionsSchema<C extends z.ZodMiniType>(
+  criteria: C,
+  questionNameMaxLength: number | undefined,
+) {
+  const questionId = z
+    .string()
+    .check(
+      z.refine(
+        (id) => questionNameMaxLength === undefined || characterCount(id) <= questionNameMaxLength,
+      ),
     );
-  }
-  const options = Object.keys(value);
-  if (options.length < min) {
-    throw new ValidationError(
-      `${where} needs at least ${countOf(min, "option")} to choose between. It has ${options.length}.`,
-      path,
-    );
-  }
-  if (max !== undefined && options.length > max) {
-    throw new ValidationError(`${where} has ${options.length} options. Use at most ${max}.`, path);
-  }
-  const criteria: ChoiceCriteria = {};
-  for (const option of options) {
-    if (option.trim() === "") {
-      throw new ValidationError(`${where} has an option with an empty name. Give it a name.`, path);
-    }
-    criteria[option] = requireDescription(
-      value[option],
-      `The description of option "${option}" in ${where}`,
-      `${path}.${option}`,
-    );
-  }
-  return criteria;
-}
-
-function readScoreCriteria(
-  value: unknown,
-  where: string,
-  path: string,
-  { min, max }: ProviderCapabilities["scoreLevels"],
-): ScoreCriteria {
-  if (!Array.isArray(value)) {
-    throw new ValidationError(
-      `${where} must be a list of level descriptions, lowest level first, not ${describeKind(value)}.`,
-      path,
-    );
-  }
-  if (value.length < min) {
-    throw new ValidationError(
-      `${where} needs at least ${countOf(min, "level")} to score between. It has ${value.length}.`,
-      path,
-    );
-  }
-  if (max !== undefined && value.length > max) {
-    throw new ValidationError(`${where} has ${value.length} levels. Use at most ${max}.`, path);
-  }
-  // The tuple type needs two levels, so a provider range can never loosen the floor below 2.
-  if (value.length < 2) {
-    throw new ValidationError(`${where} needs at least 2 levels to score between.`, path);
-  }
-  const [first, second, ...rest] = value.map((level: unknown, index) =>
-    requireDescription(level, `Level ${index} in ${where}`, `${path}.${index}`),
+  const question = z.strictObject(
+    { instructions, criteria: z.exactOptional(criteria) },
+    {
+      error: (issue) =>
+        issue.code === "unrecognized_keys"
+          ? unknownFieldMessage(`Question "${questionIdOf(issue)}"`, issue.keys[0], QUESTION_KEYS)
+          : `Question "${questionIdOf(issue)}" must be an object with "instructions" and optional "criteria", not ${describeKind(issue.input)}.`,
+    },
   );
-  return [first, second, ...rest];
-}
-
-function readCriteria<P extends Primitive>(
-  primitive: P,
-  value: unknown,
-  where: string,
-  path: string,
-  capabilities: ProviderCapabilities,
-): CriteriaByPrimitive[P];
-function readCriteria(
-  primitive: Primitive,
-  value: unknown,
-  where: string,
-  path: string,
-  capabilities: ProviderCapabilities,
-): CriteriaByPrimitive[Primitive] {
-  switch (primitive) {
-    case "noul":
-      return readNoulCriteria(value, where, path);
-    case "choice":
-      return readChoiceCriteria(value, where, path, capabilities.choiceOptions);
-    case "score":
-      return readScoreCriteria(value, where, path, capabilities.scoreLevels);
-  }
-}
-
-function readRequest<P extends Primitive>(
-  primitive: P,
-  body: PlainObject,
-  capabilities: ProviderCapabilities,
-): DecisionRequest<P> {
-  const state = readState(body.state);
-
-  const defaultCriteria =
-    body.criteria === undefined
-      ? undefined
-      : readCriteria(primitive, body.criteria, `The default "criteria"`, "criteria", capabilities);
-
-  if (!isPlainObject(body.questions) || Object.keys(body.questions).length === 0) {
-    throw new ValidationError(
-      `Add a "questions" object with at least one question, keyed by an id of your choosing.`,
-      "questions",
+  return z
+    .record(questionId, question, {
+      // A key that fails its schema arrives as one `invalid_key` issue whose `input` is the
+      // key, so the record words it rather than the key schema.
+      error: (issue) =>
+        issue.code === "invalid_key" && typeof issue.input === "string"
+          ? idTooLongMessage(issue.input, questionNameMaxLength ?? Number.POSITIVE_INFINITY)
+          : ADD_QUESTIONS,
+    })
+    .check(
+      z.refine((questions) => Object.keys(questions).length > 0, ADD_QUESTIONS),
+      // On the record rather than the key schema, because a key issue for an empty id would
+      // carry the path `questions.` and the message belongs at `questions`.
+      z.refine(
+        (questions) => Object.keys(questions).every((id) => id.trim() !== ""),
+        `Every question needs a non-empty id.`,
+      ),
     );
-  }
+}
 
-  const questions: Record<string, QuestionInput<P>> = {};
-  for (const [questionId, rawQuestion] of Object.entries(body.questions)) {
-    const path = `questions.${questionId}`;
-    if (questionId.trim() === "") {
-      throw new ValidationError(`Every question needs a non-empty id.`, "questions");
-    }
-    const { questionNameMaxLength } = capabilities;
-    if (questionNameMaxLength !== undefined && characterCount(questionId) > questionNameMaxLength) {
-      throw new ValidationError(idTooLongMessage(questionId, questionNameMaxLength), path);
-    }
-    if (!isPlainObject(rawQuestion)) {
-      throw new ValidationError(
-        `Question "${questionId}" must be an object with "instructions" and optional "criteria", not ${describeKind(rawQuestion)}.`,
-        path,
-      );
-    }
-    rejectUnknownKeys(rawQuestion, QUESTION_KEYS, `Question "${questionId}"`, path);
+function requestFor<P extends string, C extends z.ZodMiniType>(
+  primitive: P,
+  criteria: C,
+  capabilities: ProviderCapabilities,
+) {
+  return z.strictObject(
+    {
+      primitive: z.literal(primitive),
+      state,
+      criteria: z.exactOptional(criteria),
+      questions: questionsSchema(criteria, capabilities.questionNameMaxLength),
+    },
+    {
+      error: (issue) =>
+        issue.code === "unrecognized_keys"
+          ? unknownFieldMessage("The request", issue.keys[0], REQUEST_KEYS)
+          : NOT_AN_OBJECT(issue.input),
+    },
+  );
+}
 
-    const question: QuestionInput<P> = {
-      instructions: readInstructions(rawQuestion.instructions, questionId),
-    };
-    if (rawQuestion.criteria !== undefined) {
-      question.criteria = readCriteria(
-        primitive,
-        rawQuestion.criteria,
-        `The "criteria" of question "${questionId}"`,
-        `${path}.criteria`,
-        capabilities,
-      );
-    } else if (primitive !== "noul" && defaultCriteria === undefined) {
-      const kind = primitive === "choice" ? "options" : "levels";
-      throw new ValidationError(
-        `Question "${questionId}" has no criteria. Add "criteria" with its ${kind} to the question, or a default "criteria" at the top of the request.`,
-        `${path}.criteria`,
-      );
-    }
-    questions[questionId] = question;
-  }
+/** Builds the request schema for one provider's limits. */
+function decisionRequestSchema(capabilities: ProviderCapabilities) {
+  return z
+    .discriminatedUnion(
+      "primitive",
+      [
+        requestFor("noul", noulCriteria, capabilities),
+        requestFor("choice", choiceCriteria(capabilities.choiceOptions), capabilities),
+        requestFor("score", scoreCriteria(capabilities.scoreLevels), capabilities),
+      ],
+      {
+        error: (issue) => {
+          // The declared issue type is `invalid_union` only, but the parser also raises
+          // `invalid_type` for an input that is not an object (`$ZodDiscriminatedUnion` in
+          // node_modules/zod/v4/core/schemas.js), hence the negative test.
+          if (issue.code !== "invalid_union") return NOT_AN_OBJECT(issue.input);
+          const primitive = (issue.input as Record<string, unknown>).primitive;
+          const received =
+            typeof primitive === "string" ? `"${primitive}"` : describeKind(primitive);
+          return `Set "primitive" to ${quoteChoices(PRIMITIVES)}. It is currently ${received}.`;
+        },
+      },
+    )
+    .check((payload) => {
+      // A Choice or Score question needs criteria on itself or a default at the top.
+      const request = payload.value;
+      if (request.primitive === "noul" || request.criteria !== undefined) return;
+      for (const [id, question] of Object.entries(request.questions)) {
+        if (question.criteria !== undefined) continue;
+        const kind = request.primitive === "choice" ? "options" : "levels";
+        payload.issues.push({
+          code: "custom",
+          input: request,
+          path: ["questions", id, "criteria"],
+          message: `Question "${id}" has no criteria. Add "criteria" with its ${kind} to the question, or a default "criteria" at the top of the request.`,
+        });
+        return;
+      }
+    });
+}
 
-  const request: DecisionRequest<P> = { primitive, state, questions };
-  if (defaultCriteria !== undefined) {
-    request.criteria = defaultCriteria;
+type DecisionRequestSchema = ReturnType<typeof decisionRequestSchema>;
+
+/**
+ * A validated request, inferred from the schema and discriminated on
+ * `primitive`, so narrowing it also narrows every criteria shape.
+ */
+export type ValidDecisionRequest = z.output<DecisionRequestSchema>;
+
+export type ValidationResult = { ok: true; value: ValidDecisionRequest } | ValidationFailure;
+
+/**
+ * One schema per capabilities object. The catalog's descriptors are long-lived,
+ * so each provider's schema is built once; a `WeakMap` lets a capabilities
+ * object made for a single call, as the tests do, be collected with its schema.
+ * A capabilities object must not be changed after its first use, because the
+ * schema read its limits when it was built.
+ */
+const schemas = new WeakMap<ProviderCapabilities, DecisionRequestSchema>();
+
+function schemaFor(capabilities: ProviderCapabilities): DecisionRequestSchema {
+  let schema = schemas.get(capabilities);
+  if (schema === undefined) {
+    schema = decisionRequestSchema(capabilities);
+    schemas.set(capabilities, schema);
   }
-  return request;
+  return schema;
 }
 
 /**
  * Check that `value` is a request `/api/jev` can send to a provider.
  *
  * The limits on options, levels, and question ids come from `capabilities`.
- * Stops at the first problem and explains how to fix it.
+ * Reports the first problem and explains how to fix it.
  */
 export function validateDecisionRequest(
   value: unknown,
   capabilities: ProviderCapabilities,
 ): ValidationResult {
-  try {
-    if (!isPlainObject(value)) {
-      throw new ValidationError(
-        `The request must be a JSON object with "primitive", "state", and "questions", not ${describeKind(value)}.`,
-      );
-    }
-    rejectUnknownKeys(value, REQUEST_KEYS, "The request", "");
-    const primitive = readPrimitive(value.primitive);
-    return { ok: true, value: readRequestFor(primitive, value, capabilities) };
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      const failure: ValidationFailure = { ok: false, error: error.message };
-      if (error.detail !== undefined) {
-        failure.detail = error.detail;
-      }
-      return failure;
-    }
-    throw error;
-  }
+  const result = schemaFor(capabilities).safeParse(value);
+  if (result.success) return { ok: true, value: result.data };
+  const [issue] = result.error.issues;
+  // An unknown-field issue sits on the object and names the field in `keys`, so the field
+  // is added to the path to point at it, as in `questions.greeting.type`.
+  const path = issue.code === "unrecognized_keys" ? [...issue.path, issue.keys[0]] : issue.path;
+  const failure: ValidationFailure = { ok: false, error: issue.message };
+  // Joined by hand: `z.core.toDotPath` writes a list index as `[0]`, and paths here read `criteria.0`.
+  if (path.length > 0) failure.detail = path.map(String).join(".");
+  return failure;
 }
 
 export type WarmValidationResult = { ok: true; value: WarmRequest } | ValidationFailure;
@@ -443,20 +407,4 @@ export function validateWarmRequest(value: unknown): WarmValidationResult {
     };
   }
   return { ok: true, value: { keepAliveSeconds } };
-}
-
-/** Keeps `primitive` and the criteria shapes correlated in the returned union member. */
-function readRequestFor(
-  primitive: Primitive,
-  body: PlainObject,
-  capabilities: ProviderCapabilities,
-): ValidDecisionRequest {
-  switch (primitive) {
-    case "noul":
-      return readRequest(primitive, body, capabilities);
-    case "choice":
-      return readRequest(primitive, body, capabilities);
-    case "score":
-      return readRequest(primitive, body, capabilities);
-  }
 }

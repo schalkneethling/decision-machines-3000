@@ -72,8 +72,9 @@ Feature: Run a Cloudflare Worker from the Vite+ project
   Scenario: An 8 MiB multipart body with two images fits a recorded plan
     Given the bench Worker in worker/spike/encode-bench.ts is deployed to a scratch name
     When it receives an 8 MiB multipart body with two images and encodes them with the native encoder
-    Then the CPU time and peak memory are recorded in the result document
-    And they fit within the Free plan's limits, or the document states which plan is required
+    Then the CPU time per request, read from wrangler tail, is recorded in the result document
+    And the document records the local process-memory samples and states that peak isolate memory was not measured on Cloudflare
+    And it says whether the CPU time fits the Free plan's limit, or which plan is required
 
   Scenario: The result document names the encoder and the limits source
     Given docs/spikes/worker-toolchain.md

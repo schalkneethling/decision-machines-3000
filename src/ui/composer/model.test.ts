@@ -22,6 +22,7 @@ import {
   toViewModel,
 } from "./model.ts";
 import type { ComposerModel, CriteriaModel, QuestionModel } from "./model.ts";
+import { DEFAULT_PROVIDER } from "../../providers/catalog.ts";
 
 function question(model: ComposerModel, index = 0): QuestionModel {
   const found = model.questions[index];
@@ -56,7 +57,9 @@ describe("round trip", () => {
   it.each(Object.entries(examples))(
     "produces a request that passes validation for %s",
     (_name, example) => {
-      expect(validateDecisionRequest(toRequest(toViewModel(example))).ok).toBe(true);
+      expect(
+        validateDecisionRequest(toRequest(toViewModel(example)), DEFAULT_PROVIDER.capabilities).ok,
+      ).toBe(true);
     },
   );
 
@@ -106,7 +109,10 @@ describe("fan-out", () => {
         { ...entry, criteria: criteria(index % 2 === 1) },
       ]),
     );
-    const validation = validateDecisionRequest({ ...choiceExample, questions });
+    const validation = validateDecisionRequest(
+      { ...choiceExample, questions },
+      DEFAULT_PROVIDER.capabilities,
+    );
     if (!validation.ok) throw new Error(validation.error);
     const model = toViewModel(validation.value);
     expect(model.questions).toHaveLength(1);
@@ -120,7 +126,10 @@ describe("fan-out", () => {
         { ...entry, criteria: { drama: index === 0 ? "Serious." : "Grave.", comedy: "Funny." } },
       ]),
     );
-    const validation = validateDecisionRequest({ ...choiceExample, questions });
+    const validation = validateDecisionRequest(
+      { ...choiceExample, questions },
+      DEFAULT_PROVIDER.capabilities,
+    );
     if (!validation.ok) throw new Error(validation.error);
     expect(toViewModel(validation.value).questions.length).toBeGreaterThan(1);
   });
@@ -377,7 +386,7 @@ describe("inherit or override criteria", () => {
     const request = toRequest(model);
     expect(request).not.toHaveProperty("criteria");
     expect(request.questions.film_0?.criteria).toEqual(scoreExample.criteria);
-    expect(validateDecisionRequest(request).ok).toBe(true);
+    expect(validateDecisionRequest(request, DEFAULT_PROVIDER.capabilities).ok).toBe(true);
   });
 
   it("reports a Choice question with no options anywhere", () => {
@@ -397,14 +406,17 @@ describe("fan-out by primitive", () => {
   });
 
   it("never collapses noul questions, even when they look like a fan-out", () => {
-    const request = validateDecisionRequest({
-      primitive: "noul",
-      state: { reviews: ["Loved it.", "Hated it."] },
-      questions: {
-        positive_0: { instructions: "Is `reviews[0]` positive?" },
-        positive_1: { instructions: "Is `reviews[1]` positive?" },
+    const request = validateDecisionRequest(
+      {
+        primitive: "noul",
+        state: { reviews: ["Loved it.", "Hated it."] },
+        questions: {
+          positive_0: { instructions: "Is `reviews[0]` positive?" },
+          positive_1: { instructions: "Is `reviews[1]` positive?" },
+        },
       },
-    });
+      DEFAULT_PROVIDER.capabilities,
+    );
     if (!request.ok) throw new Error(request.error);
     const model = toViewModel(request.value);
     expect(model.questions.map((entry) => entry.id)).toEqual(["positive_0", "positive_1"]);

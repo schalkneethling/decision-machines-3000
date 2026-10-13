@@ -10,6 +10,7 @@
 
 import { KEEP_ALIVE_SECONDS } from "./contract.ts";
 import { isPlainObject } from "./json.ts";
+import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type {
   ChoiceCriteria,
   Content,
@@ -24,12 +25,6 @@ import type {
 } from "./contract.ts";
 
 export const PRIMITIVES = ["noul", "choice", "score"] as const satisfies readonly Primitive[];
-
-/** TypeSafe accepts at most this many options in one Choice question. */
-export const MAX_CHOICE_OPTIONS = 255;
-
-/** TypeSafe accepts at most this many levels in one Score question. */
-export const MAX_SCORE_LEVELS = 10;
 
 /** A criteria description; `null` leaves the outcome undescribed. */
 type Description = Content | null;
@@ -230,7 +225,12 @@ function readNoulCriteria(value: unknown, where: string, path: string): NoulCrit
   return criteria;
 }
 
-function readChoiceCriteria(value: unknown, where: string, path: string): ChoiceCriteria {
+function readChoiceCriteria(
+  value: unknown,
+  where: string,
+  path: string,
+  { min, max }: ProviderCapabilities["choiceOptions"],
+): ChoiceCriteria {
   if (!isPlainObject(value)) {
     throw new ValidationError(
       `${where} must be an object that maps each option name to its description, not ${describeKind(value)}.`,
@@ -238,17 +238,14 @@ function readChoiceCriteria(value: unknown, where: string, path: string): Choice
     );
   }
   const options = Object.keys(value);
-  if (options.length < 2) {
+  if (options.length < min) {
     throw new ValidationError(
-      `${where} needs at least two options to choose between. It has ${options.length}.`,
+      `${where} needs at least ${min} options to choose between. It has ${options.length}.`,
       path,
     );
   }
-  if (options.length > MAX_CHOICE_OPTIONS) {
-    throw new ValidationError(
-      `${where} has ${options.length} options. Use at most ${MAX_CHOICE_OPTIONS}.`,
-      path,
-    );
+  if (max !== undefined && options.length > max) {
+    throw new ValidationError(`${where} has ${options.length} options. Use at most ${max}.`, path);
   }
   const criteria: ChoiceCriteria = {};
   for (const option of options) {
@@ -264,24 +261,30 @@ function readChoiceCriteria(value: unknown, where: string, path: string): Choice
   return criteria;
 }
 
-function readScoreCriteria(value: unknown, where: string, path: string): ScoreCriteria {
+function readScoreCriteria(
+  value: unknown,
+  where: string,
+  path: string,
+  { min, max }: ProviderCapabilities["scoreLevels"],
+): ScoreCriteria {
   if (!Array.isArray(value)) {
     throw new ValidationError(
       `${where} must be a list of level descriptions, lowest level first, not ${describeKind(value)}.`,
       path,
     );
   }
-  if (value.length < 2) {
+  if (value.length < min) {
     throw new ValidationError(
-      `${where} needs at least two levels to score between. It has ${value.length}.`,
+      `${where} needs at least ${min} levels to score between. It has ${value.length}.`,
       path,
     );
   }
-  if (value.length > MAX_SCORE_LEVELS) {
-    throw new ValidationError(
-      `${where} has ${value.length} levels. Use at most ${MAX_SCORE_LEVELS}.`,
-      path,
-    );
+  if (max !== undefined && value.length > max) {
+    throw new ValidationError(`${where} has ${value.length} levels. Use at most ${max}.`, path);
+  }
+  // The tuple type needs two levels, so a provider range can never loosen the floor below 2.
+  if (value.length < 2) {
+    throw new ValidationError(`${where} needs at least 2 levels to score between.`, path);
   }
   const [first, second, ...rest] = value.map((level: unknown, index) =>
     requireDescription(level, `Level ${index} in ${where}`, `${path}.${index}`),
@@ -294,30 +297,36 @@ function readCriteria<P extends Primitive>(
   value: unknown,
   where: string,
   path: string,
+  capabilities: ProviderCapabilities,
 ): CriteriaByPrimitive[P];
 function readCriteria(
   primitive: Primitive,
   value: unknown,
   where: string,
   path: string,
+  capabilities: ProviderCapabilities,
 ): CriteriaByPrimitive[Primitive] {
   switch (primitive) {
     case "noul":
       return readNoulCriteria(value, where, path);
     case "choice":
-      return readChoiceCriteria(value, where, path);
+      return readChoiceCriteria(value, where, path, capabilities.choiceOptions);
     case "score":
-      return readScoreCriteria(value, where, path);
+      return readScoreCriteria(value, where, path, capabilities.scoreLevels);
   }
 }
 
-function readRequest<P extends Primitive>(primitive: P, body: PlainObject): DecisionRequest<P> {
+function readRequest<P extends Primitive>(
+  primitive: P,
+  body: PlainObject,
+  capabilities: ProviderCapabilities,
+): DecisionRequest<P> {
   const state = readState(body.state);
 
   const defaultCriteria =
     body.criteria === undefined
       ? undefined
-      : readCriteria(primitive, body.criteria, `The default "criteria"`, "criteria");
+      : readCriteria(primitive, body.criteria, `The default "criteria"`, "criteria", capabilities);
 
   if (!isPlainObject(body.questions) || Object.keys(body.questions).length === 0) {
     throw new ValidationError(
@@ -331,6 +340,13 @@ function readRequest<P extends Primitive>(primitive: P, body: PlainObject): Deci
     const path = `questions.${questionId}`;
     if (questionId.trim() === "") {
       throw new ValidationError(`Every question needs a non-empty id.`, "questions");
+    }
+    const { questionNameMaxLength } = capabilities;
+    if (questionNameMaxLength !== undefined && questionId.length > questionNameMaxLength) {
+      throw new ValidationError(
+        `Question id "${questionId}" is ${questionId.length} characters long. Use at most ${questionNameMaxLength}.`,
+        path,
+      );
     }
     if (!isPlainObject(rawQuestion)) {
       throw new ValidationError(
@@ -349,6 +365,7 @@ function readRequest<P extends Primitive>(primitive: P, body: PlainObject): Deci
         rawQuestion.criteria,
         `The "criteria" of question "${questionId}"`,
         `${path}.criteria`,
+        capabilities,
       );
     } else if (primitive !== "noul" && defaultCriteria === undefined) {
       const kind = primitive === "choice" ? "options" : "levels";
@@ -368,11 +385,15 @@ function readRequest<P extends Primitive>(primitive: P, body: PlainObject): Deci
 }
 
 /**
- * Check that `value` is a request `/api/jev` can send to TypeSafe.
+ * Check that `value` is a request `/api/jev` can send to a provider.
  *
+ * The limits on options, levels, and question ids come from `capabilities`.
  * Stops at the first problem and explains how to fix it.
  */
-export function validateDecisionRequest(value: unknown): ValidationResult {
+export function validateDecisionRequest(
+  value: unknown,
+  capabilities: ProviderCapabilities,
+): ValidationResult {
   try {
     if (!isPlainObject(value)) {
       throw new ValidationError(
@@ -381,7 +402,7 @@ export function validateDecisionRequest(value: unknown): ValidationResult {
     }
     rejectUnknownKeys(value, REQUEST_KEYS, "The request", "");
     const primitive = readPrimitive(value.primitive);
-    return { ok: true, value: readRequestFor(primitive, value) };
+    return { ok: true, value: readRequestFor(primitive, value, capabilities) };
   } catch (error) {
     if (error instanceof ValidationError) {
       const failure: ValidationFailure = { ok: false, error: error.message };
@@ -427,13 +448,17 @@ export function validateWarmRequest(value: unknown): WarmValidationResult {
 }
 
 /** Keeps `primitive` and the criteria shapes correlated in the returned union member. */
-function readRequestFor(primitive: Primitive, body: PlainObject): ValidDecisionRequest {
+function readRequestFor(
+  primitive: Primitive,
+  body: PlainObject,
+  capabilities: ProviderCapabilities,
+): ValidDecisionRequest {
   switch (primitive) {
     case "noul":
-      return readRequest(primitive, body);
+      return readRequest(primitive, body, capabilities);
     case "choice":
-      return readRequest(primitive, body);
+      return readRequest(primitive, body, capabilities);
     case "score":
-      return readRequest(primitive, body);
+      return readRequest(primitive, body, capabilities);
   }
 }

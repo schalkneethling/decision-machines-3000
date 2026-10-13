@@ -1,6 +1,7 @@
 import type { DecisionSuccess, Primitive } from "../decision/contract.ts";
 import { examples } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
+import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../decision/validate.ts";
 import { askDecision, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
@@ -143,7 +144,7 @@ function readJson(panel: Panel): ValidDecisionRequest | undefined {
     return undefined;
   }
 
-  const validation = validateDecisionRequest(parsed);
+  const validation = validateDecisionRequest(parsed, DEFAULT_PROVIDER.capabilities);
   if (!validation.ok) {
     const where = validation.detail ? ` Path: ${validation.detail}.` : "";
     showFieldError(panel, `${validation.error}${where}`);
@@ -220,7 +221,7 @@ function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } 
   }
 
   // The tree found nothing wrong; the shared validator has the final word.
-  const validation = validateDecisionRequest(panel.request);
+  const validation = validateDecisionRequest(panel.request, DEFAULT_PROVIDER.capabilities);
   if (!validation.ok) {
     const where = validation.detail ? ` Path: ${validation.detail}.` : "";
     setStatus(panel, `${validation.error}${where}`, "alert");
@@ -323,7 +324,9 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
     // tree report any remaining problem.
     panel.field.addEventListener("input", () => {
       const parsed = tryParse(panel.field.value);
-      const validation = parsed.ok ? validateDecisionRequest(parsed.value) : undefined;
+      const validation = parsed.ok
+        ? validateDecisionRequest(parsed.value, DEFAULT_PROVIDER.capabilities)
+        : undefined;
       if (validation?.ok) {
         panel.request = validation.value;
         if (!panel.error.hidden) clearFieldError(panel);

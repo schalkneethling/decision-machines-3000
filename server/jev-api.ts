@@ -34,6 +34,7 @@ import type {
   WarmSuccess,
 } from "../src/decision/contract.ts";
 import { validateDecisionRequest, validateWarmRequest } from "../src/decision/validate.ts";
+import { DEFAULT_PROVIDER } from "../src/providers/catalog.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
 import { TypeSafeConnection } from "./connection.ts";
 
@@ -268,7 +269,10 @@ async function readJsonRequest(req: IncomingMessage, endpoint: string): Promise<
 }
 
 async function handleDecisionRequest(req: IncomingMessage): Promise<HandledRequest> {
-  const validation = validateDecisionRequest(await readJsonRequest(req, DECISION_ENDPOINT));
+  const validation = validateDecisionRequest(
+    await readJsonRequest(req, DECISION_ENDPOINT),
+    DEFAULT_PROVIDER.capabilities,
+  );
   if (!validation.ok) {
     throw new ReplyError(400, { error: validation.error, detail: validation.detail });
   }

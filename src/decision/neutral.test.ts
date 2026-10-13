@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { examples } from "./examples.ts";
 import { validateDecisionRequest } from "./validate.ts";
+import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 
 const root = join(import.meta.dirname, "..", "..");
 
@@ -16,7 +17,7 @@ describe("provider-neutral contract", () => {
   it("keeps primitive and noul in the examples and validates them unchanged", () => {
     expect(examples.noul.primitive).toBe("noul");
     for (const example of Object.values(examples)) {
-      expect(validateDecisionRequest(example).ok).toBe(true);
+      expect(validateDecisionRequest(example, DEFAULT_PROVIDER.capabilities).ok).toBe(true);
     }
   });
 

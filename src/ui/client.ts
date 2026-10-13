@@ -116,7 +116,11 @@ function isScoreAnswer(
 
 function isAnswer(value: unknown): boolean {
   return (
-    isPlainObject(value) && (isNoulAnswer(value) || isChoiceAnswer(value) || isScoreAnswer(value))
+    isPlainObject(value) &&
+    (value.type === "refusal" ||
+      isNoulAnswer(value) ||
+      isChoiceAnswer(value) ||
+      isScoreAnswer(value))
   );
 }
 

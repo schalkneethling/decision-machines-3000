@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vite-plus/test";
-import type { DecisionFailure } from "../decision/contract.ts";
+import type { DecisionFailure, DecisionSuccess } from "../decision/contract.ts";
 import { choiceExample, noulExample, scoreExample } from "../decision/examples.ts";
 import { isDecisionResponse } from "./client.ts";
 import { choiceResponse } from "./fixtures/choice.ts";
@@ -106,7 +106,7 @@ describe("renderResponse for Score", () => {
 
   it("keeps non-numeric keys out of the scale but in the bars", () => {
     const [id, answer] = Object.entries(scoreResponse.answers)[0] ?? [];
-    if (!id || !answer) throw new Error("expected an answer");
+    if (!id || answer?.type !== "score") throw new Error("expected a score answer");
     const odd = renderResponse(scoreExample, {
       ...scoreResponse,
       answers: {
@@ -124,7 +124,7 @@ describe("renderResponse for Score", () => {
 
   it("describes levels whose legend entry is null", () => {
     const [id, answer] = Object.entries(scoreResponse.answers)[0] ?? [];
-    if (!id || !answer) throw new Error("expected an answer");
+    if (!id || answer?.type !== "score") throw new Error("expected a score answer");
     const undescribed = renderResponse(scoreExample, {
       ...scoreResponse,
       answers: { [id]: { ...answer, legend: { ...answer.legend, "3": null } } },
@@ -219,6 +219,26 @@ describe("formatProbability", () => {
   it("rounds to two decimals", () => {
     expect(formatProbability(0.005)).toBe("0.01");
     expect(formatProbability(1)).toBe("1.00");
+  });
+});
+
+describe("renderResponse for a refusal", () => {
+  const response: DecisionSuccess<"noul"> = {
+    ...noulResponse,
+    answers: { recommends: { type: "refusal" } },
+  };
+  const readout = renderResponse(noulExample, response);
+
+  it("says the model declined, under the question, with no bars", () => {
+    expect(texts(readout, ".answer-refusal")).toEqual([
+      "The model declined to answer this question.",
+    ]);
+    expect(readout.querySelectorAll(".bar, .bars, .score-track")).toHaveLength(0);
+    expect(texts(readout, "h3")).toHaveLength(1);
+  });
+
+  it("is a response the client accepts", () => {
+    expect(isDecisionResponse(response)).toBe(true);
   });
 });
 

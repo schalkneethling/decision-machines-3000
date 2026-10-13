@@ -20,7 +20,7 @@ import type {
   ScoreCriteria,
 } from "../../decision/contract.ts";
 import { isPlainObject } from "../../decision/json.ts";
-import { MAX_CHOICE_OPTIONS, MAX_SCORE_LEVELS } from "../../decision/validate.ts";
+import { DEFAULT_PROVIDER } from "../../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../../decision/validate.ts";
 
 /** A criteria description; `null` leaves the outcome undescribed. */
@@ -427,6 +427,8 @@ function isBlank(value: Content): boolean {
   return typeof value === "string" && value.trim() === "";
 }
 
+const { choiceOptions, scoreLevels: scoreLevelRange } = DEFAULT_PROVIDER.capabilities;
+
 function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string): Issue[] {
   const issues: Issue[] = [];
   if (criteria.kind === "choice") {
@@ -438,11 +440,11 @@ function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string
         message: `${where} need at least two options. Add ${options.length === 0 ? "two" : "one more"}.`,
       });
     }
-    if (options.length > MAX_CHOICE_OPTIONS) {
+    if (choiceOptions.max !== undefined && options.length > choiceOptions.max) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${options.length} options. Use at most ${MAX_CHOICE_OPTIONS}.`,
+        message: `${where} have ${options.length} options. Use at most ${choiceOptions.max}.`,
       });
     }
     const seen = new Set<string>();
@@ -474,11 +476,11 @@ function criteriaIssues(criteria: CriteriaModel, ownerKey: string, where: string
         message: `${where} need at least two levels. Add ${levels.length === 0 ? "two" : "one more"}.`,
       });
     }
-    if (levels.length > MAX_SCORE_LEVELS) {
+    if (scoreLevelRange.max !== undefined && levels.length > scoreLevelRange.max) {
       issues.push({
         key: ownerKey,
         field: "list",
-        message: `${where} have ${levels.length} levels. Use at most ${MAX_SCORE_LEVELS}. Remove ${levels.length - MAX_SCORE_LEVELS}.`,
+        message: `${where} have ${levels.length} levels. Use at most ${scoreLevelRange.max}. Remove ${levels.length - scoreLevelRange.max}.`,
       });
     }
   }

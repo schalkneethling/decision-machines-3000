@@ -154,5 +154,8 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDescriptor>> = {
 /** The order providers are listed in, set here so it never depends on object key order. */
 export const PROVIDER_ORDER: readonly ProviderId[] = ["typesafe", "subq", "openai"];
 
-/** The provider every request uses until the provider select lands. */
+/**
+ * The provider whose limits the panels check a request against until the list
+ * of configured providers has loaded and the provider select has a choice.
+ */
 export const DEFAULT_PROVIDER: ProviderDescriptor = typesafe;

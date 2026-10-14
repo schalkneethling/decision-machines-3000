@@ -258,13 +258,17 @@ describe("getProviders", () => {
     const [input, init] = fetchMock.mock.calls[0] ?? [];
     expect(input).toBe("/api/providers");
     expect(init?.method).toBe("GET");
-    expect(result).toEqual({ kind: "response", response: listed });
+    expect(result).toEqual({ kind: "response", status: 200, response: listed });
   });
 
   it("returns the 503 failure as a response, so the UI can show its error", async () => {
     answering(503, JSON.stringify(missingKeys));
 
-    expect(await getProviders()).toEqual({ kind: "response", response: missingKeys });
+    expect(await getProviders()).toEqual({
+      kind: "response",
+      status: 503,
+      response: missingKeys,
+    });
   });
 
   it("reports a body that does not match the schema as unrecognised", async () => {
@@ -303,14 +307,18 @@ describe("askProvider", () => {
     expect(init?.method).toBe("POST");
     expect(init?.headers).toEqual({ "content-type": "application/json" });
     expect(init?.body).toBe(body);
-    expect(result).toEqual({ kind: "response", response: noulResponse });
+    expect(result).toEqual({ kind: "response", status: 200, response: noulResponse });
   });
 
   it("returns a failure body as a response, so the readout can show its error", async () => {
     const conflict = { ok: false, error: "Set OPENAI_API_KEY to use it." };
     answering(() => Promise.resolve(Response.json(conflict, { status: 409 })));
 
-    expect(await askProvider("openai", "{}")).toEqual({ kind: "response", response: conflict });
+    expect(await askProvider("openai", "{}")).toEqual({
+      kind: "response",
+      status: 409,
+      response: conflict,
+    });
   });
 
   it("tells a 502 page that is not JSON apart from an endpoint it could not reach", async () => {

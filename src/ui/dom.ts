@@ -32,3 +32,13 @@ export function required<T extends Element>(
   }
   return element;
 }
+
+/** Appends text, turning `backticked` spans into `<code>` elements. */
+export function appendWithInlineCode(parent: HTMLElement, text: string): void {
+  text.split(/`([^`]+)`/).forEach((part, index) => {
+    if (part === "") {
+      return;
+    }
+    parent.append(index % 2 === 1 ? create("code", { text: part }) : part);
+  });
+}

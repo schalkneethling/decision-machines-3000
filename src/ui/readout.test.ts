@@ -15,6 +15,7 @@ import {
   questionText,
   renderError,
   renderLoading,
+  renderNonJson,
   renderResponse,
   renderUnreachable,
   scoreLevels,
@@ -33,9 +34,9 @@ function barValues(root: Element): string[] {
 describe("renderResponse for Noul", () => {
   const readout = renderResponse(noulExample, noulResponse);
 
-  it("states who answered, how fast, with how many input tokens, and over which connection", () => {
+  it("states which provider and model answered, how fast, and with how many input tokens", () => {
     expect(readout.querySelector(".reading-meta")?.textContent).toBe(
-      "Answered by jev-1.13.0 in 474 ms using 452 input tokens over the warm connection.",
+      "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens.",
     );
   });
 
@@ -179,13 +180,24 @@ describe("status renderers", () => {
     expect(renderLoading().textContent).toBe("Asking the model…");
   });
 
-  it("tells the user to start the dev server when the endpoint is unreachable", () => {
+  it("says the endpoint could not be reached, without assuming how the app is served", () => {
     const alert = renderUnreachable("Failed to fetch");
     expect(alert.getAttribute("role")).toBe("alert");
     expect(alert.querySelector(".readout-error-message")?.textContent).toBe(
-      "Could not reach the decision endpoint. Is vp dev running?",
+      "Could not reach the decision endpoint. Check the connection and try again.",
     );
-    expect(alert.querySelector("code")?.textContent).toBe("vp dev");
+    expect(alert.querySelector(".readout-error-detail")?.textContent).toBe("Failed to fetch");
+    expect(alert.textContent).not.toContain("vp dev");
+  });
+
+  it("says the endpoint answered with a body that is not JSON, rather than that it was unreachable", () => {
+    const alert = renderNonJson(502);
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.querySelector(".readout-error-message")?.textContent).toBe(
+      "The decision endpoint answered with HTTP 502 and a body that is not JSON.",
+    );
+    expect(alert.textContent).not.toMatch(/could not reach/i);
+    expect(alert.textContent).not.toContain("vp dev");
   });
 });
 
@@ -219,7 +231,13 @@ describe("provider-neutral copy", () => {
     );
   });
 
-  it("names no provider in any state rendered by this module", () => {
+  /** A rendered element without its metadata sentence, the one place a success names its provider. */
+  function withoutMetadata(element: HTMLElement): HTMLElement {
+    for (const meta of element.querySelectorAll(".reading-meta")) meta.remove();
+    return element;
+  }
+
+  it("names no provider in any state rendered by this module, apart from who answered", () => {
     const model = { model: "test-model" };
     const invalid = validateDecisionRequest({ primitive: "rank" }, DEFAULT_PROVIDER.capabilities);
     if (invalid.ok) throw new Error("Expected the request to be invalid.");
@@ -236,7 +254,10 @@ describe("provider-neutral copy", () => {
       renderResponse(noulExample, refusal),
       renderError(invalid.error, invalid.detail),
       renderUnreachable("Failed to fetch"),
-    ].flatMap(visibleStrings);
+      renderNonJson(502),
+    ]
+      .map(withoutMetadata)
+      .flatMap(visibleStrings);
     rendered.push(describeJsonError("{", new SyntaxError("Unexpected end of JSON input")));
     for (const text of rendered) {
       for (const word of providerWords) {
@@ -297,8 +318,8 @@ describe("isDecisionResponse", () => {
     expect(isDecisionResponse("<!doctype html>")).toBe(false);
     expect(isDecisionResponse({ ok: false })).toBe(false);
     expect(isDecisionResponse({ ...noulResponse, answers: { a: { type: "noul" } } })).toBe(false);
-    expect(isDecisionResponse({ ...noulResponse, connection: "warm" })).toBe(false);
-    expect(isDecisionResponse({ ...noulResponse, keepAliveSeconds: 5 })).toBe(false);
+    expect(isDecisionResponse({ ...noulResponse, provider: "nope" })).toBe(false);
+    expect(isDecisionResponse({ ...noulResponse, wire: {} })).toBe(false);
   });
 });
 
@@ -338,15 +359,24 @@ describe("describeJsonError", () => {
 });
 
 describe("metadataSentence", () => {
-  it("says a new connection was opened", () => {
-    expect(metadataSentence({ ...noulResponse, latencyMs: 1384, connection: "new" })).toBe(
-      "Answered by jev-1.13.0 in 1,384 ms using 452 input tokens over a new connection.",
+  it("names the provider by its display name, then the model it reports", () => {
+    expect(metadataSentence({ ...noulResponse, latencyMs: 1384.4 })).toBe(
+      "Answered by TypeSafe Jev (jev-1.13.0) in 1,384 ms using 452 input tokens.",
     );
   });
 
-  it("says the warm connection was reused", () => {
-    expect(metadataSentence({ ...noulResponse, latencyMs: 402, connection: "reused" })).toBe(
-      "Answered by jev-1.13.0 in 402 ms using 452 input tokens over the warm connection.",
-    );
+  it("takes the name from the catalog entry for the provider that answered", () => {
+    expect(
+      metadataSentence({
+        ...noulResponse,
+        provider: "openai",
+        model: "gpt-6-luna",
+        latencyMs: 412,
+      }),
+    ).toBe("Answered by OpenAI Decisions (gpt-6-luna) in 412 ms using 452 input tokens.");
+  });
+
+  it("mentions no connection, which the success no longer reports", () => {
+    expect(metadataSentence(noulResponse)).not.toMatch(/connection/);
   });
 });

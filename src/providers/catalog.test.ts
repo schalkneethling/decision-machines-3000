@@ -51,6 +51,15 @@ describe("provider catalog", () => {
     expect([...PROVIDER_ORDER].sort()).toEqual(Object.keys(PROVIDERS).sort());
   });
 
+  it("gives each provider the HTTPS origin its paths resolve against", () => {
+    expect(typesafe.baseUrl).toBe("https://api.typesafe.ai");
+    expect(subq.baseUrl).toBe("https://api.subq.ai");
+    expect(openai.baseUrl).toBe("https://api.openai.com");
+    for (const { baseUrl } of Object.values(PROVIDERS)) {
+      expect(new URL(baseUrl).origin).toBe(baseUrl);
+    }
+  });
+
   it("builds OpenAI's warm path from its model", () => {
     expect(openai.warmPath).toBe(`/v1/models/${openai.model}`);
   });

@@ -6,7 +6,12 @@
 import type * as z from "zod/mini";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { DecisionRequest } from "../../src/decision/contract.ts";
+import { choiceExample, noulExample, scoreExample } from "../../src/decision/examples.ts";
+import { validateDecisionRequest } from "../../src/decision/validate.ts";
 import { typesafe } from "../../src/providers/catalog.ts";
+import { choiceResponse } from "../../src/ui/fixtures/choice.ts";
+import { noulResponse } from "../../src/ui/fixtures/noul.ts";
+import { scoreResponse } from "../../src/ui/fixtures/score.ts";
 import {
   ProviderError,
   describeIssue,
@@ -461,6 +466,7 @@ describe("decide", () => {
 
   it.each([
     [403, "auth"],
+    [402, "no_credits"],
     [400, "invalid_request"],
     [422, "invalid_request"],
     [404, "upstream"],
@@ -586,6 +592,32 @@ describe("decide", () => {
     const error = await rejection(decide(noulRequest, API_KEY, liveSignal(), fetch));
     expect(error.kind).toBe("upstream");
     expect(error.detail).toBe("usage.output_tokens: expected number, received undefined");
+    // Zod's own message, kept for the log. Its wording after "Invalid input" depends on
+    // whether the host turned on the English locale, which handler tests cover.
+    expect(error.schemaMessage).toMatch(/^Invalid input/);
+  });
+
+  it("maps a 402 to no_credits with wording that names the provider", async () => {
+    const { fetch } = jsonFetch(402, envelope("payment_required", "No credit."));
+    const error = await rejection(decide(noulRequest, API_KEY, liveSignal(), fetch));
+    expect(error.kind).toBe("no_credits");
+    expect(error.message).toBe(
+      "TypeSafe Jev has no credit left on this account. Add credit, then try again.",
+    );
+    expect(error.detail).toBe("402 payment_required: No credit.");
+  });
+});
+
+describe("the browser fixtures' wire records", () => {
+  it.each([
+    ["noul", noulExample, noulResponse],
+    ["choice", choiceExample, choiceResponse],
+    ["score", scoreExample, scoreResponse],
+  ] as const)("record what toWire builds for the %s example", (_name, example, response) => {
+    const validation = validateDecisionRequest(example, typesafe.capabilities);
+    if (!validation.ok) throw new Error(`The ${_name} example is not valid.`);
+
+    expect(response.wire.request).toEqual(toWire(validation.value));
   });
 });
 

@@ -1,10 +1,5 @@
 import { DEFAULT_KEEP_ALIVE_SECONDS, WARM_ENDPOINT } from "../decision/contract.ts";
-import type {
-  DecisionSuccess,
-  KeepAliveSeconds,
-  WarmRequest,
-  WarmResponse,
-} from "../decision/contract.ts";
+import type { KeepAliveSeconds, WarmRequest, WarmResponse } from "../decision/contract.ts";
 import { isKeepAliveSeconds, isWarmResponse, postJson, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { ApiResult } from "./client.ts";
 import { required } from "./dom.ts";
@@ -12,7 +7,12 @@ import { required } from "./dom.ts";
 /**
  * The warm connection control: asks the server to open a connection to TypeSafe
  * with a chosen keep-alive, then counts down how long that connection stays warm.
- * Every successful run restarts the count, because a run keeps the connection busy too.
+ *
+ * The form is hidden in `index.html` for now: the old `/api/jev/warm` endpoint
+ * went with the `/api/jev` middleware (#8), and a decision success no longer
+ * reports its connection. Issue #9 adds a warm route per provider on the Node
+ * dev host, shows the form again where connection metrics are available, and
+ * brings back the restart of the count after each run.
  */
 
 const numberFormat = new Intl.NumberFormat("en");
@@ -103,6 +103,8 @@ export function warmFailureText(result: ApiResult<WarmResponse>): string | undef
       return result.response.ok ? undefined : result.response.error;
     case "unreachable":
       return "Could not reach the warm endpoint. Is the dev server running?";
+    case "non_json":
+      return `The warm endpoint answered with HTTP ${result.status} and a body that is not JSON.`;
     case "timeout":
       return `The connection did not warm within ${REQUEST_TIMEOUT_MS / 1000} seconds. Try again.`;
     case "unrecognised":
@@ -110,13 +112,8 @@ export function warmFailureText(result: ApiResult<WarmResponse>): string | undef
   }
 }
 
-export type WarmControl = {
-  /** Restart the countdown after any successful run. A property, so it can be passed on unbound. */
-  noteAnswered: (response: DecisionSuccess) => void;
-};
-
 /** Wires the warm form: the keep-alive select, the Warm connection button, and the countdown output. */
-export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): WarmControl {
+export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): void {
   const form = required(root, "form.warm", HTMLFormElement);
   const select = required(form, "select.warm-keep-alive", HTMLSelectElement);
   const button = required(form, "button.warm-button", HTMLButtonElement);
@@ -166,10 +163,4 @@ export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): 
     if (warming) return;
     void warm();
   });
-
-  return {
-    noteAnswered: (response) => {
-      countdown.start(response.keepAliveSeconds);
-    },
-  };
 }

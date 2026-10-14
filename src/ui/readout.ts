@@ -7,6 +7,7 @@ import type {
   RefusalAnswer,
   ScoreAnswer,
 } from "../decision/contract.ts";
+import { PROVIDERS } from "../providers/catalog.ts";
 import { create } from "./dom.ts";
 
 /**
@@ -202,11 +203,17 @@ export function renderAnswer(question: string, answer: Answer): HTMLLIElement {
   return create("li", { className: "answer" }, [heading, ...renderReading(answer)]);
 }
 
+/**
+ * Who answered, how fast, and with how many input tokens: "Answered by TypeSafe
+ * Jev (jev-1.13.0) in 474 ms using 452 input tokens." It is the one place a
+ * success names its provider: the catalog's display name for the id the server
+ * reports, then the model the provider says it used.
+ */
 export function metadataSentence(response: DecisionSuccess): string {
+  const provider = PROVIDERS[response.provider].displayName;
   const latency = numberFormat.format(Math.round(response.latencyMs));
   const tokens = numberFormat.format(response.usage.input_tokens);
-  const connection = response.connection === "new" ? "a new connection" : "the warm connection";
-  return `Answered by ${response.model} in ${latency} ms using ${tokens} input tokens over ${connection}.`;
+  return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens.`;
 }
 
 function rawResponse(response: DecisionResponse): HTMLDetailsElement {
@@ -234,10 +241,18 @@ export function renderError(message: string | (Node | string)[], detail?: string
   return alert;
 }
 
+/** No answer arrived, because `fetch` itself rejected. */
 export function renderUnreachable(detail?: string): HTMLElement {
   return renderError(
-    ["Could not reach the decision endpoint. Is ", create("code", { text: "vp dev" }), " running?"],
+    "Could not reach the decision endpoint. Check the connection and try again.",
     detail,
+  );
+}
+
+/** An answer arrived, but its body is not JSON, such as a proxy's HTML error page. */
+export function renderNonJson(status: number): HTMLElement {
+  return renderError(
+    `The decision endpoint answered with HTTP ${status} and a body that is not JSON.`,
   );
 }
 

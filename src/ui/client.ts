@@ -1,20 +1,29 @@
 import * as z from "zod/mini";
 import {
-  DECISION_ENDPOINT,
   KEEP_ALIVE_SECONDS,
+  decideEndpoint,
   decisionResponseSchema,
   warmResponseSchema,
 } from "../decision/contract.ts";
 import type { DecisionResponse, KeepAliveSeconds, WarmResponse } from "../decision/contract.ts";
+import type { ProviderId } from "../providers/catalog.ts";
 import { PROVIDERS_ENDPOINT, providersResponseSchema } from "../providers/contract.ts";
 import type { ProvidersResponse } from "../providers/contract.ts";
 
 export const REQUEST_TIMEOUT_MS = 30_000;
 
-/** Everything a request to one of the `/api` endpoints can end in, so the caller renders each case explicitly. */
+/**
+ * Everything a request to one of the `/api` endpoints can end in, so the caller renders each case explicitly:
+ * - `response`: a JSON body in the expected shape, a success or a failure.
+ * - `unrecognised`: a JSON body in another shape.
+ * - `non_json`: an answer whose body is not JSON, such as a proxy's HTML error page.
+ * - `unreachable`: no answer arrived at all, because `fetch` rejected.
+ * - `timeout`: no answer arrived in time.
+ */
 export type ApiResult<T> =
   | { kind: "response"; response: T }
   | { kind: "unrecognised"; status: number }
+  | { kind: "non_json"; status: number }
   | { kind: "unreachable"; detail?: string }
   | { kind: "timeout" };
 
@@ -49,10 +58,7 @@ async function requestJson<T>(
     try {
       parsed = JSON.parse(text);
     } catch {
-      return {
-        kind: "unreachable",
-        detail: `The endpoint answered with HTTP ${response.status} but the body was not JSON.`,
-      };
+      return { kind: "non_json", status: response.status };
     }
 
     if (!isExpected(parsed)) {
@@ -90,9 +96,13 @@ export function getProviders(timeoutMs = REQUEST_TIMEOUT_MS): Promise<ProvidersR
   return requestJson(PROVIDERS_ENDPOINT, { method: "GET" }, isProvidersResponse, timeoutMs);
 }
 
-/** POSTs a panel's JSON text, unchanged, to the decision endpoint. Never rejects. */
-export function askDecision(body: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<AskResult> {
-  return postJson(DECISION_ENDPOINT, body, isDecisionResponse, timeoutMs);
+/** POSTs a panel's JSON text, unchanged, to the decide route of `providerId`. Never rejects. */
+export function askProvider(
+  providerId: ProviderId,
+  body: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<AskResult> {
+  return postJson(decideEndpoint(providerId), body, isDecisionResponse, timeoutMs);
 }
 
 export function isKeepAliveSeconds(value: unknown): value is KeepAliveSeconds {

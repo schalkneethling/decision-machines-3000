@@ -1,17 +1,23 @@
 import type { DecisionSuccess } from "../../decision/contract.ts";
+import { noulExample } from "../../decision/examples.ts";
+import { typesafeWireRequest } from "./wire.ts";
 
-/** Real `/api/jev` response to `noulExample` from src/decision/examples.ts. */
+/**
+ * A real TypeSafe Jev answer to `noulExample` from src/decision/examples.ts,
+ * recorded from the old `/api/jev` endpoint and reshaped to the
+ * `/api/decide/typesafe` success: `provider` and `wire` added, and the
+ * connection fields that success no longer carries removed.
+ */
 export const noulResponse: DecisionSuccess<"noul"> = {
   ok: true,
   primitive: "noul",
+  provider: "typesafe",
   model: "jev-1.13.0",
   usage: {
     input_tokens: 452,
     output_tokens: 80,
   },
   latencyMs: 474,
-  connection: "reused",
-  keepAliveSeconds: 4,
   answers: {
     recommends: {
       type: "noul",
@@ -30,4 +36,5 @@ export const noulResponse: DecisionSuccess<"noul"> = {
       noul: 0.98,
     },
   },
+  wire: { request: typesafeWireRequest(noulExample) },
 };

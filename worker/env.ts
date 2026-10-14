@@ -40,8 +40,18 @@ const PLACEHOLDER = "unset";
  */
 export function isKeySet(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  return trimmed !== "" && trimmed.toLowerCase() !== PLACEHOLDER;
+  return value.trim() !== "" && !isPlaceholder(value);
+}
+
+/**
+ * Whether `value` is the Deploy button's placeholder, after trimming, in any
+ * case. Besides `isKeySet`, the decide route uses it to avoid echoing a
+ * provider id that is the placeholder: under Varlock in `vp dev`, a key set to
+ * the placeholder is a sensitive value, and any response that contains it is
+ * replaced with a 500.
+ */
+export function isPlaceholder(value: string): boolean {
+  return value.trim().toLowerCase() === PLACEHOLDER;
 }
 
 /** The providers whose key is set, in catalog order. */

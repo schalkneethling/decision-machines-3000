@@ -3,24 +3,19 @@
  *
  * The assets layer configured in `wrangler.jsonc` serves the single-page app
  * and sends only `/api` requests here, which `handle` answers. The Worker
- * injects the global `fetch` as the function provider calls go through.
+ * injects the global `fetch`, `AbortSignal.timeout`, and `console.info` as the
+ * handler's dependencies, and turns on Zod's English messages once, when this
+ * module loads, so a provider reply that fails its schema is logged in words.
  */
 
 import type { ProviderKeys } from "./env.ts";
-import { handle } from "./handler.ts";
-import type { HandlerDeps } from "./handler.ts";
+import { defaultDeps, handle } from "./handler.ts";
+import { useEnglishZodMessages } from "./zod-locale.ts";
 
 /** The generated bindings from `wrangler types`, plus the provider keys it cannot infer. */
 type WorkerEnv = Env & ProviderKeys;
 
-/**
- * The dependencies the Worker gives the handler. `fetch` is bound to
- * `globalThis`, because the handler calls it as `deps.fetch(...)` and workerd
- * rejects a `fetch` called with any other `this` ("Illegal invocation").
- */
-export function defaultDeps(): HandlerDeps {
-  return { fetch: globalThis.fetch.bind(globalThis) };
-}
+useEnglishZodMessages();
 
 export default {
   fetch(request, env) {

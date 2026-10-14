@@ -1,23 +1,19 @@
 import { createServer, request } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Connect, Plugin } from "vite-plus";
-import { openai } from "../src/providers/catalog.ts";
+import * as z from "zod/mini";
+import { openai, typesafe } from "../src/providers/catalog.ts";
 import type { ProviderKeys } from "../worker/env.ts";
 import { MISSING_KEYS_MESSAGE } from "../worker/env.ts";
-import { handle } from "../worker/handler.ts";
-import { jevApiPlugin } from "./jev-api.ts";
+import { defaultDeps, handle } from "../worker/handler.ts";
 import { apiMiddleware, providerKeysFromProcessEnv, viteHostPlugin } from "./vite-host.ts";
 
 /*
  * Drives the dev host through a real Node HTTP server, so the conversion between
- * Node's request and response and the Fetch API's is exercised too. Varlock is
- * stubbed because the legacy `/api/jev` module imports it, and the real module
- * reads the key from 1Password.
+ * Node's request and response and the Fetch API's is exercised too.
  */
-
-vi.mock("varlock/env", () => ({ ENV: {} }));
 
 type Middleware = Connect.NextHandleFunction;
 
@@ -57,6 +53,11 @@ async function serve(...middlewares: Middleware[]): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
+afterAll(() => {
+  // Configuring the plugin turns on Zod's English messages, a per-realm setting; turn it off again.
+  z.config({ localeError: undefined });
+});
+
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(
@@ -71,7 +72,7 @@ describe("the dev host middleware", () => {
     const base = await serve(apiMiddleware(() => withOpenAI));
 
     const viaHost = await fetch(`${base}/api/providers`);
-    const direct = await handle(new Request(`${base}/api/providers`), withOpenAI, { fetch });
+    const direct = await handle(new Request(`${base}/api/providers`), withOpenAI, defaultDeps());
 
     expect(viaHost.status).toBe(direct.status);
     expect(viaHost.headers.get("cache-control")).toBe("no-store");
@@ -288,26 +289,79 @@ describe("the dev host plugin", () => {
   });
 });
 
-describe("the dev host beside the legacy /api/jev middleware", () => {
-  it("leaves /api/jev to the legacy middleware and answers /api/providers itself", async () => {
+describe("POST /api/decide/{provider} on the dev host", () => {
+  const withTypeSafe: ProviderKeys = { TYPESAFE_API_KEY: "dev-host-typesafe-key" };
+  const noulRequest = {
+    primitive: "noul",
+    state: "Patient with asthma reports shortness of breath.",
+    questions: { escalate: { instructions: "Should a nurse see this chat first?" } },
+  };
+  /** The success body of `worker/providers/fixtures/typesafe/noul.json`. */
+  const recordedReply = {
+    model: "jev-1.13.0",
+    answers: { escalate: { type: "noul", noul: 0.92 } },
+    usage: { input_tokens: 343, output_tokens: 22 },
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("serves the route through handle, calling the provider with the Worker's dependencies", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
-    // The order vite.config.ts registers them in.
-    const legacy = configure(jevApiPlugin()).middleware;
-    const host = configure(viteHostPlugin(() => withOpenAI)).middleware;
-    const base = await serve(legacy, host);
+    const upstream = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(Response.json(recordedReply)),
+    );
+    // The test talks to its server with Node's own client, so only the provider call sees this.
+    vi.stubGlobal("fetch", upstream);
+    const base = await serve(configure(viteHostPlugin(() => withTypeSafe)).middleware);
 
-    const jev = await fetch(`${base}/api/jev`, {
+    const answer = await raw(base, {
       method: "POST",
+      path: "/api/decide/typesafe",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: Buffer.from(JSON.stringify(noulRequest)),
     });
-    const jevBody = (await jev.json()) as { ok: boolean; detail?: string };
-    // The legacy middleware's own validation error, not the dev host's JSON 404.
-    expect(jev.status).toBe(400);
-    expect(jevBody).toMatchObject({ ok: false, detail: "primitive" });
 
-    const providers = await fetch(`${base}/api/providers`);
-    expect(providers.status).toBe(200);
-    expect(await providers.json()).toMatchObject({ ok: true, providers: [{ id: openai.id }] });
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body.toString())).toMatchObject({
+      ok: true,
+      provider: "typesafe",
+      model: "jev-1.13.0",
+      answers: { escalate: { type: "noul", noul: 0.92 } },
+      wire: { request: { model: typesafe.model } },
+    });
+    expect(upstream).toHaveBeenCalledOnce();
+    expect(upstream.mock.calls[0]?.[0]).toBe("https://api.typesafe.ai/v1/systemone");
+    expect(upstream.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(answer.body.toString()).not.toContain("dev-host-typesafe-key");
+  });
+
+  it("answers the old /api/jev paths with a JSON 404, because nothing mounts them any more", async () => {
+    const base = await serve(configure(viteHostPlugin(() => withTypeSafe)).middleware);
+
+    for (const path of ["/api/jev", "/api/jev/warm"]) {
+      const answer = await raw(base, {
+        method: "POST",
+        path,
+        headers: { "content-type": "application/json" },
+        body: Buffer.from("{}"),
+      });
+      expect(answer.status).toBe(404);
+      expect(JSON.parse(answer.body.toString())).toEqual({
+        ok: false,
+        error: `No API route matches ${path}.`,
+      });
+    }
+  });
+
+  it("turns on Zod's English messages when it configures the server", () => {
+    configure(viteHostPlugin(() => withTypeSafe));
+
+    const result = z.object({ tokens: z.number() }).safeParse({ tokens: "many" });
+
+    expect(result.error?.issues[0]?.message).toBe(
+      "Invalid input: expected number, received string",
+    );
   });
 });

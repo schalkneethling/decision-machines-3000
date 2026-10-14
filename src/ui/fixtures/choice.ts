@@ -1,17 +1,23 @@
 import type { DecisionSuccess } from "../../decision/contract.ts";
+import { choiceExample } from "../../decision/examples.ts";
+import { typesafeWireRequest } from "./wire.ts";
 
-/** Real `/api/jev` response to `choiceExample` from src/decision/examples.ts. */
+/**
+ * A real TypeSafe Jev answer to `choiceExample` from src/decision/examples.ts,
+ * recorded from the old `/api/jev` endpoint and reshaped to the
+ * `/api/decide/typesafe` success: `provider` and `wire` added, and the
+ * connection fields that success no longer carries removed.
+ */
 export const choiceResponse: DecisionSuccess<"choice"> = {
   ok: true,
   primitive: "choice",
+  provider: "typesafe",
   model: "jev-1.13.0",
   usage: {
     input_tokens: 1944,
     output_tokens: 487,
   },
   latencyMs: 525,
-  connection: "reused",
-  keepAliveSeconds: 4,
   answers: {
     film_0: {
       type: "choice",
@@ -98,4 +104,5 @@ export const choiceResponse: DecisionSuccess<"choice"> = {
       },
     },
   },
+  wire: { request: typesafeWireRequest(choiceExample) },
 };

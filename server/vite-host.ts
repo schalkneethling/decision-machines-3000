@@ -3,16 +3,19 @@
  * `handle` function the Worker uses (ADR-0001).
  *
  * It converts each Node request into a `Request`, passes it to `handle` with the
- * provider keys and Node's global `fetch`, and writes the `Response` back. The
- * legacy `/api/jev` middleware is registered before this plugin, so it answers
- * its own paths first and only the rest reach `handle`.
+ * provider keys and the same dependencies the Worker passes (Node's global
+ * `fetch`, `AbortSignal.timeout`, and `console.info`), and writes the
+ * `Response` back. Every `/api` path reaches `handle`, including the old
+ * `/api/jev` paths, which now answer a JSON 404.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, Plugin } from "vite-plus";
 import { MISSING_KEYS_MESSAGE, PROVIDER_KEY_NAMES, configuredProviders } from "../worker/env.ts";
 import type { ProviderKeys } from "../worker/env.ts";
-import { failure, handle, rejectMethod } from "../worker/handler.ts";
+import { defaultDeps, handle, rejectMethod } from "../worker/handler.ts";
+import { failure } from "../worker/respond.ts";
+import { useEnglishZodMessages } from "../worker/zod-locale.ts";
 
 const LOG_PREFIX = "[api]";
 
@@ -141,7 +144,7 @@ export function apiMiddleware(
     }
 
     toRequest(req, new URL(`${origin}${target}`))
-      .then((request) => handler(request, readKeys(), { fetch: globalThis.fetch.bind(globalThis) }))
+      .then((request) => handler(request, readKeys(), defaultDeps()))
       .then(answered)
       .catch(failed);
   };
@@ -150,12 +153,14 @@ export function apiMiddleware(
 /**
  * Vite plugin for `vp dev` that serves `/api` through the Worker's handler. It
  * warns at start-up when no provider key is set, with the same message the
- * handler's 503 carries.
+ * handler's 503 carries, and turns on Zod's English messages, as the Worker
+ * does when it loads, so both hosts log a rejected provider reply alike.
  */
 export function viteHostPlugin(readKeys: () => ProviderKeys = providerKeysFromProcessEnv): Plugin {
   return {
     name: "decisionmachines3000:vite-host",
     configureServer(server) {
+      useEnglishZodMessages();
       if (configuredProviders(readKeys()).length === 0) {
         server.config.logger.warn(`${LOG_PREFIX} ${MISSING_KEYS_MESSAGE}`);
       }

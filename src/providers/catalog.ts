@@ -51,8 +51,15 @@ export type ProviderDescriptor = {
   /** The model id requests are pinned to. */
   model: string;
   /**
-   * A cheap GET path that opens a connection without spending tokens.
-   * Undefined when the provider has none worth using.
+   * The origin every API path of the provider is resolved against, with no
+   * trailing slash. It stays on the server: `GET /api/providers` never lists it.
+   * The three origins are the ones the live probes in
+   * `docs/spikes/provider-probes.md` called (`scripts/probe/run.mjs`).
+   */
+  baseUrl: string;
+  /**
+   * A cheap GET path that opens a connection without spending tokens, relative
+   * to `baseUrl`. Undefined when the provider has none worth using.
    */
   warmPath?: string;
   capabilities: ProviderCapabilities;
@@ -91,6 +98,7 @@ export const typesafe: ProviderDescriptor = {
   id: "typesafe",
   displayName: "TypeSafe Jev",
   model: "jev-1.13.0",
+  baseUrl: "https://api.typesafe.ai",
   warmPath: "/v1/models",
   capabilities: {
     choiceOptions: CHOICE_OPTIONS,
@@ -103,6 +111,7 @@ export const subq: ProviderDescriptor = {
   id: "subq",
   displayName: "SubQ Snap",
   model: "subq-snap-preview",
+  baseUrl: "https://api.subq.ai",
   warmPath: "/v1/models",
   capabilities: {
     choiceOptions: CHOICE_OPTIONS,
@@ -121,6 +130,7 @@ export const openai: ProviderDescriptor = {
   id: "openai",
   displayName: "OpenAI Decisions",
   model: OPENAI_MODEL,
+  baseUrl: "https://api.openai.com",
   warmPath: `/v1/models/${OPENAI_MODEL}`,
   capabilities: {
     choiceOptions: CHOICE_OPTIONS,

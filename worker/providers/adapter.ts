@@ -43,6 +43,7 @@ import type { ProviderDescriptor } from "../../src/providers/catalog.ts";
  * Why a provider call failed, independent of the provider:
  * - `auth`: the provider rejected the API key (401 or 403), or the key holds characters that cannot be sent.
  * - `rate_limited`: the provider asked us to slow down (429); `retryAfterSeconds` carries its `Retry-After` when it sent one.
+ * - `no_credits`: the account behind the key has no credit left (402).
  * - `invalid_request`: the provider refused the request itself (400 or 422).
  * - `upstream`: the provider failed (404, 5xx, 529) or answered in a shape this app cannot read.
  * - `timeout`: the abort signal fired before the reply arrived.
@@ -51,6 +52,7 @@ import type { ProviderDescriptor } from "../../src/providers/catalog.ts";
 export type ProviderErrorKind =
   | "auth"
   | "rate_limited"
+  | "no_credits"
   | "invalid_request"
   | "upstream"
   | "timeout"
@@ -70,6 +72,13 @@ export type ProviderErrorOptions = {
   retryAfterSeconds?: number;
   /** Only ever a `TransportCause`, never the original error. */
   cause?: TransportCause;
+  /**
+   * For a reply the schema rejected: Zod's own message for the first problem,
+   * for the server log only. It reads "Invalid input" unless the host has
+   * turned on Zod's English locale (`worker/zod-locale.ts`), and then
+   * "Invalid input: expected number, received string".
+   */
+  schemaMessage?: string;
 };
 
 /** A failed provider call, normalised so the route can answer the same way for every provider. */
@@ -77,6 +86,7 @@ export class ProviderError extends Error {
   readonly kind: ProviderErrorKind;
   readonly detail: string | undefined;
   readonly retryAfterSeconds: number | undefined;
+  readonly schemaMessage: string | undefined;
 
   constructor(kind: ProviderErrorKind, message: string, options: ProviderErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
@@ -84,6 +94,7 @@ export class ProviderError extends Error {
     this.kind = kind;
     this.detail = options.detail;
     this.retryAfterSeconds = options.retryAfterSeconds;
+    this.schemaMessage = options.schemaMessage;
   }
 }
 
@@ -93,7 +104,7 @@ export class ProviderError extends Error {
 
 /**
  * The part of a successful decision a provider supplies. The route adds what it
- * measures itself: `ok`, `primitive`, `latencyMs`, `connection`, and `keepAliveSeconds`.
+ * knows or measures itself: `ok`, `primitive`, `provider`, `latencyMs`, and `wire`.
  */
 export type ProviderDecision = Pick<DecisionSuccess, "model" | "usage" | "answers">;
 
@@ -306,6 +317,7 @@ function parseJson(text: string): unknown {
 export function errorKindForStatus(status: number): ProviderErrorKind {
   if (status === 401 || status === 403) return "auth";
   if (status === 429) return "rate_limited";
+  if (status === 402) return "no_credits";
   if (status === 400 || status === 422) return "invalid_request";
   return "upstream";
 }
@@ -363,6 +375,8 @@ function defaultMessage(
       const wait = retryAfter === undefined ? "a moment" : `${retryAfter} seconds`;
       return `${name} is rate limiting requests. Wait ${wait} and try again.`;
     }
+    case "no_credits":
+      return `${name} has no credit left on this account. Add credit, then try again.`;
     case "invalid_request":
       return `${name} could not process this request. Check the questions and criteria against the detail.`;
     default:
@@ -422,12 +436,20 @@ export function describeIssue(issue: z.core.$ZodIssue): string {
   }
 }
 
-/** The `upstream` error for a reply whose shape the adapter's schema rejects; `detail` names the place. */
-export function unreadableReply(provider: ProviderDescriptor, detail: string): ProviderError {
+/**
+ * The `upstream` error for a reply whose shape the adapter's schema rejects;
+ * `detail` names the place, and `schemaMessage`, when given, is Zod's own
+ * message for the server log.
+ */
+export function unreadableReply(
+  provider: ProviderDescriptor,
+  detail: string,
+  schemaMessage?: string,
+): ProviderError {
   return new ProviderError(
     "upstream",
     `${provider.displayName} answered in a shape this app cannot read.`,
-    { detail },
+    { detail, schemaMessage },
   );
 }
 
@@ -437,7 +459,8 @@ export function unreadableReply(provider: ProviderDescriptor, detail: string): P
  * by recursion, so a body nested thousands of levels deep exhausts the call
  * stack with a `RangeError`; that is a reply this app cannot read, not a
  * crash, and is reported like any other. Neither the body nor the parse error
- * is kept on the thrown error.
+ * is kept on the thrown error, only Zod's message for the first problem, cut
+ * to 300 characters. That message names at most a key of the reply, never a value.
  */
 export function parseReply<T>(
   provider: ProviderDescriptor,
@@ -455,5 +478,5 @@ export function parseReply<T>(
   }
   if (result.success) return result.data;
   const [issue] = result.error.issues;
-  throw unreadableReply(provider, describeIssue(issue));
+  throw unreadableReply(provider, describeIssue(issue), clip(issue.message));
 }

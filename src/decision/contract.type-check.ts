@@ -8,7 +8,9 @@
  * branch `issue-31-schema-library-spike`), applied to the migrated types, plus
  * the response types that are now inferred too. The `Reference` types are the
  * hand-written contract from `src/decision/contract.ts` before the migration,
- * copied unchanged, so a schema change that alters a type fails here.
+ * copied unchanged, so a schema change that alters a type fails here. The one
+ * deliberate change since: `POST /api/decide/{provider}` (#8) replaced the
+ * success's `connection` and `keepAliveSeconds` with `provider` and `wire`.
  */
 
 import type * as z from "zod/mini";
@@ -95,12 +97,12 @@ type ReferenceKeepAliveSeconds = 4 | 30 | 60;
 type ReferenceDecisionSuccess<P extends ReferencePrimitive = ReferencePrimitive> = {
   ok: true;
   primitive: P;
+  provider: "typesafe" | "subq" | "openai";
   model: string;
   usage: { input_tokens: number; output_tokens: number };
   latencyMs: number;
-  connection: "new" | "reused";
-  keepAliveSeconds: ReferenceKeepAliveSeconds;
   answers: Record<string, ReferenceAnswerByPrimitive[P] | ReferenceRefusalAnswer>;
+  wire: { request: Record<string, ReferenceJsonValue> };
 };
 type ReferenceDecisionFailure = { ok: false; error: string; detail?: string };
 type ReferenceWarmSuccess = {

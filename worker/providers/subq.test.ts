@@ -5,6 +5,7 @@
 
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { DecisionRequest } from "../../src/decision/contract.ts";
+import type { ValidDecisionRequest } from "../../src/decision/validate.ts";
 import { subq } from "../../src/providers/catalog.ts";
 import type { ProviderKeys } from "../env.ts";
 import { handle } from "../handler.ts";
@@ -365,11 +366,74 @@ describe("fromWire", () => {
   });
 });
 
+describe("fromWire on a reply of the wrong shape", () => {
+  type Mutate = (reply: Fields & { answers: Record<string, Fields>; usage: unknown }) => unknown;
+
+  /** An array where an object belongs, at each place the reply holds one. */
+  const arrayWhereObjectBelongs: [string, ValidDecisionRequest, string, Mutate][] = [
+    ["the body", noulRequest, "body", () => []],
+    ["answers", noulRequest, "answers", (reply) => ({ ...reply, answers: [] })],
+    [
+      "a single answer",
+      noulRequest,
+      "answers.escalate",
+      (reply) => ({ ...reply, answers: { escalate: [] } }),
+    ],
+    ["usage", noulRequest, "usage", (reply) => ({ ...reply, usage: [] })],
+    [
+      "choice probabilities",
+      choiceRequest,
+      "answers.queue.probabilities",
+      (reply) => ({ ...reply, answers: { queue: { ...reply.answers.queue, probabilities: [] } } }),
+    ],
+    [
+      "score legend",
+      scoreRequest,
+      "answers.acuity.legend",
+      (reply) => ({ ...reply, answers: { acuity: { ...reply.answers.acuity, legend: [] } } }),
+    ],
+    [
+      "score probabilities",
+      scoreRequest,
+      "answers.acuity.probabilities",
+      (reply) => ({
+        ...reply,
+        answers: { acuity: { ...reply.answers.acuity, probabilities: [] } },
+      }),
+    ],
+  ];
+
+  it.each(arrayWhereObjectBelongs)(
+    "rejects an array in place of an object at %s as upstream",
+    (_place, request, path, mutate) => {
+      const id = Object.keys(request.questions)[0] ?? "";
+      const reply = threeTypesReplyWith(id) as Parameters<Mutate>[0];
+      const error = failure(() => fromWire(request, mutate(reply)));
+      expect(error.kind).toBe("upstream");
+      expect(error.detail?.startsWith(path)).toBe(true);
+    },
+  );
+
+  it("reports a reply nested too deeply as upstream instead of throwing a RangeError", () => {
+    let nested: unknown = "deep";
+    for (let depth = 0; depth < 10_000; depth += 1) nested = [nested];
+    const body = threeTypesReplyWith("acuity") as { answers: { acuity: { legend: Fields } } };
+    body.answers.acuity.legend["0"] = nested;
+    const error = failure(() => fromWire(scoreRequest, body));
+    expect(error.kind).toBe("upstream");
+    expect(error.detail).toBe("body: nested too deeply");
+  });
+});
+
 describe("the schemas against every recorded fixture", () => {
   const names = Object.keys(fixtures).map((path) => path.slice("./fixtures/subq/".length, -5));
+  const failedNames = names.filter((name) => fixture(name).status >= 300);
+  const succeededNames = names.filter((name) => fixture(name).status < 300);
 
-  it("covers the fourteen recorded exchanges", () => {
-    expect(names).toHaveLength(14);
+  it("finds recorded exchanges, and every one is matched by a selector below", () => {
+    expect(names.length).toBeGreaterThan(0);
+    const selected = [...failedNames, ...succeededNames];
+    expect(selected.sort()).toEqual([...names].sort());
   });
 
   it.each(names)("parses %s with the schema its URL and status select", (name) => {
@@ -382,6 +446,14 @@ describe("the schemas against every recorded fixture", () => {
           : decisionReplySchema;
     expect(schema.safeParse(body).success).toBe(true);
   });
+
+  it.each(failedNames)(
+    "rejects the recorded failure %s as a decision reply, as upstream",
+    (name) => {
+      const error = failure(() => fromWire(noulRequest, fixture(name).body));
+      expect(error.kind).toBe("upstream");
+    },
+  );
 });
 
 describe("decide", () => {
@@ -430,6 +502,7 @@ describe("decide", () => {
   });
 
   it("maps a 402 to no_credits with wording that names the provider", async () => {
+    // 402 was never probed (provider-probes.md), so this envelope is an assumed shape.
     const { fetch } = jsonFetch(402, envelope("payment_required", "No credit."));
     const error = await rejection(decide(noulRequest, API_KEY, liveSignal(), fetch));
     expect(error.kind).toBe("no_credits");
@@ -599,6 +672,6 @@ describe("the adapter object", () => {
   });
 
   it("imports nothing from the TypeSafe adapter", () => {
-    expect(subqSource).not.toMatch(/^import .*typesafe/im);
+    expect(subqSource).not.toMatch(/from\s+["'][^"']*typesafe/);
   });
 });

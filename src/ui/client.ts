@@ -34,6 +34,19 @@ export type AskResult = ApiResult<DecisionResponse>;
 export type ProvidersResult = ApiResult<ProvidersResponse>;
 
 /**
+ * Runs the shape check. A check that throws, such as Zod's recursion running out
+ * of stack on a deeply nested body, means the body is not in the expected shape;
+ * it must not be mistaken for a network failure.
+ */
+function isCheckedAs<T>(isExpected: (value: unknown) => value is T, value: unknown): value is T {
+  try {
+    return isExpected(value);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sends one request to `endpoint` and checks the JSON body with `isExpected`.
  * Never rejects: network failures, timeouts, and unexpected bodies become results.
  */
@@ -61,7 +74,7 @@ async function requestJson<T>(
       return { kind: "non_json", status: response.status };
     }
 
-    if (!isExpected(parsed)) {
+    if (!isCheckedAs(isExpected, parsed)) {
       return { kind: "unrecognised", status: response.status };
     }
 

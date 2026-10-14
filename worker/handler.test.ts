@@ -413,6 +413,43 @@ describe("POST /api/decide/typesafe", () => {
     expect((body.wire as { response: unknown }).response).toEqual(recordedNoulReply);
   });
 
+  it("replaces a provider reply nested thousands of levels deep with a placeholder, keeping the answers", async () => {
+    // Written as text, because `JSON.stringify` itself throws at this depth.
+    const levels = 6000;
+    const text = `${JSON.stringify(recordedNoulReply).slice(0, -1)},"extra":${"[".repeat(levels)}0${"]".repeat(levels)}}`;
+    const deps = stubDeps(() => Promise.resolve(new Response(text, { status: 200 })));
+
+    const { response, body } = await decideWith(
+      postJson("/api/decide/typesafe", yesNo),
+      withTypeSafe,
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionResponseSchema.safeParse(body).success).toBe(true);
+    expect(body.answers).toEqual(recordedNoulReply.answers);
+    expect((body.wire as { response: unknown }).response).toMatch(
+      /^<provider reply not shown: nested more than \d+ levels>$/,
+    );
+  });
+
+  it("replaces a provider reply over the display limit with a placeholder, keeping the answers", async () => {
+    const deps = stubDeps(upstreamReply(200, { ...recordedNoulReply, extra: "x".repeat(300_000) }));
+
+    const { response, body } = await decideWith(
+      postJson("/api/decide/typesafe", yesNo),
+      withTypeSafe,
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionResponseSchema.safeParse(body).success).toBe(true);
+    expect(body.answers).toEqual(recordedNoulReply.answers);
+    expect((body.wire as { response: unknown }).response).toBe(
+      "<provider reply not shown: 293 KB, over the 256 KB display limit>",
+    );
+  });
+
   it("sends the provider exactly what wire.request records, model pinned by the catalog", async () => {
     const deps = stubDeps(upstreamReply(200, recordedNoulReply));
 

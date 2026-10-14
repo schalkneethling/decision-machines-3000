@@ -55,12 +55,8 @@ describe("renderResponse for Noul", () => {
     }
   });
 
-  it("keeps the sent and received blocks open, as details elements", () => {
-    const [sent, received] = readout.querySelectorAll("details");
-    expect(sent?.open).toBe(true);
-    expect(received?.open).toBe(true);
-    expect(sent?.querySelector("summary")?.textContent).toBe("Sent to TypeSafe Jev");
-    expect(received?.querySelector("summary")?.textContent).toBe("Received from TypeSafe Jev");
+  it("renders no JSON, which the wire view carries outside the live region", () => {
+    expect(readout.querySelector("details, pre")).toBeNull();
   });
 });
 
@@ -233,11 +229,11 @@ describe("provider-neutral copy", () => {
   });
 
   /**
-   * A rendered element without the places a success names its provider on purpose:
-   * the metadata sentence and the wire view's summaries ("Sent to {provider}").
+   * A rendered element without the place a success names its provider on purpose:
+   * the metadata sentence.
    */
   function withoutMetadata(element: HTMLElement): HTMLElement {
-    for (const meta of element.querySelectorAll(".reading-meta, .raw-summary")) meta.remove();
+    for (const meta of element.querySelectorAll(".reading-meta")) meta.remove();
     return element;
   }
 

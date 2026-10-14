@@ -1,4 +1,4 @@
-import type { DecisionSuccess } from "../decision/contract.ts";
+import type { DecisionResponse, DecisionSuccess } from "../decision/contract.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import { create } from "./dom.ts";
 
@@ -31,4 +31,14 @@ export function renderWireView(response: DecisionSuccess): HTMLDetailsElement[] 
     disclosure(`Sent to ${provider}`, request),
     disclosure(`Received from ${provider}`, received),
   ];
+}
+
+/**
+ * The wire view for a finished run, for a container outside the live region so a
+ * screen reader does not speak the JSON. A success gets the sent and received
+ * blocks; a failure gets its "Raw response" block.
+ */
+export function renderWire(response: DecisionResponse): HTMLElement {
+  const blocks = response.ok ? renderWireView(response) : [disclosure("Raw response", response)];
+  return create("div", { className: "wire-view" }, blocks);
 }

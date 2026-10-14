@@ -9,7 +9,6 @@ import type {
 } from "../decision/contract.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import { create } from "./dom.ts";
-import { renderWireView } from "./wire-view.ts";
 
 /**
  * Pure renderers for the readout. Each takes data and returns a detached element;
@@ -217,16 +216,6 @@ export function metadataSentence(response: DecisionSuccess): string {
   return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens.`;
 }
 
-function rawResponse(response: DecisionResponse): HTMLDetailsElement {
-  const code = create("code", { text: JSON.stringify(response, null, 2) });
-  const details = create("details", { className: "raw" }, [
-    create("summary", { className: "raw-summary", text: "Raw response" }),
-    create("pre", { className: "raw-code" }, [code]),
-  ]);
-  details.open = true;
-  return details;
-}
-
 export function renderLoading(): HTMLElement {
   return create("p", { className: "readout-status", text: "Asking the model…" });
 }
@@ -257,13 +246,14 @@ export function renderNonJson(status: number): HTMLElement {
   );
 }
 
-/** The full readout for a finished run: failure, or metadata, answers, and raw JSON. */
+/**
+ * The readout for a finished run: a failure, or metadata and answers. It is what a
+ * screen reader announces, so the JSON of the wire view is rendered apart from it
+ * by `renderWire`.
+ */
 export function renderResponse(sent: unknown, response: DecisionResponse): HTMLElement {
   if (!response.ok) {
-    return create("div", { className: "reading" }, [
-      renderError(response.error, response.detail),
-      rawResponse(response),
-    ]);
+    return create("div", { className: "reading" }, [renderError(response.error, response.detail)]);
   }
 
   const answers = create(
@@ -278,6 +268,5 @@ export function renderResponse(sent: unknown, response: DecisionResponse): HTMLE
   return create("div", { className: "reading" }, [
     create("p", { className: "reading-meta", text: metadataSentence(response) }),
     answers,
-    ...renderWireView(response),
   ]);
 }

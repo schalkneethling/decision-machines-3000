@@ -1,12 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vite-plus/test";
-import type { DecisionSuccess } from "../decision/contract.ts";
+import type { DecisionFailure, DecisionSuccess } from "../decision/contract.ts";
 import { noulResponse } from "./fixtures/noul.ts";
-import { renderResponse } from "./readout.ts";
-import { renderWireView } from "./wire-view.ts";
+import { renderWire, renderWireView } from "./wire-view.ts";
 
 function blocks(response: DecisionSuccess): Record<string, string> {
-  const readout = renderResponse({}, response);
+  const readout = renderWire(response);
   return Object.fromEntries(
     [...readout.querySelectorAll("details")].map((details) => [
       details.querySelector("summary")?.textContent ?? "",
@@ -36,6 +35,29 @@ const openaiResponse: DecisionSuccess = {
     response: { output: [{ name: "escalate", answer: true }] },
   },
 };
+
+describe("renderWire", () => {
+  it("shows a failure as one open Raw response block with its JSON", () => {
+    const failure: DecisionFailure = { ok: false, error: "Nope.", detail: "HTTP 401" };
+    const view = renderWire(failure);
+    const [details, ...rest] = view.querySelectorAll("details");
+    expect(rest).toHaveLength(0);
+    expect(details?.open).toBe(true);
+    expect(details?.querySelector("summary")?.textContent).toBe("Raw response");
+    expect(JSON.parse(details?.querySelector("pre code")?.textContent ?? "")).toEqual(failure);
+  });
+
+  it("shows a success as the sent and received blocks, both open", () => {
+    const summaries = [...renderWire(noulResponse).querySelectorAll("details")].map((details) => [
+      details.open,
+      details.querySelector("summary")?.textContent,
+    ]);
+    expect(summaries).toEqual([
+      [true, "Sent to TypeSafe Jev"],
+      [true, "Received from TypeSafe Jev"],
+    ]);
+  });
+});
 
 describe("renderWireView", () => {
   it("shows the TypeSafe body with its type and pinned model", () => {

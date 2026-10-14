@@ -29,6 +29,17 @@ Feature: A read-only wire view shows what was sent to the provider and what came
     When decide returns
     Then wire.response holds "[redacted]" in place of the key
 
+  Scenario: The live region does not announce the JSON
+    Given a run has finished, as a success or as a failure
+    Then no details or pre element is inside the aria-live element
+    And the wire view, or the failure's "Raw response" block, is in the sibling container
+
+  Scenario: A provider reply that is too deep or too large is not shown
+    Given a provider reply with a field nested more than 64 levels deep, or over 256 KiB of text
+    When decide returns
+    Then the answers are correct and the response is 200
+    And wire.response is a placeholder that names the limit that was hit
+
   Scenario: The Authorization header never appears
     Given any successful response
     When the wire view renders
@@ -37,7 +48,7 @@ Feature: A read-only wire view shows what was sent to the provider and what came
   Scenario: The blocks are read-only and reachable
     Given the wire view is rendered
     Then each block is a details element with a summary and its text in pre and code
-    And the live region around the readout is unchanged
+    And the live region announces the result, and the wire view sits beside it in its own container, silent
 
   # Manual step, run by the coordinator (needs vp dev, which needs 1Password).
   Scenario: Live check in Chrome

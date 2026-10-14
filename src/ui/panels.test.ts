@@ -212,6 +212,32 @@ describe("run", () => {
     );
   });
 
+  it("keeps the JSON out of the live region after a success and after a failure", async () => {
+    mockFetch();
+    setupPanels(document);
+    submit("noul");
+    await vi.waitFor(() => expect(document.querySelector(".reading-meta")).not.toBeNull());
+    const live = get("[aria-live]");
+    expect(live.querySelector("details, pre")).toBeNull();
+    expect(get("#wire-body").querySelectorAll("details")).toHaveLength(2);
+    expect(live.contains(get("#wire-body"))).toBe(false);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: "Nope.", detail: "HTTP 401" }), {
+            status: 502,
+          }),
+      ),
+    );
+    submit("noul");
+    await vi.waitFor(() => expect(document.querySelector('[role="alert"]')).not.toBeNull());
+    expect(live.querySelector("details, pre")).toBeNull();
+    const raw = get("#wire-body details");
+    expect(raw.querySelector("summary")?.textContent).toBe("Raw response");
+  });
+
   it("says a 502 page that is not JSON is not JSON, rather than unreachable", async () => {
     vi.stubGlobal(
       "fetch",

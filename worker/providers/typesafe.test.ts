@@ -636,6 +636,29 @@ describe("the browser fixtures' wire records", () => {
     const { model, usage, answers } = response;
     expect(fromWire(validation.value, response.wire.response)).toEqual({ model, usage, answers });
   });
+
+  // The UI fixtures answer the film examples, and the recordings answer the nurse-chat
+  // probes, so the values differ. The shape is what the recordings pin down: the same
+  // fields in the reply, in its usage, and in an answer of each primitive.
+  it.each([
+    ["noul", noulResponse],
+    ["choice", choiceResponse],
+    ["score", scoreResponse],
+  ] as const)("give wire.response the fields of the recorded %s reply", (name, response) => {
+    const recorded = fixture(name).body as Record<string, Record<string, unknown>>;
+    const shown = response.wire.response as Record<string, Record<string, unknown>>;
+
+    expect(Object.keys(shown).toSorted()).toEqual(Object.keys(recorded).toSorted());
+    expect(Object.keys(shown.usage ?? {}).toSorted()).toEqual(
+      Object.keys(recorded.usage ?? {}).toSorted(),
+    );
+    const [recordedAnswer] = Object.values(recorded.answers ?? {}) as Record<string, unknown>[];
+    const [shownAnswer] = Object.values(shown.answers ?? {}) as Record<string, unknown>[];
+    expect(Object.keys(shownAnswer ?? {}).toSorted()).toEqual(
+      Object.keys(recordedAnswer ?? {}).toSorted(),
+    );
+    expect(decisionReplySchema.safeParse(shown).success).toBe(true);
+  });
 });
 
 describe("the adapter object", () => {

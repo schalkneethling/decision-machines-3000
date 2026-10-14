@@ -22,8 +22,8 @@ export function typesafeWireRequest(request: DecisionRequest): Record<string, Js
 
 /**
  * The reply body TypeSafe sends for a success: the model, the answers, and the
- * usage, which are the fields the app reads. `worker/providers/typesafe.test.ts`
- * checks that `fromWire` reads these records back to the same decision.
+ * usage. It is built from the fixture's own values, so `typesafe.test.ts` compares
+ * its fields with the recorded replies and reads it back through `fromWire`.
  */
 export function typesafeWireResponse(
   reading: Pick<DecisionSuccess, "model" | "answers" | "usage">,

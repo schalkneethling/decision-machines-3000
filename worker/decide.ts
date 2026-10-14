@@ -24,6 +24,7 @@ import type { ProviderKeys } from "./env.ts";
 import type { HandlerDeps } from "./handler.ts";
 import { ProviderError } from "./providers/adapter.ts";
 import type { ProviderAdapter, ProviderDecision, ProviderErrorKind } from "./providers/adapter.ts";
+import { subqAdapter } from "./providers/subq.ts";
 import { typesafeAdapter } from "./providers/typesafe.ts";
 import { failure, json } from "./respond.ts";
 
@@ -41,6 +42,7 @@ const MULTIPART_TYPE = "multipart/form-data";
 /** The adapter for each provider this version can call. */
 const ADAPTERS: Readonly<Partial<Record<ProviderId, ProviderAdapter>>> = {
   typesafe: typesafeAdapter,
+  subq: subqAdapter,
 };
 
 /**

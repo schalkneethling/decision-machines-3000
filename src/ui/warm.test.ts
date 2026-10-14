@@ -3,8 +3,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { WarmSuccess } from "../decision/contract.ts";
-import { noulResponse } from "./fixtures/noul.ts";
-import { setupPanels } from "./panels.ts";
 import { COLD_TEXT, createCountdown, setupWarm } from "./warm.ts";
 import type { Repeat } from "./warm.ts";
 
@@ -198,27 +196,24 @@ describe("setupWarm", () => {
     expect(output().dataset.tone).toBe("alert");
   });
 
-  it("restarts the countdown when a run is answered", async () => {
+  it("says when the warm endpoint answers with a body that is not JSON", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ ...noulResponse, keepAliveSeconds: 4 })),
+      vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 })),
     );
-    const clock = manualRepeat();
-    const warm = setupWarm(document, clock.repeat);
-    setupPanels(document, { onAnswered: warm.noteAnswered });
+    setupWarm(document, manualRepeat().repeat);
+    submitWarm();
 
-    get<HTMLFormElement>('form[data-primitive="noul"]').dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
     await vi.waitFor(() => {
-      expect(output().value).toBe("Warm for 4 s.");
+      expect(output().value).toBe(
+        "Could not warm the connection. The warm endpoint answered with HTTP 502 and a body that is not JSON.",
+      );
     });
-    clock.advance(2);
-    expect(output().value).toBe("Warm for 2 s.");
+  });
 
-    warm.noteAnswered(noulResponse);
-    expect(output().value).toBe("Warm for 4 s.");
-    clock.advance(4);
-    expect(output().value).toBe(COLD_TEXT);
+  it("is hidden, because nothing serves the warm endpoint until #9", () => {
+    // The old /api/jev/warm middleware is gone; #9 adds a warm route per provider on the
+    // Node dev host and shows the form again where connection metrics are available.
+    expect(get<HTMLFormElement>("form.warm").hidden).toBe(true);
   });
 });

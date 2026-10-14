@@ -80,6 +80,7 @@ describe("toProviderSummary", () => {
 
     expect(paths).not.toContain("apiBase");
     expect(paths).not.toContain("warmPath");
+    expect(paths).not.toContain("baseUrl");
     expect(paths).not.toContain("capabilities.upstreamQuota");
     expect(paths).not.toContain("capabilities.choiceOptions.internal");
     expect(paths).not.toContain("capabilities.images.bucket");

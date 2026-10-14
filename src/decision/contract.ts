@@ -1,7 +1,7 @@
 /**
- * Request/response contract between the browser UI and the `/api/jev` endpoint.
+ * Request/response contract between the browser UI and `POST /api/decide/{provider}`.
  *
- * The browser never talks to TypeSafe directly: the API key stays on the server.
+ * The browser never talks to a provider directly: the API keys stay on the server.
  * Each panel in the UI targets exactly one primitive, so the request names the
  * primitive once and every question in it is built with that primitive.
  *
@@ -11,6 +11,11 @@
  * response schemas live here because they carry no wording of their own. The
  * constants (the keep-alive durations and the endpoints) stay hand-written.
  *
+ * `POST /api/decide/{provider}` is the only decision endpoint. The warm-connection
+ * fields (`connection`, `keepAliveSeconds`) left the success shape with the old
+ * `/api/jev` middleware; issue #9 brings them back as optional fields for the
+ * Node dev host.
+ *
  * Grammar source: https://docs.typesafe.ai/api.md and the `@typesafe-ai/sdk`
  * `noul()`, `choice()`, and `score()` builders. Zod Mini APIs used, read from
  * node_modules/zod/v4/mini/schemas.d.ts: `json`, `union`, `array`, `record`,
@@ -19,6 +24,8 @@
  */
 
 import * as z from "zod/mini";
+import { PROVIDER_ORDER } from "../providers/catalog.ts";
+import type { ProviderId } from "../providers/catalog.ts";
 // A type-only import: the request schema imports this module's constants and
 // `content` builder at run time, and this module only names its inferred type.
 import type { ValidDecisionRequest } from "./validate.ts";
@@ -31,11 +38,19 @@ export type KeepAliveSeconds = (typeof KEEP_ALIVE_SECONDS)[number];
 /** The keep-alive the server starts with: Node's own default. */
 export const DEFAULT_KEEP_ALIVE_SECONDS: KeepAliveSeconds = 4;
 
-export const DECISION_ENDPOINT = "/api/jev";
+/** The path every decision endpoint starts with; the provider id follows it. */
+export const DECIDE_PATH_PREFIX = "/api/decide/";
+
+/** `POST /api/decide/{provider}`: runs the request on one provider. */
+export function decideEndpoint(provider: ProviderId): string {
+  return `${DECIDE_PATH_PREFIX}${provider}`;
+}
 
 /**
- * `POST /api/jev/warm`: sets the keep-alive and opens a connection to TypeSafe
- * with a call that costs no tokens, so the next run skips the handshakes.
+ * `POST /api/jev/warm`: set the keep-alive and opened a connection to TypeSafe
+ * with a call that costs no tokens. Nothing serves it since the old `/api/jev`
+ * middleware was removed (#8), so the warm form is hidden; issue #9 replaces
+ * it with a warm route per provider on the Node dev host.
  */
 export const WARM_ENDPOINT = "/api/jev/warm";
 
@@ -87,7 +102,7 @@ export type QuestionInput<P extends Primitive> = Flatten<
 >;
 
 /**
- * The JSON document a panel textarea holds and posts to `/api/jev`, for one primitive.
+ * The JSON document a panel textarea holds and posts to `/api/decide/{provider}`, for one primitive.
  *
  * - `state`: what the model evaluates.
  * - `criteria`: default criteria applied to every question that omits its own.
@@ -145,9 +160,9 @@ const scoreAnswerSchema = z.object({
 const refusalAnswerSchema = z.object({ type: z.literal("refusal") });
 
 /**
- * Whether the server opened a connection to TypeSafe while answering (`new`:
- * TCP and TLS handshakes included in the latency) or sent the request over an
- * idle connection kept from an earlier call (`reused`).
+ * Whether the server opened a connection to TypeSafe while warming (`new`:
+ * TCP and TLS handshakes included in the latency) or reused an idle connection
+ * kept from an earlier call (`reused`).
  */
 const connectionKindSchema = z.enum(["new", "reused"]);
 
@@ -155,6 +170,13 @@ const keepAliveSecondsSchema = z.literal(KEEP_ALIVE_SECONDS);
 
 /** Built once, so the three success members share one `usage` type. */
 const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number() });
+
+/**
+ * What the server sent the provider, for the wire view (#13). `request` is the
+ * provider's own request body, built by the adapter's `toWire`, with every
+ * image's data replaced by a placeholder such as `<image 1: image/png, 230 KB>`.
+ */
+const wireSchema = z.object({ request: z.record(z.string(), z.json()) });
 
 /** One success schema per primitive, so `primitive` decides which answers are allowed. */
 function decisionSuccessFor<P extends Primitive, A extends z.core.$ZodTypeDiscriminable>(
@@ -164,14 +186,15 @@ function decisionSuccessFor<P extends Primitive, A extends z.core.$ZodTypeDiscri
   return z.object({
     ok: z.literal(true),
     primitive: z.literal(primitive),
+    /** The catalog id of the provider that answered. */
+    provider: z.literal(PROVIDER_ORDER),
+    /** The model id the provider reports having used. */
     model: z.string(),
     usage: usageSchema,
-    /** Wall-clock milliseconds the server spent waiting on TypeSafe. */
+    /** Wall-clock milliseconds the server spent waiting on the provider. */
     latencyMs: z.number(),
-    connection: connectionKindSchema,
-    /** The keep-alive the server's connection to TypeSafe had when it answered. */
-    keepAliveSeconds: keepAliveSecondsSchema,
     answers: z.record(z.string(), z.discriminatedUnion("type", [answer, refusalAnswerSchema])),
+    wire: wireSchema,
   });
 }
 
@@ -193,7 +216,7 @@ export const failureSchema = z.object({
   detail: z.exactOptional(z.string()),
 });
 
-/** What `POST /api/jev` answers: a success for one primitive, or a failure. */
+/** What `POST /api/decide/{provider}` answers: a success for one primitive, or a failure. */
 export const decisionResponseSchema = z.discriminatedUnion("ok", [
   decisionSuccessSchema,
   failureSchema,

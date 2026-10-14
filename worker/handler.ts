@@ -7,56 +7,63 @@
  * CORS headers, because the browser only ever calls it from the same origin, and
  * every answer carries `Cache-Control: no-store`, because what it says depends on
  * the deployment's secrets.
+ *
+ * The routes:
+ * - `GET /api/providers` lists the providers whose key is set.
+ * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`).
+ * - Any other `/api` path answers a JSON 404.
  */
 
-import type { DecisionFailure } from "../src/decision/contract.ts";
+import { DECIDE_PATH_PREFIX } from "../src/decision/contract.ts";
 import { PROVIDERS } from "../src/providers/catalog.ts";
 import { PROVIDERS_ENDPOINT, toProviderSummary } from "../src/providers/contract.ts";
-import type { ProvidersResponse } from "../src/providers/contract.ts";
+import { decide } from "./decide.ts";
 import { MISSING_KEYS_MESSAGE, configuredProviders } from "./env.ts";
 import type { ProviderKeys } from "./env.ts";
+import { failure, json } from "./respond.ts";
 
 /**
- * What the handler takes from its host instead of from globals. `fetch` is the
- * function provider calls go through, so tests can pass a stub; the Worker
- * passes the global `fetch`.
+ * What the handler takes from its host instead of from globals, so tests can
+ * pass doubles for each:
+ * - `fetch`: the function provider calls go through.
+ * - `timeoutSignal`: an abort signal that fires after `ms` milliseconds; the
+ *   hosts pass `AbortSignal.timeout`. Injected because Vitest's fake timers do
+ *   not advance `AbortSignal.timeout`, so a test of the 25-second budget passes
+ *   one built on `setTimeout` instead.
+ * - `log`: where the decide route writes one line per provider call.
  */
 export type HandlerDeps = {
   fetch: typeof fetch;
+  timeoutSignal: (ms: number) => AbortSignal;
+  log: (line: string) => void;
 };
 
-/** Every body an `/api` route answers with. */
-type ApiBody = ProvidersResponse | DecisionFailure;
+/**
+ * The dependencies both hosts give the handler. `fetch` is bound to
+ * `globalThis`, because the handler calls it as `deps.fetch(...)` and workerd
+ * rejects a `fetch` called with any other `this` ("Illegal invocation").
+ */
+export function defaultDeps(): HandlerDeps {
+  return {
+    fetch: globalThis.fetch.bind(globalThis),
+    timeoutSignal: (ms) => AbortSignal.timeout(ms),
+    log: (line) => {
+      console.info(line);
+    },
+  };
+}
 
 type Route = (request: Request, env: ProviderKeys, deps: HandlerDeps) => Promise<Response>;
 
-/** The routes, by path and then by method. */
-const ROUTES: Readonly<Record<string, Readonly<Record<string, Route>>>> = {
+type Methods = Readonly<Record<string, Route>>;
+
+/** The routes with a fixed path, by path and then by method. */
+const ROUTES: Readonly<Record<string, Methods>> = {
   [PROVIDERS_ENDPOINT]: { GET: listProviders },
 };
 
-/**
- * Every answer is uncacheable, because it depends on the deployment's secrets,
- * and carries `nosniff`, so a browser never reads it as anything but JSON.
- */
-function json(body: ApiBody, status: number, headers: Record<string, string> = {}): Response {
-  return Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers },
-  });
-}
-
-/**
- * A failure in the shape every `/api` route uses. Exported for the Node dev
- * host, which answers a request with a malformed Host header itself, because
- * no `Request` can be built from it.
- */
-export function failure(status: number, error: string, headers?: Record<string, string>): Response {
-  return json({ ok: false, error }, status, headers);
-}
-
 /** The methods a route answers: its own, plus HEAD wherever it answers GET. */
-function allowedMethods(methods: Readonly<Record<string, Route>>): string[] {
+function allowedMethods(methods: Methods): string[] {
   const own = Object.keys(methods);
   return own.includes("GET") && !own.includes("HEAD") ? [...own, "HEAD"] : own;
 }
@@ -79,22 +86,54 @@ async function listProviders(_request: Request, env: ProviderKeys): Promise<Resp
   return json({ ok: true, providers: ids.map((id) => toProviderSummary(PROVIDERS[id])) }, 200);
 }
 
-function routesFor(pathname: string): Readonly<Record<string, Route>> | undefined {
+/**
+ * The provider id in `/api/decide/{id}`: one non-empty path segment, or
+ * undefined for any other path. It is the raw segment, still percent-encoded,
+ * and the route itself decides whether a provider has that id.
+ */
+function decideTarget(pathname: string): string | undefined {
+  if (!pathname.startsWith(DECIDE_PATH_PREFIX)) return undefined;
+  const id = pathname.slice(DECIDE_PATH_PREFIX.length);
+  return id === "" || id.includes("/") ? undefined : id;
+}
+
+function routesFor(pathname: string): Methods | undefined {
+  const providerId = decideTarget(pathname);
+  if (providerId !== undefined) {
+    return { POST: (request, env, deps) => decide(providerId, request, env, deps) };
+  }
   return Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
 }
 
-function notFound(pathname: string): Response {
-  return failure(404, `No API route matches ${pathname}.`);
+/*
+ * No answer quotes the request's path or an unknown method. Under Varlock in
+ * `vp dev`, a key set to the placeholder is a sensitive value, and any response
+ * that contains it is replaced with a 500, so `GET /api/unset` would otherwise
+ * break the very 404 that explains it.
+ */
+
+/** The methods RFC 9110 defines, plus PATCH: the only ones an answer names. */
+const STANDARD_METHODS: ReadonlySet<string> = new Set([
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "DELETE",
+  "CONNECT",
+  "OPTIONS",
+  "TRACE",
+  "PATCH",
+]);
+
+function notFound(): Response {
+  return failure(404, "No API route matches this path.");
 }
 
-function methodNotAllowed(
-  pathname: string,
-  method: string,
-  methods: Readonly<Record<string, Route>>,
-): Response {
+function methodNotAllowed(method: string, methods: Methods): Response {
   const allowed = allowedMethods(methods);
-  return failure(405, `${pathname} answers only ${allowed.join(" and ")}, not ${method}.`, {
-    allow: allowed.join(", "),
+  const named = STANDARD_METHODS.has(method) ? method : "this method";
+  return failure(405, `This route answers only ${allowed.join(" and ")}, not ${named}.`, {
+    headers: { allow: allowed.join(", ") },
   });
 }
 
@@ -105,28 +144,44 @@ function methodNotAllowed(
  */
 export function rejectMethod(pathname: string, method: string): Response {
   const methods = routesFor(pathname);
-  return methods === undefined ? notFound(pathname) : methodNotAllowed(pathname, method, methods);
+  return methods === undefined ? notFound() : methodNotAllowed(method, methods);
 }
 
-/** Answers one `/api` request. */
+/** Routes one `/api` request to its answer. */
+async function dispatch(request: Request, env: ProviderKeys, deps: HandlerDeps): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const methods = routesFor(pathname);
+  if (methods === undefined) {
+    return notFound();
+  }
+
+  const { method } = request;
+  const answer = Object.hasOwn(methods, method) ? methods[method] : undefined;
+  if (answer !== undefined) {
+    return answer(request, env, deps);
+  }
+  if (method === "HEAD" && Object.hasOwn(methods, "GET")) {
+    return headOf(methods.GET(request, env, deps));
+  }
+  return methodNotAllowed(method, methods);
+}
+
+/**
+ * Answers one `/api` request. Anything a route throws instead of answering,
+ * such as a body stream that fails because the client went away, becomes a
+ * JSON 500 rather than the host's own error page. Only the error's class name
+ * is logged, never its message, which could quote the request.
+ */
 export async function handle(
   request: Request,
   env: ProviderKeys,
   deps: HandlerDeps,
 ): Promise<Response> {
-  const { pathname } = new URL(request.url);
-  const methods = routesFor(pathname);
-  if (methods === undefined) {
-    return notFound(pathname);
+  try {
+    return await dispatch(request, env, deps);
+  } catch (thrown) {
+    const name = thrown instanceof Error ? thrown.name : typeof thrown;
+    deps.log(`[api] status=500 unexpected=${JSON.stringify(name)}`);
+    return failure(500, "Something went wrong on the server. Check the server log.");
   }
-
-  const { method } = request;
-  const route = Object.hasOwn(methods, method) ? methods[method] : undefined;
-  if (route !== undefined) {
-    return route(request, env, deps);
-  }
-  if (method === "HEAD" && Object.hasOwn(methods, "GET")) {
-    return headOf(methods.GET(request, env, deps));
-  }
-  return methodNotAllowed(pathname, method, methods);
 }

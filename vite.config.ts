@@ -1,5 +1,4 @@
 import { defineConfig, lazyPlugins } from "vite-plus";
-import { jevApiPlugin } from "./server/jev-api.ts";
 import { viteHostPlugin } from "./server/vite-host.ts";
 
 /**
@@ -16,9 +15,9 @@ import { viteHostPlugin } from "./server/vite-host.ts";
  * - Unit tests and metadata reads (check, lint, fmt) load neither.
  *
  * Order matters, because the plugin listed first sees each request first:
- * `jevApiPlugin` answers the legacy `/api/jev` paths, then `viteHostPlugin`
- * (dev only) answers the rest of `/api` with the Worker's `handle` in Node, and
- * the Cloudflare plugin serves everything else.
+ * `viteHostPlugin` (dev only) answers every `/api` path with the Worker's
+ * `handle` in Node, and the Cloudflare plugin serves everything else. Nothing
+ * mounts the old `/api/jev` middleware any more; its paths answer a JSON 404.
  */
 export default defineConfig(({ command }) => {
   const servesApi = command === "serve" && !process.env.VITEST;
@@ -27,13 +26,13 @@ export default defineConfig(({ command }) => {
     plugins: lazyPlugins(async () => {
       if (servesApi) {
         const { varlockCloudflareVitePlugin } = await import("@varlock/cloudflare-integration");
-        return [jevApiPlugin(), viteHostPlugin(), varlockCloudflareVitePlugin()];
+        return [viteHostPlugin(), varlockCloudflareVitePlugin()];
       }
       if (buildsWorker) {
         const { cloudflare } = await import("@cloudflare/vite-plugin");
-        return [jevApiPlugin(), cloudflare()];
+        return [cloudflare()];
       }
-      return [jevApiPlugin()];
+      return [];
     }),
     staged: {
       "*": "vp check --fix",

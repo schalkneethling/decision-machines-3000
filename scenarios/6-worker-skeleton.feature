@@ -122,6 +122,7 @@ Feature: Worker skeleton, Node dev host, and GET /api/providers
     When the dev host plugin starts
     Then it prints which variables to set and that at least one is required
 
+  # Superseded by #8, which removed /api/jev.
   Scenario: The legacy /api/jev middleware still answers under vp dev
     Given vp dev with jevApiPlugin listed before the dev host
     When POST /api/jev is sent

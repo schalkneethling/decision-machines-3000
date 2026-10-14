@@ -3,16 +3,20 @@
  * `handle` function the Worker uses (ADR-0001).
  *
  * It converts each Node request into a `Request`, passes it to `handle` with the
- * provider keys and Node's global `fetch`, and writes the `Response` back. The
- * legacy `/api/jev` middleware is registered before this plugin, so it answers
- * its own paths first and only the rest reach `handle`.
+ * provider keys and the same dependencies the Worker passes (Node's global
+ * `fetch`, `AbortSignal.timeout`, and `console.info`), and writes the
+ * `Response` back. Every `/api` path reaches `handle`, including the old
+ * `/api/jev` paths, which now answer a JSON 404.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, Plugin } from "vite-plus";
 import { MISSING_KEYS_MESSAGE, PROVIDER_KEY_NAMES, configuredProviders } from "../worker/env.ts";
 import type { ProviderKeys } from "../worker/env.ts";
-import { failure, handle, rejectMethod } from "../worker/handler.ts";
+import { defaultDeps, handle, rejectMethod } from "../worker/handler.ts";
+import { MAX_BODY_BYTES, declaredLength, tooLarge } from "../worker/body-limit.ts";
+import { failure } from "../worker/respond.ts";
+import { useEnglishZodMessages } from "../worker/zod-locale.ts";
 
 const LOG_PREFIX = "[api]";
 
@@ -35,28 +39,75 @@ function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
-async function readBody(req: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks);
+/**
+ * The request body, or undefined once it is larger than `MAX_BODY_BYTES`, the
+ * limit the Worker's decide route applies. A declared Content-Length over the
+ * limit is refused without reading; otherwise bytes are counted as they arrive
+ * and reading stops as soon as the count passes the limit. Either way the rest
+ * of the body is drained and discarded (`resume`), so the client can finish
+ * sending and read the 413 instead of finding the socket reset or hanging.
+ *
+ * The limit applies to every `/api` body here, but only the decide route reads
+ * a body on the Worker, so the two hosts differ only for an oversized body sent
+ * to a route that ignores it.
+ */
+function readBody(req: IncomingMessage): Promise<Buffer | undefined> {
+  return new Promise((resolve, reject) => {
+    const declared = declaredLength(req.headers["content-length"]);
+    if (declared !== undefined && declared > MAX_BODY_BYTES) {
+      req.resume();
+      resolve(undefined);
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let received = 0;
+    const stop = () => {
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+    };
+    const onData = (chunk: Buffer) => {
+      received += chunk.byteLength;
+      if (received > MAX_BODY_BYTES) {
+        stop();
+        chunks.length = 0;
+        req.resume();
+        resolve(undefined);
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = () => {
+      stop();
+      resolve(Buffer.concat(chunks, received));
+    };
+    const onError = (error: Error) => {
+      stop();
+      reject(error);
+    };
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
+  });
 }
 
-/** Converts a Node request into the `Request` the handler takes. */
-async function toRequest(req: IncomingMessage, url: URL): Promise<Request> {
+/**
+ * Converts a Node request into the `Request` the handler takes, or undefined
+ * when its body is over the limit.
+ */
+async function toRequest(req: IncomingMessage, url: URL): Promise<Request | undefined> {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
     if (value === undefined) continue;
     for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
   }
   const method = req.method ?? "GET";
-  const hasBody = method !== "GET" && method !== "HEAD";
-  return new Request(url, {
-    method,
-    headers,
-    body: hasBody ? new Uint8Array(await readBody(req)) : undefined,
-  });
+  if (method === "GET" || method === "HEAD") return new Request(url, { method, headers });
+  const body = await readBody(req);
+  return body === undefined
+    ? undefined
+    : new Request(url, { method, headers, body: new Uint8Array(body) });
 }
 
 /** Writes a `Response` from the handler to the Node response. */
@@ -141,7 +192,10 @@ export function apiMiddleware(
     }
 
     toRequest(req, new URL(`${origin}${target}`))
-      .then((request) => handler(request, readKeys(), { fetch: globalThis.fetch.bind(globalThis) }))
+      .then((request) =>
+        // The Worker's own 413, so the two hosts answer an oversized body alike.
+        request === undefined ? tooLarge() : handler(request, readKeys(), defaultDeps()),
+      )
       .then(answered)
       .catch(failed);
   };
@@ -150,12 +204,14 @@ export function apiMiddleware(
 /**
  * Vite plugin for `vp dev` that serves `/api` through the Worker's handler. It
  * warns at start-up when no provider key is set, with the same message the
- * handler's 503 carries.
+ * handler's 503 carries, and turns on Zod's English messages, as the Worker
+ * does when it loads, so both hosts log a rejected provider reply alike.
  */
 export function viteHostPlugin(readKeys: () => ProviderKeys = providerKeysFromProcessEnv): Plugin {
   return {
     name: "decisionmachines3000:vite-host",
     configureServer(server) {
+      useEnglishZodMessages();
       if (configuredProviders(readKeys()).length === 0) {
         server.config.logger.warn(`${LOG_PREFIX} ${MISSING_KEYS_MESSAGE}`);
       }

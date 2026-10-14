@@ -3,8 +3,8 @@
  *
  * The Worker answers with the public part of each configured provider's
  * catalog descriptor: its id, its display name, its model id, and its
- * capabilities. The warm path stays on the server, and no key, key length, or
- * key prefix is ever part of the answer.
+ * capabilities. The base URL and the warm path are left out of the answer, and
+ * no key, key length, or key prefix is ever part of it.
  *
  * The shape is a Zod Mini schema, following `src/decision/contract.ts`
  * (ADR-0004), so the browser checks the body with the same schema the type is

@@ -31,10 +31,8 @@ import {
 import type { Fetch, ProviderAdapter, ProviderDecision } from "./adapter.ts";
 import { decisionReplySchema, errorEnvelopeSchema } from "./typesafe-schema.ts";
 
-/** The SDK's default API root (`node_modules/@typesafe-ai/sdk/dist/index.mjs`). */
-const BASE_URL = "https://api.typesafe.ai";
-
-const DECISION_URL = `${BASE_URL}/v1/systemone`;
+/** The decision endpoint, resolved against the catalog's base URL, so no host is written here. */
+const DECISION_URL = `${typesafe.baseUrl}/v1/systemone`;
 
 /** The wire request for a validated neutral request, with the model pinned to the catalog's. */
 export function toWire(request: ValidDecisionRequest): SystemOneRequestPayload {

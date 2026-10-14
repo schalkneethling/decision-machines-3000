@@ -194,9 +194,37 @@ describe("run", () => {
     setupPanels(document);
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // Hard-wired to TypeSafe until the provider select lands (#12).
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/decide/typesafe");
     const sent = fetchMock.mock.calls[0]?.[1].body;
     if (typeof sent !== "string") throw new Error("Expected a JSON string body.");
     expect(JSON.parse(sent)).toStrictEqual(noulExample);
+  });
+
+  it("names the provider that answered in the readout", async () => {
+    mockFetch();
+    setupPanels(document);
+    submit("noul");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".reading-meta")?.textContent).toBe(
+        "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens.",
+      ),
+    );
+  });
+
+  it("says a 502 page that is not JSON is not JSON, rather than unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>502 Bad Gateway</html>", { status: 502 })),
+    );
+    setupPanels(document);
+    submit("noul");
+    await vi.waitFor(() =>
+      expect(document.querySelector("#readout-body")?.textContent).toContain(
+        "The decision endpoint answered with HTTP 502 and a body that is not JSON.",
+      ),
+    );
+    expect(document.querySelector("#readout-body")?.textContent).not.toMatch(/could not reach/i);
   });
 
   it("reports the first tree problem in the status line instead of posting", () => {
@@ -222,7 +250,7 @@ describe("run", () => {
     );
     setupPanels(document);
     submit("noul");
-    await vi.waitFor(() => expect(document.body.textContent).toContain("was not JSON"));
+    await vi.waitFor(() => expect(document.body.textContent).toContain("a body that is not JSON"));
     expect(document.body.textContent).not.toMatch(/Jev|TypeSafe/);
   });
 

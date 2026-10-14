@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { decisionResponseSchema, warmResponseSchema } from "../decision/contract.ts";
 import { openai, subq, typesafe } from "../providers/catalog.ts";
 import { providersResponseSchema, toProviderSummary } from "../providers/contract.ts";
-import { getProviders, isDecisionResponse, isProvidersResponse, isWarmResponse } from "./client.ts";
+import {
+  askProvider,
+  getProviders,
+  isDecisionResponse,
+  isProvidersResponse,
+  isWarmResponse,
+} from "./client.ts";
 import { choiceResponse } from "./fixtures/choice.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { scoreResponse } from "./fixtures/score.ts";
@@ -49,12 +55,28 @@ describe("isDecisionResponse", () => {
     expect(isDecisionResponse(body)).toBe(true);
   });
 
+  it("ignores the old connection fields, which a success no longer carries", () => {
+    expect(isDecisionResponse({ ...noulResponse, connection: "new", keepAliveSeconds: 5 })).toBe(
+      true,
+    );
+  });
+
   // The spike's malformed responses, each with the path of its first problem.
   it.each([
     {
-      name: "a keep-alive the server does not offer",
-      body: { ...noulResponse, keepAliveSeconds: 5 },
-      path: "keepAliveSeconds",
+      name: "a provider the catalog does not know",
+      body: { ...noulResponse, provider: "anthropic" },
+      path: "provider",
+    },
+    {
+      name: "a success without its wire record",
+      body: replaced(noulResponse, "wire", undefined),
+      path: "wire",
+    },
+    {
+      name: "a wire request that is text",
+      body: replaced(noulResponse, "wire.request", "{}"),
+      path: "wire.request",
     },
     {
       name: "an answer of an unknown type",
@@ -251,9 +273,65 @@ describe("getProviders", () => {
     expect(await getProviders()).toEqual({ kind: "unrecognised", status: 200 });
   });
 
-  it("reports HTML in place of JSON as unreachable", async () => {
+  it("reports HTML in place of JSON as a body that is not JSON, with its status", async () => {
     answering(200, "<!doctype html>");
 
-    expect(await getProviders()).toMatchObject({ kind: "unreachable" });
+    expect(await getProviders()).toEqual({ kind: "non_json", status: 200 });
+  });
+});
+
+describe("askProvider", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function answering(response: () => Promise<Response>) {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => response());
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("posts the JSON text unchanged to the provider's decide route", async () => {
+    const fetchMock = answering(() => Promise.resolve(Response.json(noulResponse)));
+    const body = '{ "primitive": "noul" }';
+
+    const result = await askProvider("typesafe", body);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [input, init] = fetchMock.mock.calls[0] ?? [];
+    expect(input).toBe("/api/decide/typesafe");
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    expect(init?.body).toBe(body);
+    expect(result).toEqual({ kind: "response", response: noulResponse });
+  });
+
+  it("returns a failure body as a response, so the readout can show its error", async () => {
+    const conflict = { ok: false, error: "Set OPENAI_API_KEY to use it." };
+    answering(() => Promise.resolve(Response.json(conflict, { status: 409 })));
+
+    expect(await askProvider("openai", "{}")).toEqual({ kind: "response", response: conflict });
+  });
+
+  it("tells a 502 page that is not JSON apart from an endpoint it could not reach", async () => {
+    answering(() =>
+      Promise.resolve(
+        new Response("<html><body>502 Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "content-type": "text/html" },
+        }),
+      ),
+    );
+
+    expect(await askProvider("typesafe", "{}")).toEqual({ kind: "non_json", status: 502 });
+  });
+
+  it("reports a fetch that rejects as unreachable, with its message as the detail", async () => {
+    answering(() => Promise.reject(new TypeError("Failed to fetch")));
+
+    expect(await askProvider("typesafe", "{}")).toEqual({
+      kind: "unreachable",
+      detail: "Failed to fetch",
+    });
   });
 });

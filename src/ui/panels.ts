@@ -1,10 +1,10 @@
-import type { DecisionSuccess, Primitive } from "../decision/contract.ts";
+import type { Primitive } from "../decision/contract.ts";
 import { examples } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../decision/validate.ts";
-import { askDecision, REQUEST_TIMEOUT_MS } from "./client.ts";
+import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
 import { toRequest, toViewModel } from "./composer/model.ts";
 import type { DraftRequest } from "./composer/model.ts";
@@ -12,7 +12,13 @@ import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
 import { required } from "./dom.ts";
 import { describeJsonError } from "./json-error.ts";
-import { renderError, renderLoading, renderResponse, renderUnreachable } from "./readout.ts";
+import {
+  renderError,
+  renderLoading,
+  renderNonJson,
+  renderResponse,
+  renderUnreachable,
+} from "./readout.ts";
 
 type View = "tree" | "json";
 
@@ -241,6 +247,8 @@ function renderResult(sent: unknown, result: AskResult): HTMLElement {
       return renderResponse(sent, result.response);
     case "unreachable":
       return renderUnreachable(result.detail);
+    case "non_json":
+      return renderNonJson(result.status);
     case "timeout":
       return renderError(
         `No answer arrived within ${REQUEST_TIMEOUT_MS / 1000} seconds. Run the panel again.`,
@@ -261,13 +269,8 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
   }
 }
 
-export type PanelOptions = {
-  /** Called after every run TypeSafe answered successfully. */
-  onAnswered?: (response: DecisionSuccess) => void;
-};
-
 /** Fills each panel with its example, wires the Tree and JSON views, and wires Run to the shared readout. */
-export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): void {
+export function setupPanels(root: Document): void {
   const readout = required(root, "#readout-body", HTMLElement);
   // The one place the panels learn which provider's limits apply.
   const capabilities = DEFAULT_PROVIDER.capabilities;
@@ -295,11 +298,9 @@ export function setupPanels(root: Document, { onAnswered }: PanelOptions = {}): 
     setRunning(panel);
     readout.replaceChildren(renderLoading());
     try {
-      const result = await askDecision(prepared.body);
+      // Hard-wired to the default provider until the provider select lands (#12).
+      const result = await askProvider(DEFAULT_PROVIDER.id, prepared.body);
       readout.replaceChildren(renderResult(prepared.sent, result));
-      if (result.kind === "response" && result.response.ok) {
-        onAnswered?.(result.response);
-      }
     } finally {
       setRunning(undefined);
       // Disabling the focused Run button drops focus to the body; hand it back.

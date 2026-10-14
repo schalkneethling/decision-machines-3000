@@ -299,6 +299,11 @@ code {
   border-block-end: 1px solid var(--line);
 }
 
+/* `display: flex` above would otherwise override the hidden attribute. */
+.warm[hidden] {
+  display: none;
+}
+
 .warm-field-label {
   color: var(--ink-muted);
   font-size: var(--size-meta);

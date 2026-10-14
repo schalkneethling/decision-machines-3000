@@ -29,6 +29,14 @@ dist-ssr
 !.env.example
 !.env.schema
 
+# Wrangler and @cloudflare/vite-plugin local state
+.wrangler
+
+# Wrangler local secrets. Only the example file, which holds no values, is committed.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
 # Git worktrees that Claude Code creates for parallel agents. They are separate checkouts,
 # so they must not be linted, formatted, or shown as untracked in this repository.
 .claude/worktrees/

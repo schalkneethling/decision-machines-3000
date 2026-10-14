@@ -61,6 +61,10 @@ The Varlock Vite plugin is registered only for the dev and preview servers (see 
 
 The browser never sees `TYPESAFE_API_KEY`. It's read only inside the `/api/jev` middleware in [`server/jev-api.ts`](./server/jev-api.ts), which the dev and preview servers register as a Vite+ plugin. The UI talks to `/api/jev` and `/api/jev/warm` over HTTP; TypeSafe is only ever called from the server.
 
+## The Worker
+
+The app is moving onto a Cloudflare Worker named `decisionmachines3000`, configured in [`wrangler.jsonc`](./wrangler.jsonc), which serves the built app as static assets and answers `/api` requests itself (see [ADR-0001](./docs/adr/0001-worker-hosting.md)). Every API route is answered by `handle` in [`worker/handler.ts`](./worker/handler.ts), a plain function that the Worker calls in production and that [`server/vite-host.ts`](./server/vite-host.ts) calls in Node during `vp dev`. So far it answers `GET /api/providers`, which lists the providers this instance has a key for: `TYPESAFE_API_KEY`, `SUBQ_API_KEY`, or `OPENAI_API_KEY`. At least one key is required; a blank value or `unset` counts as not set, and with no key the route answers 503. `vp run build` writes the Worker to `dist/`, and `vp exec wrangler dev` serves that build locally. After changing `wrangler.jsonc`, regenerate the Worker's types with `vp exec wrangler types -c wrangler.jsonc worker/worker-configuration.d.ts`.
+
 ## Built with Claude Code
 
 This project was built with [Claude Code](https://claude.com/claude-code).

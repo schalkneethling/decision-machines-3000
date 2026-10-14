@@ -181,7 +181,11 @@ const decisionSuccessSchema = z.discriminatedUnion("primitive", [
   decisionSuccessFor("score", scoreAnswerSchema),
 ]);
 
-const decisionFailureSchema = z.object({
+/**
+ * How every `/api` route reports a failure, so the browser reads errors from the
+ * decision, warm, and providers routes the same way.
+ */
+export const failureSchema = z.object({
   ok: z.literal(false),
   /** Short, user-facing explanation of what went wrong and how to fix it. */
   error: z.string(),
@@ -192,7 +196,7 @@ const decisionFailureSchema = z.object({
 /** What `POST /api/jev` answers: a success for one primitive, or a failure. */
 export const decisionResponseSchema = z.discriminatedUnion("ok", [
   decisionSuccessSchema,
-  decisionFailureSchema,
+  failureSchema,
 ]);
 
 const warmSuccessSchema = z.object({
@@ -204,10 +208,7 @@ const warmSuccessSchema = z.object({
 });
 
 /** What `POST /api/jev/warm` answers. */
-export const warmResponseSchema = z.discriminatedUnion("ok", [
-  warmSuccessSchema,
-  decisionFailureSchema,
-]);
+export const warmResponseSchema = z.discriminatedUnion("ok", [warmSuccessSchema, failureSchema]);
 
 export type NoulAnswer = z.output<typeof noulAnswerSchema>;
 export type ChoiceAnswer = z.output<typeof choiceAnswerSchema>;
@@ -239,7 +240,7 @@ export type DecisionSuccess<P extends Primitive = Primitive> = Flatten<
   }
 >;
 
-export type DecisionFailure = z.output<typeof decisionFailureSchema>;
+export type DecisionFailure = z.output<typeof failureSchema>;
 
 export type DecisionResponse<P extends Primitive = Primitive> =
   | DecisionSuccess<P>

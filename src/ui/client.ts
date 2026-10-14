@@ -6,29 +6,34 @@ import {
   warmResponseSchema,
 } from "../decision/contract.ts";
 import type { DecisionResponse, KeepAliveSeconds, WarmResponse } from "../decision/contract.ts";
+import { PROVIDERS_ENDPOINT, providersResponseSchema } from "../providers/contract.ts";
+import type { ProvidersResponse } from "../providers/contract.ts";
 
 export const REQUEST_TIMEOUT_MS = 30_000;
 
-/** Everything a POST to one of the decision endpoints can end in, so the caller renders each case explicitly. */
-export type PostResult<T> =
+/** Everything a request to one of the `/api` endpoints can end in, so the caller renders each case explicitly. */
+export type ApiResult<T> =
   | { kind: "response"; response: T }
   | { kind: "unrecognised"; status: number }
   | { kind: "unreachable"; detail?: string }
   | { kind: "timeout" };
 
 /** Everything a run can end in. */
-export type AskResult = PostResult<DecisionResponse>;
+export type AskResult = ApiResult<DecisionResponse>;
+
+/** Everything `GET /api/providers` can end in. */
+export type ProvidersResult = ApiResult<ProvidersResponse>;
 
 /**
- * POSTs JSON text, unchanged, to `endpoint` and checks the body with `isExpected`.
+ * Sends one request to `endpoint` and checks the JSON body with `isExpected`.
  * Never rejects: network failures, timeouts, and unexpected bodies become results.
  */
-export async function postJson<T>(
+async function requestJson<T>(
   endpoint: string,
-  body: string,
+  init: Omit<RequestInit, "signal">,
   isExpected: (value: unknown) => value is T,
-  timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<PostResult<T>> {
+  timeoutMs: number,
+): Promise<ApiResult<T>> {
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -37,12 +42,7 @@ export async function postJson<T>(
   }, timeoutMs);
 
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body,
-      signal: controller.signal,
-    });
+    const response = await fetch(endpoint, { ...init, signal: controller.signal });
     const text = await response.text();
 
     let parsed: unknown;
@@ -70,6 +70,26 @@ export async function postJson<T>(
   }
 }
 
+/** POSTs JSON text, unchanged, to `endpoint` and checks the body with `isExpected`. Never rejects. */
+export function postJson<T>(
+  endpoint: string,
+  body: string,
+  isExpected: (value: unknown) => value is T,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<ApiResult<T>> {
+  return requestJson(
+    endpoint,
+    { method: "POST", headers: { "content-type": "application/json" }, body },
+    isExpected,
+    timeoutMs,
+  );
+}
+
+/** Asks the server which providers this instance has a key for. Never rejects. */
+export function getProviders(timeoutMs = REQUEST_TIMEOUT_MS): Promise<ProvidersResult> {
+  return requestJson(PROVIDERS_ENDPOINT, { method: "GET" }, isProvidersResponse, timeoutMs);
+}
+
 /** POSTs a panel's JSON text, unchanged, to the decision endpoint. Never rejects. */
 export function askDecision(body: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<AskResult> {
   return postJson(DECISION_ENDPOINT, body, isDecisionResponse, timeoutMs);
@@ -87,4 +107,9 @@ export function isDecisionResponse(value: unknown): value is DecisionResponse {
 /** Checks the shape of a parsed body against the `WarmResponse` schema. */
 export function isWarmResponse(value: unknown): value is WarmResponse {
   return z.validate(warmResponseSchema, value);
+}
+
+/** Checks the shape of a parsed body against the `ProvidersResponse` schema. */
+export function isProvidersResponse(value: unknown): value is ProvidersResponse {
+  return z.validate(providersResponseSchema, value);
 }

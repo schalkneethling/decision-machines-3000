@@ -26,7 +26,7 @@ The files named below are on the spike branch `issue-1-worker-toolchain-spike`, 
 
    The Node middleware is listed first, because the plugin listed first sees each request first.
 
-2. `wrangler.jsonc` sets `name`, `main: ./worker/index.ts`, `compatibility_date: 2026-10-06`, and `assets` with `directory: ./dist/client`, `run_worker_first: ["/api/*"]`, and `not_found_handling: single-page-application`. It sets no compatibility flags.
+2. `wrangler.jsonc` sets `name`, `main: ./worker/index.ts`, `compatibility_date: 2026-10-06`, and `assets` with `directory: ./dist/client`, `run_worker_first: ["/api", "/api/*"]`, and `not_found_handling: single-page-application`. It sets no compatibility flags. `/api` itself is listed because the pattern `/api/*` does not match it, and without it `/api` would get the single-page app instead of the Worker's JSON 404 (#6).
 3. Worker code lives in `worker/` with its own `tsconfig.json` (`lib: ["ES2024", "ESNext.TypedArrays"]`, `types: ["./worker-configuration.d.ts"]`). The types come from `wrangler types`, not `@cloudflare/workers-types`.
 4. Images are base64-encoded with `Uint8Array.prototype.toBase64()`. `Buffer` and `nodejs_compat` are not used.
 
@@ -42,7 +42,7 @@ The files named below are on the spike branch `issue-1-worker-toolchain-spike`, 
 - `vp dev` and `vp preview` on this setup ask 1Password for the key, as they already do today. `vp check`, `vp test`, and `vp run build` do not.
 - `@varlock/vite-integration` is no longer loaded by `vite.config.ts`. Removing it from `package.json` is left to the issue that moves the app onto the Worker.
 - `varlock` needs `^1.22.0`, which is the peer range of `@varlock/cloudflare-integration` 1.6.1.
-- `/api` without a trailing slash is served by the single-page app, because `run_worker_first: ["/api/*"]` does not match it.
+- `/api` without a trailing slash is not matched by `/api/*`, so `run_worker_first` lists it separately; the spike found it served by the single-page app before #6 added it.
 - After `vp run build`, plain `wrangler dev` and `wrangler deploy` use the redirected, already-bundled config. Pass `-c wrangler.jsonc` to run or deploy a different entry point.
 - No `.dev.vars` file may exist, because `varlockCloudflareVitePlugin` throws when it finds one. `.dev.vars.example` for the Deploy button is allowed.
 - The Deploy button builds with npm 11.16.0, so the `devEngines` pin must accept it (#26).

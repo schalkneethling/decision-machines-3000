@@ -6,7 +6,7 @@ import type {
   WarmResponse,
 } from "../decision/contract.ts";
 import { isKeepAliveSeconds, isWarmResponse, postJson, REQUEST_TIMEOUT_MS } from "./client.ts";
-import type { PostResult } from "./client.ts";
+import type { ApiResult } from "./client.ts";
 import { required } from "./dom.ts";
 
 /**
@@ -91,13 +91,13 @@ export function createCountdown(
 export function warmConnection(
   keepAliveSeconds: KeepAliveSeconds,
   timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<PostResult<WarmResponse>> {
+): Promise<ApiResult<WarmResponse>> {
   const body: WarmRequest = { keepAliveSeconds };
   return postJson(WARM_ENDPOINT, JSON.stringify(body), isWarmResponse, timeoutMs);
 }
 
 /** What went wrong, as one sentence for the status line. */
-export function warmFailureText(result: PostResult<WarmResponse>): string | undefined {
+export function warmFailureText(result: ApiResult<WarmResponse>): string | undefined {
   switch (result.kind) {
     case "response":
       return result.response.ok ? undefined : result.response.error;

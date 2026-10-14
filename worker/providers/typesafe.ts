@@ -11,13 +11,23 @@
  * `noul`, `choice`, and `score` questions straight through, resolving each
  * question's criteria from itself or the request default and adding the
  * pinned model from the catalog. `fromWire` parses the reply with the schema
- * before reading a field, and passes a refusal through as the contract defines it.
+ * before reading a field, checks that the answers are exactly the questions
+ * asked, and passes a refusal through as the contract defines it. The key is
+ * handed to `fetchJson`, which checks it and sends it; this module never
+ * builds a header with it.
  */
 
 import type { Questions, SystemOneRequestPayload } from "@typesafe-ai/sdk";
 import type { ValidDecisionRequest } from "../../src/decision/validate.ts";
 import { typesafe } from "../../src/providers/catalog.ts";
-import { describeIssue, failureFromStatus, fetchJson, unreadableReply } from "./adapter.ts";
+import {
+  clip,
+  failureFromStatus,
+  fetchJson,
+  isSuccess,
+  parseReply,
+  unreadableReply,
+} from "./adapter.ts";
 import type { Fetch, ProviderAdapter, ProviderDecision } from "./adapter.ts";
 import { decisionReplySchema, errorEnvelopeSchema } from "./typesafe-schema.ts";
 
@@ -85,22 +95,25 @@ function resolvedCriteria<C>(id: string, criteria: C | undefined): C {
 /**
  * The neutral decision read from a parsed 2xx body. The schema runs first, so
  * no field is read from a body it rejects; an unknown answer `type` fails there,
- * at `answers.<id>.type`. An answer for a primitive the request did not ask is
- * also an `upstream` error, so the route never builds a response the contract
- * would refuse.
+ * at `answers.<id>.type`. The answers must then be exactly the questions asked,
+ * each of the request's primitive or a refusal; anything else is an `upstream`
+ * error too, so the route never builds a response the contract would refuse.
+ * Answer ids are provider text, so they are cut before they enter a detail.
  */
 export function fromWire(request: ValidDecisionRequest, body: unknown): ProviderDecision {
-  const parsed = decisionReplySchema.safeParse(body, { reportInput: true });
-  if (!parsed.success) {
-    const [issue] = parsed.error.issues;
-    throw unreadableReply(typesafe, describeIssue(issue));
+  const { model, usage, answers } = parseReply(typesafe, decisionReplySchema, body);
+  const unanswered = Object.keys(request.questions).find((id) => !Object.hasOwn(answers, id));
+  if (unanswered !== undefined) {
+    throw unreadableReply(typesafe, `answers: no answer for question "${clip(unanswered)}"`);
   }
-  const { model, usage, answers } = parsed.data;
   for (const [id, answer] of Object.entries(answers)) {
+    if (!Object.hasOwn(request.questions, id)) {
+      throw unreadableReply(typesafe, `${clip(`answers.${id}`)}: no question with this id`);
+    }
     if (answer.type !== "refusal" && answer.type !== request.primitive) {
       throw unreadableReply(
         typesafe,
-        `answers.${id}.type: expected "${request.primitive}" or "refusal", received "${answer.type}"`,
+        `answers.${clip(id)}.type: expected "${request.primitive}" or "refusal", received "${answer.type}"`,
       );
     }
   }
@@ -115,23 +128,19 @@ function describeEnvelope(body: unknown): string | undefined {
     : undefined;
 }
 
-/** Sends the decision to TypeSafe with the given `fetch`. The key goes in the header and nowhere else. */
+/** Sends the decision to TypeSafe with the given `fetch`; `fetchJson` checks the key and sends it. */
 export async function decide(
   request: ValidDecisionRequest,
   apiKey: string,
   signal: AbortSignal,
   fetch: Fetch,
 ): Promise<ProviderDecision> {
-  const reply = await fetchJson(fetch, signal, typesafe, DECISION_URL, {
+  const reply = await fetchJson(fetch, signal, typesafe, apiKey, DECISION_URL, {
     method: "POST",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
+    headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify(toWire(request)),
   });
-  if (reply.status < 200 || reply.status >= 300) {
+  if (!isSuccess(reply.status)) {
     throw failureFromStatus(typesafe, reply, describeEnvelope(reply.body));
   }
   return fromWire(request, reply.body);

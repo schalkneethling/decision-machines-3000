@@ -127,16 +127,102 @@ Feature: The TypeSafe adapter translates the neutral request to the wire and bac
     When decide runs
     Then the error is a ProviderError of kind "upstream"
 
-  Scenario: The SDK is a type dependency only
-    Given the source of worker/providers/typesafe.ts
-    When it is searched for imports from "@typesafe-ai/sdk"
-    Then every one is an "import type"
+  Scenario Outline: A key that cannot travel in a header is refused before fetch is called
+    Given an API key with <defect>
+    When decide runs
+    Then fetch is never called
+    And the error is a ProviderError of kind "auth" that says the key contains characters that can't be sent
+    And no part of the key appears in the message, the detail, or the cause
 
-  Scenario: The adapter type is a type alias and the adapter satisfies it
-    Given the sources of worker/providers/adapter.ts and typesafe.ts
-    When they are read
-    Then ProviderAdapter is declared with "type", no "interface" is declared
-    And the TypeSafe adapter object ends with "satisfies ProviderAdapter"
+    Examples:
+      | defect                 |
+      | an interior line break |
+      | a control character    |
+      | a space                |
+
+  Scenario: A transport failure is described by name and code, never by its message
+    Given a stubbed fetch that rejects with a TypeError whose message quotes the key
+    When decide runs
+    Then the error is a ProviderError of kind "unreachable"
+    And its detail is "TypeError", or "TypeError (ECONNREFUSED)" when the cause carries that code
+    And its cause is only { name, code }
+    And the key appears nowhere in the error
+
+  Scenario: A rejection that is not an Error is described by its type
+    Given a stubbed fetch that rejects with a string
+    When decide runs
+    Then the error is a ProviderError of kind "unreachable" with detail "string"
+
+  Scenario: No redirect is followed
+    Given any provider request
+    When fetchJson sends it
+    Then the request carries redirect: "error", so the key header never follows a redirect to another host
+
+  Scenario Outline: Retry-After is read strictly and clamped
+    Given a 429 whose Retry-After header is <value>
+    When the error is built
+    Then retryAfterSeconds is <seconds>
+
+    Examples:
+      | value                             | seconds   |
+      | "7"                               | 7         |
+      | "0"                               | 1         |
+      | "99999999"                        | 3600      |
+      | an IMF-fixdate 90 seconds ahead   | 90        |
+      | an IMF-fixdate in the past        | 1         |
+      | an IMF-fixdate a day ahead        | 3600      |
+      | "" or "   " or "garbage 5"        | undefined |
+      | "12,5" or "0x10" or "1e3" or "-0" | undefined |
+      | "2026-10-14" (not an IMF-fixdate) | undefined |
+
+  Scenario: A reply nested too deeply is an upstream error, not a crash
+    Given the score fixture with a legend value nested 10,000 lists deep
+    When fromWire runs
+    Then a ProviderError of kind "upstream" is thrown with detail "body: nested too deeply"
+
+  Scenario: The answers must be exactly the questions asked
+    Given a reply with an answer for an id the request did not ask
+    When fromWire runs
+    Then a ProviderError of kind "upstream" is thrown with detail "answers.<id>: no question with this id"
+    And a reply that leaves a question unanswered gives 'answers: no answer for question "<id>"'
+
+  Scenario: Provider text in a detail is cut to about 300 characters
+    Given an error envelope message, or an answer id, of 1,000 characters
+    When it enters an error detail
+    Then the detail holds at most 300 of its characters followed by an ellipsis
+
+  Scenario: An adapter can override the kind and wording for a status
+    Given a 429 reply and an override of kind "auth" with its own message
+    When failureFromStatus runs
+    Then the error has that kind and that message, and its detail still starts with "429"
+    And an override to "rate_limited" still reads Retry-After
+
+  Scenario Outline: Untested reply shapes are upstream errors
+    Given a 2xx reply whose body is <body>
+    When decide runs
+    Then the error is a ProviderError of kind "upstream" with detail <detail>
+
+    Examples:
+      | body       | detail                                 |
+      | empty      | "200: the body is empty"               |
+      | JSON null  | "body: expected object, received null" |
+
+  Scenario: An abort while the body is read is a timeout
+    Given a stubbed fetch whose response body stream fails after the signal aborts
+    When decide runs
+    Then the error is a ProviderError of kind "timeout"
+
+  Scenario: The SDK is a type dependency only
+    Given a vi.mock of "@typesafe-ai/sdk" that records when it is loaded
+    When the adapter module is imported and exercised
+    Then the mock was never loaded
+    And loading the SDK directly does trigger the mock, so the check is live
+
+  Scenario: The adapter satisfies the adapter type
+    Given the source of worker/providers/typesafe.ts
+    When it is read
+    Then the TypeSafe adapter object ends with "satisfies ProviderAdapter"
+    And the lint rule typescript/consistent-type-definitions forbids any interface
 
   Scenario: Checks pass
     When vp check, vp test, and vp run build run

@@ -8,18 +8,26 @@
  * network. `decide` is handed the `fetch` to use, so the Node dev host and the
  * Worker can each pass their own, and tests can pass a stub.
  *
- * Everything a provider does not decide lives here: how the HTTP status of a
- * failed reply becomes an error kind and a message, how `Retry-After` is read,
- * how a transport failure is reported, and how a reply the schema rejects is
- * described. An adapter supplies only its wire shapes and its own wording of
- * the provider's error envelope. The API key is never written into a message,
- * a detail, or a log: it travels in a request header and nowhere else.
+ * Everything a provider does not decide lives here: how the API key is checked
+ * and sent, how the HTTP status of a failed reply becomes an error kind and a
+ * message, how `Retry-After` is read, how a transport failure is reported, and
+ * how a reply the schema rejects is described. An adapter supplies only its
+ * wire shapes and its own reading of the provider's error envelope.
  *
- * Standard types used: `fetch`, `RequestInit`, `Response`, `Headers`, and
- * `AbortSignal`, which Node's `@types/node` and Cloudflare's Workers types both
- * declare as globals. Nothing here needs the DOM library. Zod Mini APIs used,
- * read from node_modules/zod/v4/core/errors.d.ts: the `$ZodIssue` union and
- * the `expected` and `input` fields of `$ZodIssueInvalidType`.
+ * The API key never appears in a message, a detail, or a log. `fetchJson` is
+ * the only code that touches it: it refuses a key `fetch` would reject (such a
+ * rejection quotes the whole header, key included), puts the key in the
+ * `authorization` header and nowhere else, and describes a transport failure
+ * by its class name and code, never by its message. Provider-supplied text is
+ * cut to 300 characters before it enters a detail.
+ *
+ * Standard types used: `fetch`, `Response`, `Headers`, and `AbortSignal`,
+ * which Node's `@types/node` and Cloudflare's Workers types both declare as
+ * globals. Nothing here needs the DOM library. Zod Mini APIs used, read from
+ * node_modules/zod/v4/mini/schemas.d.ts (`ZodMiniType`, `safeParse`),
+ * node_modules/zod/v4/core/schemas.d.ts (`ParseContext.reportInput`), and
+ * node_modules/zod/v4/core/errors.d.ts (the `$ZodIssue` union and the
+ * `expected` and `input` fields of `$ZodIssueInvalidType`).
  */
 
 import type * as z from "zod/mini";
@@ -33,7 +41,7 @@ import type { ProviderDescriptor } from "../../src/providers/catalog.ts";
 
 /**
  * Why a provider call failed, independent of the provider:
- * - `auth`: the provider rejected the API key (401 or 403).
+ * - `auth`: the provider rejected the API key (401 or 403), or the key holds characters that cannot be sent.
  * - `rate_limited`: the provider asked us to slow down (429); `retryAfterSeconds` carries its `Retry-After` when it sent one.
  * - `invalid_request`: the provider refused the request itself (400 or 422).
  * - `upstream`: the provider failed (404, 5xx, 529) or answered in a shape this app cannot read.
@@ -48,12 +56,20 @@ export type ProviderErrorKind =
   | "timeout"
   | "unreachable";
 
+/**
+ * What is kept of a transport failure: the error's class name and, when it has
+ * one, a short code such as `ECONNREFUSED`. Never its message, which can quote
+ * the request headers.
+ */
+export type TransportCause = { name: string; code: string | undefined };
+
 export type ProviderErrorOptions = {
-  /** Developer-facing detail: an upstream status, a dot path into the reply, or a transport message. Never the API key. */
+  /** Developer-facing detail: an upstream status, a dot path into the reply, or a transport error's name. Never the API key. */
   detail?: string;
   /** For `rate_limited`: the seconds the provider asked us to wait, when it said. */
   retryAfterSeconds?: number;
-  cause?: unknown;
+  /** Only ever a `TransportCause`, never the original error. */
+  cause?: TransportCause;
 };
 
 /** A failed provider call, normalised so the route can answer the same way for every provider. */
@@ -92,7 +108,8 @@ export type ProviderAdapter = {
   /**
    * Pure. The neutral decision read from the provider's parsed success body.
    * Throws a `ProviderError` of kind `upstream` when the body is not the shape
-   * the provider's schema describes, or answers a primitive the request did not ask.
+   * the provider's schema describes, answers a primitive the request did not
+   * ask, or answers a different set of questions than the request asked.
    */
   fromWire(request: ValidDecisionRequest, body: unknown): ProviderDecision;
   /**
@@ -108,8 +125,56 @@ export type ProviderAdapter = {
 };
 
 // ---------------------------------------------------------------------------
+// Provider text in details
+// ---------------------------------------------------------------------------
+
+/** The most characters of provider-supplied text a detail may carry. */
+const MAX_DETAIL_TEXT = 300;
+
+/**
+ * Provider-supplied text, cut to 300 characters with an ellipsis, so an
+ * envelope message or a record key can never flood a log or a response. Cut
+ * by code point, so a character outside the basic plane is kept whole.
+ */
+export function clip(text: string): string {
+  const characters = Array.from(text);
+  return characters.length <= MAX_DETAIL_TEXT
+    ? text
+    : `${characters.slice(0, MAX_DETAIL_TEXT).join("")}…`;
+}
+
+// ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
+
+/** True for a 2xx status. The one place the success range is spelled out. */
+export function isSuccess(status: number): boolean {
+  return status >= 200 && status < 300;
+}
+
+/**
+ * The visible ASCII a header value may hold. A key with anything else, such as
+ * a line break pasted in with it, makes `fetch` reject with a message that
+ * quotes the whole header, so it is refused before any header is built.
+ */
+const SENDABLE_KEY = /^[\x21-\x7e]+$/;
+
+/** Throws an `auth` error, naming no part of the key, when the key cannot travel in a header. */
+export function assertSendableKey(provider: ProviderDescriptor, apiKey: string): void {
+  if (SENDABLE_KEY.test(apiKey)) return;
+  throw new ProviderError(
+    "auth",
+    `The ${provider.displayName} API key contains characters that can't be sent. Check the key for line breaks or spaces.`,
+  );
+}
+
+/** What an adapter asks `fetchJson` to send. The `authorization` header is added by `fetchJson`. */
+export type UpstreamRequest = {
+  method: "GET" | "POST";
+  headers?: Record<string, string>;
+  /** The JSON text of the body, for a POST. */
+  body?: string;
+};
 
 /** A reply from the provider, with its body already parsed. */
 export type UpstreamReply = {
@@ -124,29 +189,63 @@ export type UpstreamReply = {
   body: unknown;
 };
 
+/** The class name of an error, or the type of a rejection that is not one. Letters only, so it can be nothing else. */
+function nameOf(thrown: unknown): string {
+  if (!(thrown instanceof Error)) return typeof thrown;
+  return /^[A-Za-z]{1,40}$/.test(thrown.name) ? thrown.name : "Error";
+}
+
+/** A short upper-case code such as `ECONNREFUSED` or `UND_ERR_CONNECT_TIMEOUT`, when `value` carries one. */
+function codeOf(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("code" in value)) return undefined;
+  const { code } = value;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(code) ? code : undefined;
+}
+
 /**
- * Fetches `url` and parses the reply as JSON. The signal is applied to the
- * request, and the body is read as text before parsing, so a body that is not
- * JSON is reported for what it is rather than as a parse exception.
+ * What is kept of a `fetch` rejection: its name and a code, read from the
+ * error or from its own `cause` (Node wraps the system error that way).
+ */
+function transportCause(thrown: unknown): TransportCause {
+  const inner = thrown instanceof Error ? thrown.cause : undefined;
+  return { name: nameOf(thrown), code: codeOf(inner) ?? codeOf(thrown) };
+}
+
+/**
+ * Sends `request` to `url` with the key in the `authorization` header and
+ * parses the reply as JSON. The signal is applied to the exchange, no redirect
+ * is followed (a redirect would carry the key header to another host), and the
+ * body is read as text before parsing, so a body that is not JSON is reported
+ * for what it is rather than as a parse exception.
  *
- * Throws a `ProviderError`: `timeout` when the signal aborted the exchange,
- * `unreachable` when `fetch` rejected for another reason (DNS, TLS, a dropped
- * connection), and `upstream` when a successful status carries a body that is
- * not JSON. A failed status is returned, not thrown, so the caller can map it.
+ * Throws a `ProviderError`: `auth` when the key cannot be sent, `timeout` when
+ * the signal aborted the exchange, `unreachable` when `fetch` rejected for
+ * another reason (DNS, TLS, a dropped connection), and `upstream` when a
+ * successful status carries a body that is not JSON. A failed status is
+ * returned, not thrown, so the caller can map it.
  */
 export async function fetchJson(
   fetch: Fetch,
   signal: AbortSignal,
   provider: ProviderDescriptor,
+  apiKey: string,
   url: string,
-  init: RequestInit,
+  request: UpstreamRequest,
 ): Promise<UpstreamReply> {
+  assertSendableKey(provider, apiKey);
   let response: Response;
   let text: string;
   try {
-    response = await fetch(url, { ...init, signal });
+    response = await fetch(url, {
+      method: request.method,
+      headers: { ...request.headers, authorization: `Bearer ${apiKey}` },
+      body: request.body,
+      signal,
+      redirect: "error",
+    });
     text = await response.text();
-  } catch (cause) {
+  } catch (thrown) {
+    const cause = transportCause(thrown);
     if (signal.aborted) {
       throw new ProviderError(
         "timeout",
@@ -157,12 +256,12 @@ export async function fetchJson(
     throw new ProviderError(
       "unreachable",
       `Could not reach ${provider.displayName}. Check the connection and try again.`,
-      { detail: cause instanceof Error ? cause.message : undefined, cause },
+      { detail: cause.code === undefined ? cause.name : `${cause.name} (${cause.code})`, cause },
     );
   }
 
   const body = parseJson(text);
-  if (response.ok && body === undefined) {
+  if (isSuccess(response.status) && body === undefined) {
     throw new ProviderError(
       "upstream",
       `${provider.displayName} answered with a body that is not JSON.`,
@@ -196,58 +295,84 @@ export function errorKindForStatus(status: number): ProviderErrorKind {
   return "upstream";
 }
 
+/** The least and the most a provider can make us wait, in seconds. */
+const MIN_RETRY_SECONDS = 1;
+const MAX_RETRY_SECONDS = 3600;
+
+/** A delay in seconds: digits and nothing else, so `1e3`, `0x10`, `+5`, and `-0` are not delays. */
+const DELAY_SECONDS = /^\d+$/;
+
+/** An IMF-fixdate (RFC 9110, section 5.6.7), the only date form `Retry-After` is read in: `Sun, 06 Nov 1994 08:49:37 GMT`. */
+const IMF_FIXDATE =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+function clampSeconds(seconds: number): number {
+  return Math.min(MAX_RETRY_SECONDS, Math.max(MIN_RETRY_SECONDS, seconds));
+}
+
 /**
- * `Retry-After` in whole seconds, rounded up, or `undefined` when the header is
- * absent or unreadable. The header is either a number of seconds or an HTTP
- * date (RFC 9110, section 10.2.3); a date is measured from `now`.
+ * `Retry-After` as whole seconds between 1 and 3600, or `undefined` when the
+ * header is absent or is neither a plain number of seconds nor an IMF-fixdate
+ * (RFC 9110, section 10.2.3). A date is measured from `now` and rounded up;
+ * one in the past gives the minimum wait.
  */
 export function retryAfterSeconds(headers: Headers, now = Date.now()): number | undefined {
   const raw = headers.get("retry-after");
   if (raw === null) return undefined;
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds)) return seconds >= 0 ? Math.ceil(seconds) : undefined;
+  if (DELAY_SECONDS.test(raw)) return clampSeconds(Number(raw));
+  if (!IMF_FIXDATE.test(raw)) return undefined;
   const date = Date.parse(raw);
   if (Number.isNaN(date)) return undefined;
-  return Math.max(0, Math.ceil((date - now) / 1000));
+  return clampSeconds(Math.ceil((date - now) / 1000));
 }
 
 /**
- * The `ProviderError` for a failed reply, mapped by status. `described` is the
- * adapter's reading of the provider's error envelope, such as
- * `authentication_error: Cannot authenticate with the server.`; the detail is
- * the status followed by it, so a detail always starts with the status code.
+ * An adapter's say over a failed status: another `kind` than the status
+ * implies (OpenAI answers a spent quota with 429, and a region block with 403),
+ * other wording, or both. The wording default is kept for whatever is omitted.
+ */
+export type FailureOverride = {
+  kind?: ProviderErrorKind;
+  message?: string;
+};
+
+function defaultMessage(
+  name: string,
+  kind: ProviderErrorKind,
+  retryAfter: number | undefined,
+): string {
+  switch (kind) {
+    case "auth":
+      return `${name} rejected the API key.`;
+    case "rate_limited": {
+      const wait = retryAfter === undefined ? "a moment" : `${retryAfter} seconds`;
+      return `${name} is rate limiting requests. Wait ${wait} and try again.`;
+    }
+    case "invalid_request":
+      return `${name} could not process this request. Check the questions and criteria against the detail.`;
+    default:
+      return `${name} returned an error. Try again in a moment.`;
+  }
+}
+
+/**
+ * The `ProviderError` for a failed reply, mapped by status unless `override`
+ * says otherwise. `described` is the adapter's reading of the provider's error
+ * envelope, such as `authentication_error: Cannot authenticate with the
+ * server.`, cut to 300 characters; the detail is the status followed by it, so
+ * a detail always starts with the status code.
  */
 export function failureFromStatus(
   provider: ProviderDescriptor,
   reply: UpstreamReply,
   described?: string,
+  override?: FailureOverride,
 ): ProviderError {
-  const name = provider.displayName;
-  const detail = described === undefined ? `${reply.status}` : `${reply.status} ${described}`;
-  const kind = errorKindForStatus(reply.status);
-  switch (kind) {
-    case "auth":
-      return new ProviderError(kind, `${name} rejected the API key.`, { detail });
-    case "rate_limited": {
-      const seconds = retryAfterSeconds(reply.headers);
-      const wait = seconds === undefined ? "a moment" : `${seconds} seconds`;
-      return new ProviderError(
-        kind,
-        `${name} is rate limiting requests. Wait ${wait} and try again.`,
-        { detail, retryAfterSeconds: seconds },
-      );
-    }
-    case "invalid_request":
-      return new ProviderError(
-        kind,
-        `${name} could not process this request. Check the questions and criteria against the detail.`,
-        { detail },
-      );
-    default:
-      return new ProviderError(kind, `${name} returned an error. Try again in a moment.`, {
-        detail,
-      });
-  }
+  const detail = described === undefined ? `${reply.status}` : `${reply.status} ${clip(described)}`;
+  const kind = override?.kind ?? errorKindForStatus(reply.status);
+  const retryAfter = kind === "rate_limited" ? retryAfterSeconds(reply.headers) : undefined;
+  const message = override?.message ?? defaultMessage(provider.displayName, kind, retryAfter);
+  return new ProviderError(kind, message, { detail, retryAfterSeconds: retryAfter });
 }
 
 // ---------------------------------------------------------------------------
@@ -267,10 +392,11 @@ function kindOf(value: unknown): string {
  * message is always "Invalid input" and the words come from the issue's code
  * instead. The path is joined by hand, as the validator does, because
  * `z.core.toDotPath` writes a list index as `[0]` and paths here read `answers.0`.
- * A problem with the body as a whole is placed at `body`.
+ * Record keys in the path are provider text, so the path is cut to 300
+ * characters. A problem with the body as a whole is placed at `body`.
  */
 export function describeIssue(issue: z.core.$ZodIssue): string {
-  const place = issue.path.length === 0 ? "body" : issue.path.map(String).join(".");
+  const place = issue.path.length === 0 ? "body" : clip(issue.path.map(String).join("."));
   switch (issue.code) {
     case "invalid_type":
       return `${place}: expected ${issue.expected}, received ${kindOf(issue.input)}`;
@@ -288,4 +414,31 @@ export function unreadableReply(provider: ProviderDescriptor, detail: string): P
     `${provider.displayName} answered in a shape this app cannot read.`,
     { detail },
   );
+}
+
+/**
+ * Parses a provider body with its schema, or throws an `upstream` error whose
+ * detail starts with the dot path of the first problem. Zod checks nested JSON
+ * by recursion, so a body nested thousands of levels deep exhausts the call
+ * stack with a `RangeError`; that is a reply this app cannot read, not a
+ * crash, and is reported like any other. Neither the body nor the parse error
+ * is kept on the thrown error.
+ */
+export function parseReply<T>(
+  provider: ProviderDescriptor,
+  schema: z.ZodMiniType<T>,
+  body: unknown,
+): T {
+  let result: ReturnType<z.ZodMiniType<T>["safeParse"]>;
+  try {
+    result = schema.safeParse(body, { reportInput: true });
+  } catch (thrown) {
+    throw unreadableReply(
+      provider,
+      thrown instanceof RangeError ? "body: nested too deeply" : "body: could not be checked",
+    );
+  }
+  if (result.success) return result.data;
+  const [issue] = result.error.issues;
+  throw unreadableReply(provider, describeIssue(issue));
 }

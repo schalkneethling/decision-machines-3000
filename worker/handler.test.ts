@@ -405,6 +405,14 @@ describe("POST /api/decide/typesafe", () => {
     expect(text).not.toContain(TYPESAFE_KEY);
   });
 
+  it("returns the provider's reply body as wire.response", async () => {
+    const deps = stubDeps(upstreamReply(200, recordedNoulReply));
+
+    const { body } = await decideWith(postJson("/api/decide/typesafe", yesNo), withTypeSafe, deps);
+
+    expect((body.wire as { response: unknown }).response).toEqual(recordedNoulReply);
+  });
+
   it("sends the provider exactly what wire.request records, model pinned by the catalog", async () => {
     const deps = stubDeps(upstreamReply(200, recordedNoulReply));
 

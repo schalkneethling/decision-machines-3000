@@ -23,7 +23,7 @@ import { PROVIDER_KEY_NAMES, isKeySet, isPlaceholder } from "./env.ts";
 import type { ProviderKeys } from "./env.ts";
 import type { HandlerDeps } from "./handler.ts";
 import { ProviderError } from "./providers/adapter.ts";
-import type { ProviderAdapter, ProviderDecision, ProviderErrorKind } from "./providers/adapter.ts";
+import type { AdapterResult, ProviderAdapter, ProviderErrorKind } from "./providers/adapter.ts";
 import { typesafeAdapter } from "./providers/typesafe.ts";
 import { failure, json } from "./respond.ts";
 
@@ -64,7 +64,9 @@ const STATUS_FOR_KIND: Readonly<Record<ProviderErrorKind, number>> = {
  * interface and so does not fit the contract's JSON record; once serialised it
  * is that record, which the browser checks with the contract's schema.
  */
-export type DecisionSuccessBody = Omit<DecisionSuccess, "wire"> & { wire: { request: object } };
+export type DecisionSuccessBody = Omit<DecisionSuccess, "wire"> & {
+  wire: { request: object; response: unknown };
+};
 
 // ---------------------------------------------------------------------------
 // The wire record
@@ -365,7 +367,7 @@ export async function decide(
   };
   const signal = deps.timeoutSignal(PROVIDER_TIMEOUT_MS);
   const startedAt = performance.now();
-  let decision: ProviderDecision;
+  let decision: AdapterResult;
   try {
     decision = await adapter.decide(valid, apiKey, signal, deps.fetch);
   } catch (thrown) {
@@ -403,7 +405,7 @@ export async function decide(
     usage: decision.usage,
     latencyMs,
     answers: decision.answers,
-    wire: wireRecord(adapter, valid),
+    wire: { ...wireRecord(adapter, valid), response: decision.wire.response },
   };
   return json(body, 200);
 }

@@ -1,6 +1,6 @@
 import type { DecisionSuccess } from "../../decision/contract.ts";
 import { scoreExample } from "../../decision/examples.ts";
-import { typesafeWireRequest } from "./wire.ts";
+import { typesafeWireRequest, typesafeWireResponse } from "./wire.ts";
 
 /**
  * A real TypeSafe Jev answer to `scoreExample` from src/decision/examples.ts,
@@ -8,7 +8,7 @@ import { typesafeWireRequest } from "./wire.ts";
  * `/api/decide/typesafe` success: `provider` and `wire` added, and the
  * connection fields that success no longer carries removed.
  */
-export const scoreResponse: DecisionSuccess<"score"> = {
+const reading: Omit<DecisionSuccess<"score">, "wire"> = {
   ok: true,
   primitive: "score",
   provider: "typesafe",
@@ -88,5 +88,9 @@ export const scoreResponse: DecisionSuccess<"score"> = {
       },
     },
   },
-  wire: { request: typesafeWireRequest(scoreExample) },
+};
+
+export const scoreResponse: DecisionSuccess<"score"> = {
+  ...reading,
+  wire: { request: typesafeWireRequest(scoreExample), response: typesafeWireResponse(reading) },
 };

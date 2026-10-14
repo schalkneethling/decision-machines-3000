@@ -392,7 +392,10 @@ describe("decide", () => {
     const signal = liveSignal();
     const decision = await decide(noulRequest, API_KEY, signal, fetch);
 
-    expect(decision).toStrictEqual(fromWire(noulRequest, fixture("noul").body));
+    expect(decision).toStrictEqual({
+      ...fromWire(noulRequest, fixture("noul").body),
+      wire: { response: fixture("noul").body },
+    });
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call.url).toBe("https://api.typesafe.ai/v1/systemone");
@@ -406,6 +409,18 @@ describe("decide", () => {
       "content-type": "application/json",
     });
     expect(JSON.parse(sentBody(call.init))).toStrictEqual(toWire(noulRequest));
+  });
+
+  it("returns the key redacted in wire.response when the provider's reply quotes it", async () => {
+    const quoted = { ...(fixture("noul").body as object), note: `echoed ${API_KEY}` };
+    const { fetch } = jsonFetch(200, quoted);
+    const decision = await decide(noulRequest, API_KEY, liveSignal(), fetch);
+
+    expect(decision.wire.response).toStrictEqual({
+      ...(fixture("noul").body as object),
+      note: "echoed [redacted]",
+    });
+    expect(JSON.stringify(decision)).not.toContain(API_KEY);
   });
 
   it("maps a 401 to auth, names the provider, and keeps the key out of the error", async () => {
@@ -618,6 +633,8 @@ describe("the browser fixtures' wire records", () => {
     if (!validation.ok) throw new Error(`The ${_name} example is not valid.`);
 
     expect(response.wire.request).toEqual(toWire(validation.value));
+    const { model, usage, answers } = response;
+    expect(fromWire(validation.value, response.wire.response)).toEqual({ model, usage, answers });
   });
 });
 

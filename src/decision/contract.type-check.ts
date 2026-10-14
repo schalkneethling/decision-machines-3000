@@ -102,7 +102,7 @@ type ReferenceDecisionSuccess<P extends ReferencePrimitive = ReferencePrimitive>
   usage: { input_tokens: number; output_tokens: number };
   latencyMs: number;
   answers: Record<string, ReferenceAnswerByPrimitive[P] | ReferenceRefusalAnswer>;
-  wire: { request: Record<string, ReferenceJsonValue> };
+  wire: { request: Record<string, ReferenceJsonValue>; response: ReferenceJsonValue };
 };
 type ReferenceDecisionFailure = { ok: false; error: string; detail?: string };
 type ReferenceWarmSuccess = {

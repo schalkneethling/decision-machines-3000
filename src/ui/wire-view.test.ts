@@ -33,6 +33,7 @@ const openaiResponse: DecisionSuccess = {
         },
       ],
     },
+    response: { output: [{ name: "escalate", answer: true }] },
   },
 };
 
@@ -55,13 +56,19 @@ describe("renderWireView", () => {
     expect(Array.isArray(sent.questions)).toBe(true);
     expect(sent.questions[0].name).toBe("escalate");
     const received = JSON.parse(blocks(openaiResponse)["Received from OpenAI Decisions"] ?? "");
-    expect(received.primitive).toBe("noul");
+    expect(received).toEqual({ output: [{ name: "escalate", answer: true }] });
+    expect(openaiResponse.primitive).toBe("noul");
   });
 
-  it("leaves the wire record out of the received block and never mentions Authorization", () => {
-    const shown = blocks(noulResponse);
-    expect(JSON.parse(shown["Received from TypeSafe Jev"] ?? "")).not.toHaveProperty("wire");
-    for (const text of Object.values(shown)) {
+  it("shows the provider's own reply body in the received block, not the Worker's reply", () => {
+    const received = JSON.parse(blocks(noulResponse)["Received from TypeSafe Jev"] ?? "");
+    expect(received).toEqual(noulResponse.wire.response);
+    expect(received).not.toHaveProperty("wire");
+    expect(received).not.toHaveProperty("ok");
+  });
+
+  it("never mentions Authorization in either block", () => {
+    for (const text of Object.values(blocks(noulResponse))) {
       expect(text.toLowerCase()).not.toContain("authorization");
     }
   });

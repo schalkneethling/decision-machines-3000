@@ -21,15 +21,14 @@ function disclosure(title: string, value: unknown): HTMLDetailsElement {
 /**
  * Two disclosures, both open. "Sent to {provider}" is `wire.request`: the provider's
  * own request body. It never holds the API key, because the key travels in a header
- * and the wire record is the body only. "Received from {provider}" is the Worker's
- * reply to the browser without its `wire` field, because the route does not return
- * the provider's own response body.
+ * and the wire record is the body only. "Received from {provider}" is `wire.response`:
+ * the provider's reply body as the Worker read it, with the API key already redacted.
  */
 export function renderWireView(response: DecisionSuccess): HTMLDetailsElement[] {
   const provider = PROVIDERS[response.provider].displayName;
-  const { wire, ...received } = response;
+  const { request, response: received } = response.wire;
   return [
-    disclosure(`Sent to ${provider}`, wire.request),
+    disclosure(`Sent to ${provider}`, request),
     disclosure(`Received from ${provider}`, received),
   ];
 }

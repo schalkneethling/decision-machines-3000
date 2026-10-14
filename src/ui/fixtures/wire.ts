@@ -1,4 +1,4 @@
-import type { DecisionRequest, JsonValue } from "../../decision/contract.ts";
+import type { DecisionRequest, DecisionSuccess, JsonValue } from "../../decision/contract.ts";
 import { typesafe } from "../../providers/catalog.ts";
 
 /**
@@ -18,4 +18,16 @@ export function typesafeWireRequest(request: DecisionRequest): Record<string, Js
         : { type: request.primitive, instructions: question.instructions, criteria };
   }
   return { model: typesafe.model, state: request.state, questions };
+}
+
+/**
+ * The reply body TypeSafe sends for a success: the model, the answers, and the
+ * usage, which are the fields the app reads. `worker/providers/typesafe.test.ts`
+ * checks that `fromWire` reads these records back to the same decision.
+ */
+export function typesafeWireResponse(
+  reading: Pick<DecisionSuccess, "model" | "answers" | "usage">,
+): Record<string, JsonValue> {
+  const { model, answers, usage } = reading;
+  return { model, answers, usage };
 }

@@ -3,26 +3,31 @@ Feature: A read-only wire view shows what was sent to the provider and what came
   Background:
     Given the readout renders a successful DecisionSuccess
     And wire.request is the provider's own request body, built by its adapter's toWire
-    And the route does not return the provider's own response body, so "Received from" shows the Worker's reply without its wire field
+    And wire.response is the provider's reply body as the Worker read it, with the API key redacted by fetchJson
 
   Scenario: A Yes/no run on TypeSafe shows the TypeSafe body
     Given a successful Yes/no run on TypeSafe
     When the readout renders
     Then a details block "Sent to TypeSafe Jev" is open
     And it shows "type": "noul" and "model": "jev-1.13.0"
-    And the block "Received from TypeSafe Jev" shows "primitive": "noul"
+    And the block "Received from TypeSafe Jev" shows TypeSafe's own reply body, with "model" and "answers"
 
   Scenario: A Yes/no run on OpenAI shows the provider's own vocabulary
     Given a successful Yes/no run on OpenAI
     When the readout renders
     Then "Sent to OpenAI Decisions" shows the question as "type": "predicate"
     And it shows the "Yes means" and "No means" instructions
-    And "Received from OpenAI Decisions" still shows "primitive": "noul"
+    And the panel JSON still shows "primitive": "noul"
 
   Scenario: An OpenAI body has input and named questions
     Given a successful run on OpenAI
     When the readout renders
     Then "Sent to OpenAI Decisions" shows "input" and a "questions" array whose items have "name" fields
+
+  Scenario: A reply that quotes the API key arrives redacted
+    Given a provider reply body that contains the API key
+    When decide returns
+    Then wire.response holds "[redacted]" in place of the key
 
   Scenario: The Authorization header never appears
     Given any successful response

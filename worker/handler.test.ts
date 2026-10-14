@@ -101,6 +101,15 @@ describe("GET /api/providers", () => {
     expect(error).toContain("at least one is required");
   });
 
+  it("leaves the placeholder out of the 503, so Varlock's leak scan cannot block it", async () => {
+    // A key set to the placeholder is a sensitive value as far as Varlock knows, and
+    // Varlock replaces any response that contains a sensitive value with a 500.
+    const { response, text } = await run(get("/api/providers"), { TYPESAFE_API_KEY: "unset" });
+
+    expect(response.status).toBe(503);
+    expect(text.toLowerCase()).not.toContain("unset");
+  });
+
   it("answers from its own arguments only, keeping nothing between requests", async () => {
     const withKey = await run(get("/api/providers"), { TYPESAFE_API_KEY: "t" });
     const withoutKey = await run(get("/api/providers"), {});

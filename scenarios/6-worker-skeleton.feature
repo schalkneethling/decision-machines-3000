@@ -48,6 +48,13 @@ Feature: Worker skeleton, Node dev host, and GET /api/providers
     And the error names TYPESAFE_API_KEY, SUBQ_API_KEY, and OPENAI_API_KEY
     And the error says at least one is required
 
+  Scenario: The 503 never repeats the placeholder
+    Given env is { TYPESAFE_API_KEY: "unset" }
+    When GET /api/providers is handled
+    Then the status is 503
+    And the body does not contain "unset"
+    # Varlock treats the placeholder as a sensitive value and would replace the 503 with a 500.
+
   Scenario: An unknown API path gets a JSON 404
     When GET /api/unknown is handled
     Then the status is 404

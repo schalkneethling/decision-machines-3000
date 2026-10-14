@@ -52,6 +52,11 @@ export function configuredProviders(env: ProviderKeys): ProviderId[] {
 /**
  * What an instance with no provider key reports, both in the 503 from
  * `GET /api/providers` and when the Node dev host starts.
+ *
+ * It describes the placeholder without spelling it out. Under Varlock, a key set
+ * to the placeholder is a sensitive value, and Varlock replaces any response that
+ * contains one with a 500, so naming it would break the very answer that explains
+ * the problem. The README spells it out instead.
  */
 export const MISSING_KEYS_MESSAGE = missingKeysMessage(
   PROVIDER_ORDER.map((id) => PROVIDER_KEY_NAMES[id]),
@@ -61,6 +66,6 @@ function missingKeysMessage(names: readonly string[]): string {
   const listed = `${names.slice(0, -1).join(", ")}, or ${names.at(-1)}`;
   return (
     `No provider key is set, and at least one is required. Set ${listed}. ` +
-    `A blank value or "${PLACEHOLDER}" counts as not set.`
+    "A blank value counts as not set, and so does the placeholder that the Deploy to Cloudflare button needs."
   );
 }

@@ -5,6 +5,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Connect, Plugin } from "vite-plus";
 import * as z from "zod/mini";
 import { openai, typesafe } from "../src/providers/catalog.ts";
+import { MAX_BODY_BYTES, tooLarge } from "../worker/body-limit.ts";
 import type { ProviderKeys } from "../worker/env.ts";
 import { MISSING_KEYS_MESSAGE } from "../worker/env.ts";
 import { defaultDeps, handle } from "../worker/handler.ts";
@@ -106,7 +107,7 @@ describe("the dev host middleware", () => {
     expect(unknown.status).toBe(404);
     expect(await unknown.json()).toEqual({
       ok: false,
-      error: "No API route matches /api/unknown.",
+      error: "No API route matches this path.",
     });
 
     const posted = await fetch(`${base}/api/providers`, { method: "POST", body: "{}" });
@@ -192,6 +193,69 @@ describe("the dev host's request conversion", () => {
     expect(received?.method).toBe("POST");
     expect(received?.contentType).toBe("application/json; charset=utf-8");
     expect(Buffer.from(received?.body ?? [])).toEqual(body);
+  });
+
+  describe("with a body over the limit the Worker's route applies", () => {
+    function recordingHandler() {
+      const received: number[] = [];
+      const handler = async (request: Request) => {
+        received.push((await request.arrayBuffer()).byteLength);
+        return new Response(null, { status: 204 });
+      };
+      return { handler, received };
+    }
+
+    it.each([
+      ["a declared length", { "content-type": "application/json" }],
+      [
+        "a chunked body with no length",
+        { "content-type": "application/json", "transfer-encoding": "chunked" },
+      ],
+    ])(
+      "answers %s one byte over with the Worker's JSON 413, without calling the handler",
+      async (_kind, headers) => {
+        const { handler, received } = recordingHandler();
+        const base = await serve(apiMiddleware(() => withOpenAI, handler));
+
+        const answer = await raw(base, {
+          method: "POST",
+          path: "/api/decide/typesafe",
+          headers,
+          body: Buffer.alloc(MAX_BODY_BYTES + 1, 0x20),
+        });
+
+        expect(answer.status).toBe(413);
+        expect(answer.headers["cache-control"]).toBe("no-store");
+        expect(answer.headers["x-content-type-options"]).toBe("nosniff");
+        expect(JSON.parse(answer.body.toString())).toEqual(await tooLarge().json());
+        expect(received).toEqual([]);
+
+        // The socket was not left hanging: the server answers the next request.
+        const next = await raw(base, { path: "/api/providers" });
+        expect(next.status).toBe(204);
+      },
+    );
+
+    it.each([
+      ["a declared length", { "content-type": "application/json" }],
+      [
+        "a chunked body with no length",
+        { "content-type": "application/json", "transfer-encoding": "chunked" },
+      ],
+    ])("passes %s of exactly the limit to the handler", async (_kind, headers) => {
+      const { handler, received } = recordingHandler();
+      const base = await serve(apiMiddleware(() => withOpenAI, handler));
+
+      const answer = await raw(base, {
+        method: "POST",
+        path: "/api/decide/typesafe",
+        headers,
+        body: Buffer.alloc(MAX_BODY_BYTES, 0x20),
+      });
+
+      expect(answer.status).toBe(204);
+      expect(received).toEqual([MAX_BODY_BYTES]);
+    });
   });
 
   it("passes a request with no body to the handler with none", async () => {
@@ -350,7 +414,7 @@ describe("POST /api/decide/{provider} on the dev host", () => {
       expect(answer.status).toBe(404);
       expect(JSON.parse(answer.body.toString())).toEqual({
         ok: false,
-        error: `No API route matches ${path}.`,
+        error: "No API route matches this path.",
       });
     }
   });

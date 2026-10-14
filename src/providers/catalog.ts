@@ -52,7 +52,8 @@ export type ProviderDescriptor = {
   model: string;
   /**
    * The origin every API path of the provider is resolved against, with no
-   * trailing slash. It stays on the server: `GET /api/providers` never lists it.
+   * trailing slash. `GET /api/providers` never sends it, but it is not secret:
+   * this catalog is bundled into the browser too.
    * The three origins are the ones the live probes in
    * `docs/spikes/provider-probes.md` called (`scripts/probe/run.mjs`).
    */

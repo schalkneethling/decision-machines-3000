@@ -26,11 +26,13 @@ Feature: The contract is provider-neutral and keeps the shared vocabulary
     Then nothing is found
     And nothing imports from src/jev/
 
+  # Superseded by #8, which removed /api/jev.
   Scenario: The server compiles against src/decision
     Given server/jev-api.ts after the move
     When it is type-checked
     Then it compiles against src/decision/ with no import of src/jev/
 
+  # Superseded by #8, which removed /api/jev.
   Scenario: All three panels still answer through the server
     Given the middleware with a stubbed SDK call
     When a noul, choice, and score example are each posted to /api/jev

@@ -105,13 +105,34 @@ function routesFor(pathname: string): Methods | undefined {
   return Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
 }
 
-function notFound(pathname: string): Response {
-  return failure(404, `No API route matches ${pathname}.`);
+/*
+ * No answer quotes the request's path or an unknown method. Under Varlock in
+ * `vp dev`, a key set to the placeholder is a sensitive value, and any response
+ * that contains it is replaced with a 500, so `GET /api/unset` would otherwise
+ * break the very 404 that explains it.
+ */
+
+/** The methods RFC 9110 defines, plus PATCH: the only ones an answer names. */
+const STANDARD_METHODS: ReadonlySet<string> = new Set([
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "DELETE",
+  "CONNECT",
+  "OPTIONS",
+  "TRACE",
+  "PATCH",
+]);
+
+function notFound(): Response {
+  return failure(404, "No API route matches this path.");
 }
 
-function methodNotAllowed(pathname: string, method: string, methods: Methods): Response {
+function methodNotAllowed(method: string, methods: Methods): Response {
   const allowed = allowedMethods(methods);
-  return failure(405, `${pathname} answers only ${allowed.join(" and ")}, not ${method}.`, {
+  const named = STANDARD_METHODS.has(method) ? method : "this method";
+  return failure(405, `This route answers only ${allowed.join(" and ")}, not ${named}.`, {
     headers: { allow: allowed.join(", ") },
   });
 }
@@ -123,28 +144,44 @@ function methodNotAllowed(pathname: string, method: string, methods: Methods): R
  */
 export function rejectMethod(pathname: string, method: string): Response {
   const methods = routesFor(pathname);
-  return methods === undefined ? notFound(pathname) : methodNotAllowed(pathname, method, methods);
+  return methods === undefined ? notFound() : methodNotAllowed(method, methods);
 }
 
-/** Answers one `/api` request. */
+/** Routes one `/api` request to its answer. */
+async function dispatch(request: Request, env: ProviderKeys, deps: HandlerDeps): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const methods = routesFor(pathname);
+  if (methods === undefined) {
+    return notFound();
+  }
+
+  const { method } = request;
+  const answer = Object.hasOwn(methods, method) ? methods[method] : undefined;
+  if (answer !== undefined) {
+    return answer(request, env, deps);
+  }
+  if (method === "HEAD" && Object.hasOwn(methods, "GET")) {
+    return headOf(methods.GET(request, env, deps));
+  }
+  return methodNotAllowed(method, methods);
+}
+
+/**
+ * Answers one `/api` request. Anything a route throws instead of answering,
+ * such as a body stream that fails because the client went away, becomes a
+ * JSON 500 rather than the host's own error page. Only the error's class name
+ * is logged, never its message, which could quote the request.
+ */
 export async function handle(
   request: Request,
   env: ProviderKeys,
   deps: HandlerDeps,
 ): Promise<Response> {
-  const { pathname } = new URL(request.url);
-  const methods = routesFor(pathname);
-  if (methods === undefined) {
-    return notFound(pathname);
+  try {
+    return await dispatch(request, env, deps);
+  } catch (thrown) {
+    const name = thrown instanceof Error ? thrown.name : typeof thrown;
+    deps.log(`[api] status=500 unexpected=${JSON.stringify(name)}`);
+    return failure(500, "Something went wrong on the server. Check the server log.");
   }
-
-  const { method } = request;
-  const route = Object.hasOwn(methods, method) ? methods[method] : undefined;
-  if (route !== undefined) {
-    return route(request, env, deps);
-  }
-  if (method === "HEAD" && Object.hasOwn(methods, "GET")) {
-    return headOf(methods.GET(request, env, deps));
-  }
-  return methodNotAllowed(pathname, method, methods);
 }

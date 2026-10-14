@@ -12,7 +12,13 @@ import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
 import { openai, subq, typesafe } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor } from "../src/providers/catalog.ts";
-import { MAX_BODY_BYTES, PROVIDER_TIMEOUT_MS, wireRecord } from "./decide.ts";
+import {
+  IMAGE_ALLOWANCE_BYTES,
+  MAX_BODY_BYTES,
+  TEXT_ALLOWANCE_BYTES,
+  TOO_LARGE_MESSAGE,
+} from "./body-limit.ts";
+import { PROVIDER_TIMEOUT_MS, wireRecord } from "./decide.ts";
 import type { ImageAttachment } from "./decide.ts";
 import type { ProviderKeys } from "./env.ts";
 import { handle } from "./handler.ts";
@@ -172,9 +178,22 @@ describe("routing", () => {
 
       expect(response.status).toBe(404);
       expect(response.headers.get("content-type")).toMatch(/^application\/json/);
-      expect(body).toEqual({ ok: false, error: `No API route matches ${path}.` });
+      expect(body).toEqual({ ok: false, error: "No API route matches this path." });
     },
   );
+
+  // Under Varlock in vp dev, a key set to the placeholder is a sensitive value, and a
+  // response that contains it is replaced with a 500, so no answer quotes the path.
+  it.each([
+    ["GET", "/api/unset", 404],
+    ["GET", "/api/decide/unset", 405],
+    ["DELETE", "/api/providers/unset", 404],
+  ])("does not quote the path of %s %s", async (method, path, status) => {
+    const { response, text } = await run(get(path, { method }), { TYPESAFE_API_KEY: "unset" });
+
+    expect(response.status).toBe(status);
+    expect(text.toLowerCase()).not.toContain("unset");
+  });
 
   it("does not match a path or a method by an inherited object key", async () => {
     const path = await run(get("/constructor"), {});
@@ -196,8 +215,26 @@ describe("routing", () => {
       expect(response.status).toBe(405);
       expect(response.headers.get("allow")).toBe("GET, HEAD");
       expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: `This route answers only GET and HEAD, not ${method}.`,
+      });
     },
   );
+
+  it("names a method only when it is a standard one", async () => {
+    // A method is any token, so one could be the placeholder key itself.
+    const { response, body, text } = await run(get("/api/providers", { method: "UNSET" }), {
+      TYPESAFE_API_KEY: "UNSET",
+    });
+
+    expect(response.status).toBe(405);
+    expect(body).toEqual({
+      ok: false,
+      error: "This route answers only GET and HEAD, not this method.",
+    });
+    expect(text).not.toContain("UNSET");
+  });
 
   it.each([
     ["a listed provider", { OPENAI_API_KEY: "o" }],
@@ -529,6 +566,15 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     expect(response.status).toBe(200);
   });
 
+  it("limits a body to 2 MiB of images plus 256 KiB of text, and says so in plain words", () => {
+    expect(IMAGE_ALLOWANCE_BYTES).toBe(2 * 1024 * 1024);
+    expect(TEXT_ALLOWANCE_BYTES).toBe(256 * 1024);
+    expect(MAX_BODY_BYTES).toBe(IMAGE_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES);
+    expect(TOO_LARGE_MESSAGE).toBe(
+      'The request is too large. It may hold up to 256 KB of text and 2 MB of images, 2.25 MB in all. Trim "state" or ask fewer questions.',
+    );
+  });
+
   it("answers a declared length over the limit with a 413 without reading the body", async () => {
     const deps = stubDeps();
     const request = new Request(`${ORIGIN}/api/decide/typesafe`, {
@@ -540,12 +586,119 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     const { response, body } = await decideWith(request, withTypeSafe, deps);
 
     expect(response.status).toBe(413);
-    expect(body.error).toContain("100 MB");
+    expect(body).toEqual({ ok: false, error: TOO_LARGE_MESSAGE });
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  /** A valid Yes/no request whose JSON text is exactly `size` bytes, padded in `state`. */
+  function requestOfSize(size: number): string {
+    const bare = JSON.stringify({ ...yesNo, state: "" });
+    const text = JSON.stringify({ ...yesNo, state: "a".repeat(size - bare.length) });
+    if (text.length !== size) throw new Error(`Built ${text.length} bytes, not ${size}.`);
+    return text;
+  }
+
+  /** `text` as a stream of 64 KiB chunks, so the request declares no length. */
+  function streamed(text: string): Request {
+    const bytes = new TextEncoder().encode(text);
+    let offset = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= bytes.byteLength) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(bytes.slice(offset, offset + 64 * 1024));
+        offset += 64 * 1024;
+      },
+    });
+    // Node's Request needs `duplex` for a stream body; the Fetch types used here do not declare it.
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    };
+    return new Request(`${ORIGIN}/api/decide/typesafe`, init);
+  }
+
+  function declared(text: string): Request {
+    return new Request(`${ORIGIN}/api/decide/typesafe`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": `${text.length}` },
+      body: text,
+    });
+  }
+
+  it.each([
+    ["a declared length", "one byte under the limit", 200, -1, declared],
+    ["a declared length", "exactly the limit", 200, 0, declared],
+    ["a declared length", "one byte over the limit", 413, 1, declared],
+    ["a streamed body", "one byte under the limit", 200, -1, streamed],
+    ["a streamed body", "exactly the limit", 200, 0, streamed],
+    ["a streamed body", "one byte over the limit", 413, 1, streamed],
+  ])("answers %s of %s with %i", async (_kind, _size, status, offset, build) => {
+    const deps = stubDeps(upstreamReply(200, recordedNoulReply));
+
+    const { response } = await decideWith(
+      build(requestOfSize(MAX_BODY_BYTES + offset)),
+      withTypeSafe,
+      deps,
+    );
+
+    expect(response.status).toBe(status);
+    expect(deps.fetch).toHaveBeenCalledTimes(status === 200 ? 1 : 0);
+  });
+
+  it.each([
+    ["shorter", 10],
+    ["longer", -10],
+  ])("reads a body %s than it declared in full", async (_name, difference) => {
+    const text = requestOfSize(64 * 1024 * 3 + 5);
+    const deps = stubDeps(upstreamReply(200, recordedNoulReply));
+    // A hand-built Request keeps whatever Content-Length it is given, so the two can disagree.
+    const request = new Request(`${ORIGIN}/api/decide/typesafe`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": `${text.length + difference}`,
+      },
+      body: text,
+    });
+    expect(request.headers.get("content-length")).toBe(`${text.length + difference}`);
+
+    const { response } = await decideWith(request, withTypeSafe, deps);
+
+    expect(response.status).toBe(200);
+    const sent = deps.fetch.mock.calls[0]?.[1]?.body;
+    if (typeof sent !== "string") throw new Error("Expected the provider call to send JSON text.");
+    expect((JSON.parse(sent) as { state: unknown }).state).toBe(
+      (JSON.parse(text) as { state: unknown }).state,
+    );
+  });
+
+  it("answers a body that is not valid UTF-8 with a 400 rather than guessing at it", async () => {
+    const encoder = new TextEncoder();
+    const [before, after] = JSON.stringify({ ...yesNo, state: "a|b" }).split("|");
+    const bytes = new Uint8Array([...encoder.encode(before), 0xff, ...encoder.encode(after)]);
+    const deps = stubDeps(upstreamReply(200, recordedNoulReply));
+
+    const { response, body } = await decideWith(
+      post("/api/decide/typesafe", bytes, "application/json"),
+      withTypeSafe,
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      ok: false,
+      error: "The request body is not valid UTF-8. Send the panel's JSON as UTF-8 text.",
+    });
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
   it("stops reading a streamed body once it passes the limit, then answers 413", async () => {
-    const chunk = new Uint8Array(1_000_000);
+    const chunk = new Uint8Array(64 * 1024);
     const limitInChunks = MAX_BODY_BYTES / chunk.byteLength;
     let pulled = 0;
     let cancelled = false;
@@ -957,7 +1110,7 @@ describe("other paths under /api/decide", () => {
       const { response, body } = await decideWith(postJson(path, yesNo), withTypeSafe, stubDeps());
 
       expect(response.status).toBe(404);
-      expect(body).toEqual({ ok: false, error: `No API route matches ${path}.` });
+      expect(body).toEqual({ ok: false, error: "No API route matches this path." });
     },
   );
 
@@ -966,9 +1119,13 @@ describe("other paths under /api/decide", () => {
 
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("POST");
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: "This route answers only POST, not GET.",
+    });
   });
 
-  it("sends no CORS headers on a decision from another origin", async () => {
+  it("sends a successful decision as uncacheable, sniff-proof JSON with no CORS headers", async () => {
     const response = await handle(
       new Request(`${ORIGIN}/api/decide/typesafe`, {
         method: "POST",
@@ -980,10 +1137,70 @@ describe("other paths under /api/decide", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^application\/json/);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(
       [...response.headers.keys()].filter((name) => name.startsWith("access-control-")),
     ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Errors that are not answers of a route
+// ---------------------------------------------------------------------------
+
+describe("an error a route does not answer itself", () => {
+  const UNEXPECTED = {
+    ok: false,
+    error: "Something went wrong on the server. Check the server log.",
+  };
+
+  it("answers a body stream that fails mid-read, as when the client goes away, with a JSON 500", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError(`The client went away holding ${TYPESAFE_KEY}`));
+      },
+    });
+    // Node's Request needs `duplex` for a stream body; the Fetch types used here do not declare it.
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    };
+    const deps = stubDeps();
+
+    const response = await handle(
+      new Request(`${ORIGIN}/api/decide/typesafe`, init),
+      withTypeSafe,
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("content-type")).toMatch(/^application\/json/);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(UNEXPECTED);
+    expect(deps.log).toHaveBeenCalledExactlyOnceWith('[api] status=500 unexpected="TypeError"');
+  });
+
+  it("answers a dependency that throws before the provider call with a JSON 500", async () => {
+    const deps = stubDeps(upstreamReply(200, recordedNoulReply));
+    deps.timeoutSignal.mockImplementation(() => {
+      throw new RangeError(`internal detail ${TYPESAFE_KEY}`);
+    });
+
+    const { response, body, text } = await decideWith(
+      postJson("/api/decide/typesafe", yesNo),
+      withTypeSafe,
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual(UNEXPECTED);
+    expect(text).not.toContain("internal detail");
+    expect(deps.log).toHaveBeenCalledExactlyOnceWith('[api] status=500 unexpected="RangeError"');
+    expect(deps.fetch).not.toHaveBeenCalled();
   });
 });
 

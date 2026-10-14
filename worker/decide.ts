@@ -18,6 +18,7 @@ import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
 import { PROVIDERS, PROVIDER_ORDER } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor, ProviderId } from "../src/providers/catalog.ts";
+import { MAX_BODY_BYTES, declaredLength, tooLarge } from "./body-limit.ts";
 import { PROVIDER_KEY_NAMES, isKeySet, isPlaceholder } from "./env.ts";
 import type { ProviderKeys } from "./env.ts";
 import type { HandlerDeps } from "./handler.ts";
@@ -33,17 +34,6 @@ import { failure, json } from "./respond.ts";
  * this route's 504 always reaches the readout first.
  */
 export const PROVIDER_TIMEOUT_MS = 25_000;
-
-/**
- * The largest request body the route reads: the inbound request body limit
- * recorded by spike #1, "100 MB on Free and Pro"
- * (docs/spikes/worker-toolchain.md, line 49, citing
- * https://developers.cloudflare.com/workers/platform/limits/). It is read as
- * decimal megabytes, the smaller reading of "100 MB", so this route's own JSON
- * 413 answers before Cloudflare's would. On the Node dev host, which has no
- * limit of its own, it keeps the two hosts alike.
- */
-export const MAX_BODY_BYTES = 100 * 1000 * 1000;
 
 const JSON_TYPE = "application/json";
 const MULTIPART_TYPE = "multipart/form-data";
@@ -158,35 +148,49 @@ function mediaTypeOf(contentType: string | null): string {
 }
 
 /**
- * The body's bytes, or undefined once it is larger than `limit`. A declared
- * Content-Length over the limit is refused without reading; otherwise the
- * stream is read chunk by chunk and cancelled as soon as the count passes the
- * limit, so an oversized body is never held in full.
+ * The body's bytes, or undefined once it is larger than `limit`, held in one
+ * copy. A declared Content-Length over the limit is refused without reading.
+ * Within the limit, the bytes go straight into one buffer of the declared
+ * size, chunk by chunk. Without a declared length, the chunks are kept as the
+ * stream hands them over and copied into one buffer once, at the end. Either
+ * way the stream is cancelled as soon as the count passes the limit, so an
+ * oversized body is never held in full.
  */
 async function readWithin(
   request: Request,
   limit: number,
 ): Promise<Uint8Array<ArrayBuffer> | undefined> {
-  const declared = request.headers.get("content-length");
-  if (declared !== null && /^\d+$/.test(declared) && Number(declared) > limit) {
-    return undefined;
-  }
+  const declared = declaredLength(request.headers.get("content-length"));
+  if (declared !== undefined && declared > limit) return undefined;
   if (request.body === null) return new Uint8Array();
 
   const reader = request.body.getReader();
+  // `buffer` holds the bytes while they fit the declared size; `chunks` takes over otherwise.
+  let buffer: Uint8Array<ArrayBuffer> | undefined =
+    declared === undefined ? undefined : new Uint8Array(declared);
   const chunks: Uint8Array[] = [];
   let received = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    received += value.byteLength;
-    if (received > limit) {
+    if (received + value.byteLength > limit) {
       await reader.cancel();
       return undefined;
     }
-    chunks.push(value);
+    if (buffer !== undefined && received + value.byteLength <= buffer.byteLength) {
+      buffer.set(value, received);
+    } else {
+      // A body longer than it declared: keep what arrived and continue with chunks.
+      if (buffer !== undefined) chunks.push(buffer.subarray(0, received));
+      buffer = undefined;
+      chunks.push(value);
+    }
+    received += value.byteLength;
   }
 
+  if (buffer !== undefined) {
+    return received === buffer.byteLength ? buffer : buffer.slice(0, received);
+  }
   const bytes = new Uint8Array(received);
   let offset = 0;
   for (const chunk of chunks) {
@@ -203,8 +207,6 @@ function refuse(status: number, error: string, detail?: string): Read {
 }
 
 const UNSUPPORTED_TYPE = `Send the request as ${JSON_TYPE}, or as ${MULTIPART_TYPE} with a "request" part and one "image" part per image.`;
-
-const TOO_LARGE = `The request is larger than ${MAX_BODY_BYTES / 1_000_000} MB. Trim "state" or ask fewer questions.`;
 
 /**
  * The text of the `request` part of a multipart body, or a refusal. Image parts
@@ -251,6 +253,22 @@ async function requestPart(
   return { ok: true, text: part };
 }
 
+const NOT_UTF8 = "The request body is not valid UTF-8. Send the panel's JSON as UTF-8 text.";
+
+/**
+ * The body as text, or undefined when it is not valid UTF-8. A lenient decoder
+ * would turn a bad byte into U+FFFD and send the provider text the user never
+ * wrote, so the decoder is strict (`fatal: true`).
+ */
+function decodeUtf8(bytes: Uint8Array<ArrayBuffer>): string | undefined {
+  try {
+    // `ignoreBOM: false` is the default (a leading BOM is dropped); the Workers types require it.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
 function parseJson(text: string): Read {
   if (text.trim() === "") {
     return refuse(400, "The request body is empty. Send the panel's JSON as the body.");
@@ -275,9 +293,12 @@ async function readDecisionRequest(request: Request, provider: ProviderDescripto
   }
 
   const bytes = await readWithin(request, MAX_BODY_BYTES);
-  if (bytes === undefined) return refuse(413, TOO_LARGE);
+  if (bytes === undefined) return { ok: false, response: tooLarge() };
 
-  if (mediaType === JSON_TYPE) return parseJson(new TextDecoder().decode(bytes));
+  if (mediaType === JSON_TYPE) {
+    const text = decodeUtf8(bytes);
+    return text === undefined ? refuse(400, NOT_UTF8) : parseJson(text);
+  }
   const part = await requestPart(bytes, contentType ?? MULTIPART_TYPE, provider);
   return part.ok ? parseJson(part.text) : part.read;
 }

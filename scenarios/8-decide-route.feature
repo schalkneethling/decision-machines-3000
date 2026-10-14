@@ -72,12 +72,51 @@ Feature: POST /api/decide/{provider} runs a provider end to end through its adap
     Then the response is 504
     And exactly one upstream call was made
 
-  Scenario: A body over the inbound limit is refused before any upstream call
-    Given a body larger than the inbound limit recorded by spike #1
+  # Review of #8: the limit is what one request needs, 2 MiB of images plus 256 KiB of
+  # text, not the 100 MB Cloudflare accepts, which a 128 MB isolate cannot hold.
+  Scenario: A body over the limit is refused before any upstream call
+    Given a body larger than 2 MiB of images plus 256 KiB of text
     When POST /api/decide/typesafe is handled
-    Then the response is 413
+    Then the response is 413 with a message that states the limit in plain words
     And reading stopped once the limit was passed
     And no upstream call was made
+
+  Scenario Outline: The limit is exact
+    Given a body of <size>, sent with <how>
+    When POST /api/decide/typesafe is handled
+    Then the response is <status>
+
+    Examples:
+      | size                     | how                   | status |
+      | one byte under the limit | a declared length     | 200    |
+      | exactly the limit        | a declared length     | 200    |
+      | one byte over the limit  | a declared length     | 413    |
+      | one byte under the limit | a stream and no length | 200   |
+      | exactly the limit        | a stream and no length | 200   |
+      | one byte over the limit  | a stream and no length | 413   |
+
+  Scenario: The dev host stops reading at the same limit
+    Given the Node dev host
+    When a body one byte over the limit arrives, with or without a declared length
+    Then it answers the Worker's own JSON 413 without calling the handler
+    And it drains the rest, so the next request on the server is answered
+
+  Scenario: A body that is not valid UTF-8 is refused
+    Given a JSON body with an invalid byte inside a string
+    When POST /api/decide/typesafe is handled
+    Then the response is 400 saying the body is not valid UTF-8
+
+  Scenario: An error no route answers is still a JSON 500
+    Given a body stream that fails mid-read, or a dependency that throws
+    When the request is handled
+    Then the response is a JSON 500
+    And the log names only the error's class
+
+  Scenario: No answer quotes the request's path or an unknown method
+    Given a key set to the placeholder that Varlock treats as sensitive
+    When GET /api/unset or GET /api/decide/unset is handled
+    Then the 404 or 405 body does not contain the placeholder
+    And a 405 names the method only when it is a standard one
 
   Scenario: Images are replaced by placeholders in the wire record
     Given a request carrying a fake image with a large base64 value

@@ -418,6 +418,27 @@ describe("decide", () => {
     expect(JSON.stringify(error)).not.toContain(API_KEY);
   });
 
+  it("redacts the key when the provider's error message quotes it", async () => {
+    const { fetch } = jsonFetch(
+      401,
+      envelope("authentication_error", `The key ${API_KEY} is not valid.`),
+    );
+    const error = await rejection(decide(noulRequest, API_KEY, liveSignal(), fetch));
+
+    expect(error.kind).toBe("auth");
+    expect(error.detail).toBe("401 authentication_error: The key [redacted] is not valid.");
+    expect(JSON.stringify(error)).not.toContain(API_KEY);
+  });
+
+  it("redacts a key that the reply's JSON escapes", async () => {
+    const key = String.raw`sk-quote"and\backslash`;
+    const { fetch } = jsonFetch(401, envelope("authentication_error", `Bad key: ${key}`));
+    const error = await rejection(decide(noulRequest, key, liveSignal(), fetch));
+
+    expect(error.detail).toBe("401 authentication_error: Bad key: [redacted]");
+    expect(JSON.stringify(error)).not.toContain(JSON.stringify(key).slice(1, -1));
+  });
+
   it("maps a 429 to rate_limited carrying Retry-After in seconds", async () => {
     const { fetch } = jsonFetch(429, envelope("rate_limit_error", "Slow down."), {
       "retry-after": "7",

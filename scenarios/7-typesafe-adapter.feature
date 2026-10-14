@@ -120,7 +120,19 @@ Feature: The TypeSafe adapter translates the neutral request to the wire and bac
     Given a stubbed fetch that rejects with a network error while the signal is not aborted
     When decide runs
     Then the error is a ProviderError of kind "unreachable"
-    And its detail is the network error's message
+    And its detail names the network error's class, never its message
+
+  Scenario Outline: A key that the provider quotes back is redacted
+    Given a stubbed upstream 401 whose envelope message quotes the key <as written>
+    When decide runs
+    Then the error is a ProviderError of kind "auth"
+    And its detail shows "[redacted]" where the key was
+    And the key appears nowhere in the error
+
+    Examples:
+      | as written                                               |
+      | as plain text                                            |
+      | JSON-escaped, because the key holds a quote or backslash |
 
   Scenario: A success with a body that is not JSON is an upstream error
     Given a stubbed upstream 200 whose body is HTML

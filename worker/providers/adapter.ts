@@ -216,7 +216,9 @@ function transportCause(thrown: unknown): TransportCause {
  * parses the reply as JSON. The signal is applied to the exchange, no redirect
  * is followed (a redirect would carry the key header to another host), and the
  * body is read as text before parsing, so a body that is not JSON is reported
- * for what it is rather than as a parse exception.
+ * for what it is rather than as a parse exception. Any copy of the key in that
+ * text is replaced before parsing, so a provider that quotes the key in an error
+ * message cannot carry it into a detail.
  *
  * Throws a `ProviderError`: `auth` when the key cannot be sent, `timeout` when
  * the signal aborted the exchange, `unreachable` when `fetch` rejected for
@@ -260,7 +262,7 @@ export async function fetchJson(
     );
   }
 
-  const body = parseJson(text);
+  const body = parseJson(redactKey(text, apiKey));
   if (isSuccess(response.status) && body === undefined) {
     throw new ProviderError(
       "upstream",
@@ -271,6 +273,19 @@ export async function fetchJson(
     );
   }
   return { status: response.status, headers: response.headers, body };
+}
+
+/** What replaces the key in a reply. It needs no escaping inside a JSON string. */
+const REDACTED = "[redacted]";
+
+/**
+ * `text` with every copy of `apiKey` replaced, both as written and as a JSON
+ * string escapes it, because a key holding `"` or `\` appears escaped inside a
+ * JSON reply.
+ */
+function redactKey(text: string, apiKey: string): string {
+  const escaped = JSON.stringify(apiKey).slice(1, -1);
+  return text.replaceAll(escaped, REDACTED).replaceAll(apiKey, REDACTED);
 }
 
 /** `JSON.parse`, with `undefined` for text that is empty or not JSON. */

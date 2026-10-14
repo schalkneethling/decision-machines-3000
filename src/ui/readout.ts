@@ -9,6 +9,7 @@ import type {
 } from "../decision/contract.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import { create } from "./dom.ts";
+import { renderWireView } from "./wire-view.ts";
 
 /**
  * Pure renderers for the readout. Each takes data and returns a detached element;
@@ -277,6 +278,6 @@ export function renderResponse(sent: unknown, response: DecisionResponse): HTMLE
   return create("div", { className: "reading" }, [
     create("p", { className: "reading-meta", text: metadataSentence(response) }),
     answers,
-    rawResponse(response),
+    ...renderWireView(response),
   ]);
 }

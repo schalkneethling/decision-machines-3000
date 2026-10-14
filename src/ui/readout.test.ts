@@ -55,11 +55,12 @@ describe("renderResponse for Noul", () => {
     }
   });
 
-  it("keeps the raw response open in a details element", () => {
-    const details = readout.querySelector("details");
-    expect(details?.open).toBe(true);
-    expect(details?.querySelector("summary")?.textContent).toBe("Raw response");
-    expect(JSON.parse(details?.querySelector("pre code")?.textContent ?? "")).toEqual(noulResponse);
+  it("keeps the sent and received blocks open, as details elements", () => {
+    const [sent, received] = readout.querySelectorAll("details");
+    expect(sent?.open).toBe(true);
+    expect(received?.open).toBe(true);
+    expect(sent?.querySelector("summary")?.textContent).toBe("Sent to TypeSafe Jev");
+    expect(received?.querySelector("summary")?.textContent).toBe("Received from TypeSafe Jev");
   });
 });
 
@@ -231,9 +232,12 @@ describe("provider-neutral copy", () => {
     );
   });
 
-  /** A rendered element without its metadata sentence, the one place a success names its provider. */
+  /**
+   * A rendered element without the places a success names its provider on purpose:
+   * the metadata sentence and the wire view's summaries ("Sent to {provider}").
+   */
   function withoutMetadata(element: HTMLElement): HTMLElement {
-    for (const meta of element.querySelectorAll(".reading-meta")) meta.remove();
+    for (const meta of element.querySelectorAll(".reading-meta, .raw-summary")) meta.remove();
     return element;
   }
 

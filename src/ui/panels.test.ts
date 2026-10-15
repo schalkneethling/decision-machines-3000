@@ -26,6 +26,7 @@ function selectionOf(initial: ProviderSummary | undefined) {
   const listeners: ((provider: ProviderSummary | undefined) => void)[] = [];
   const selection: ProviderSelection = {
     current: () => current,
+    host: () => (current === undefined ? undefined : { connectionMetrics: false }),
     subscribe: (listener) => listeners.push(listener),
   };
   return {
@@ -233,6 +234,26 @@ describe("run", () => {
         "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens.",
       ),
     );
+  });
+
+  it("tells onAnswered about a success, and only a success", async () => {
+    const fetchMock = mockFetch();
+    const onAnswered = vi.fn();
+    setupPanels(document, selectionOf(typesafe).selection, { onAnswered });
+
+    submit("noul");
+    await vi.waitFor(() => expect(onAnswered).toHaveBeenCalledOnce());
+    expect(onAnswered).toHaveBeenCalledWith(noulResponse);
+
+    fetchMock.mockImplementation(
+      async () => new Response(JSON.stringify({ ok: false, error: "No." }), { status: 502 }),
+    );
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(document.querySelector("#readout-body .readout-error")).not.toBeNull(),
+    );
+    expect(onAnswered).toHaveBeenCalledOnce();
   });
 
   it("keeps the JSON out of the live region after a success and after a failure", async () => {

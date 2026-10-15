@@ -52,7 +52,7 @@ function answerProviders(...answers: Response[]) {
 }
 
 function listed(...providers: (typeof typesafe)[]): Response {
-  return Response.json({ ok: true, providers });
+  return Response.json({ ok: true, providers, host: { connectionMetrics: false } });
 }
 
 const missingKeys = () =>

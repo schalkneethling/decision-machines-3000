@@ -1,6 +1,6 @@
 /**
  * How every `/api` route answers. Shared by the router (`handler.ts`), the
- * decide route (`decide.ts`), and the Node dev host, which answers a request
+ * decide and warm routes (`decide.ts`, `warm.ts`), and the Node dev host, which answers a request
  * with a malformed Host header itself, because no `Request` can be built from it.
  *
  * Every answer is uncacheable, because it depends on the deployment's secrets,
@@ -9,12 +9,12 @@
  * same origin.
  */
 
-import type { DecisionFailure } from "../src/decision/contract.ts";
+import type { DecisionFailure, WarmSuccess } from "../src/decision/contract.ts";
 import type { ProvidersResponse } from "../src/providers/contract.ts";
 import type { DecisionSuccessBody } from "./decide.ts";
 
 /** Every body an `/api` route answers with. */
-type ApiBody = ProvidersResponse | DecisionSuccessBody | DecisionFailure;
+type ApiBody = ProvidersResponse | DecisionSuccessBody | WarmSuccess | DecisionFailure;
 
 export function json(
   body: ApiBody,

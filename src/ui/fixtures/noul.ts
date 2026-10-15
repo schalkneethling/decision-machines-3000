@@ -6,7 +6,7 @@ import { typesafeWireRequest, typesafeWireResponse } from "./wire.ts";
  * A real TypeSafe Jev answer to `noulExample` from src/decision/examples.ts,
  * recorded from the old `/api/jev` endpoint and reshaped to the
  * `/api/decide/typesafe` success: `provider` and `wire` added, and the
- * connection fields that success no longer carries removed. Its `wire.response`
+ * connection fields, which only the Node dev host sends, left out. Its `wire.response`
  * is rebuilt from those values, not recorded again; `typesafe.test.ts` checks it
  * has the fields of the recordings in `worker/providers/fixtures/typesafe/`.
  */

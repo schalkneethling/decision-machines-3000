@@ -8,8 +8,16 @@
 
 import { PROVIDER_ORDER, PROVIDERS } from "../src/providers/catalog.ts";
 import type { ProviderId, ProviderKeyName } from "../src/providers/catalog.ts";
+import { isPlaceholder } from "../src/providers/placeholder.ts";
 
 export type { ProviderKeyName };
+
+/**
+ * Whether a value is the Deploy button's placeholder (`src/providers/placeholder.ts`).
+ * Besides `isKeySet`, the decide and warm routes use it to avoid echoing a
+ * provider id that is the placeholder.
+ */
+export { isPlaceholder };
 
 /** The secret that enables each provider, taken from the catalog's `keyName`. */
 export const PROVIDER_KEY_NAMES: Readonly<Record<ProviderId, ProviderKeyName>> = {
@@ -26,13 +34,6 @@ export const PROVIDER_KEY_NAMES: Readonly<Record<ProviderId, ProviderKeyName>> =
 export type ProviderKeys = Partial<Record<ProviderKeyName, string>>;
 
 /**
- * The value the Deploy to Cloudflare button needs for a key the deployer leaves
- * out, because the button refuses blank secrets (docs/spikes/worker-toolchain.md,
- * step 9). It arrives as a live secret, so it has to read as "no key".
- */
-const PLACEHOLDER = "unset";
-
-/**
  * Whether a key value enables its provider. A missing value, a blank one, and the
  * placeholder `unset` (after trimming, in any case) all count as absent. So does
  * a value that is not a string, which a Worker `vars` entry can be, because
@@ -41,17 +42,6 @@ const PLACEHOLDER = "unset";
 export function isKeySet(value: unknown): value is string {
   if (typeof value !== "string") return false;
   return value.trim() !== "" && !isPlaceholder(value);
-}
-
-/**
- * Whether `value` is the Deploy button's placeholder, after trimming, in any
- * case. Besides `isKeySet`, the decide route uses it to avoid echoing a
- * provider id that is the placeholder: under Varlock in `vp dev`, a key set to
- * the placeholder is a sensitive value, and any response that contains it is
- * replaced with a 500.
- */
-export function isPlaceholder(value: string): boolean {
-  return value.trim().toLowerCase() === PLACEHOLDER;
 }
 
 /** The providers whose key is set, in catalog order. */

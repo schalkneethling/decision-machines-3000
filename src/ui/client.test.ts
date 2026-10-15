@@ -43,7 +43,13 @@ const refusalResponse = {
 
 const failure = { ok: false, error: 'Set "primitive" to …', detail: "primitive" };
 
-const warmed = { ok: true, latencyMs: 950, connection: "new", keepAliveSeconds: 30 };
+const warmed = {
+  ok: true,
+  provider: "typesafe",
+  latencyMs: 950,
+  connection: "new",
+  keepAliveSeconds: 30,
+};
 
 describe("postJson with a check that throws", () => {
   afterEach(() => {
@@ -74,10 +80,24 @@ describe("isDecisionResponse", () => {
     expect(isDecisionResponse(body)).toBe(true);
   });
 
-  it("ignores the old connection fields, which a success no longer carries", () => {
-    expect(isDecisionResponse({ ...noulResponse, connection: "new", keepAliveSeconds: 5 })).toBe(
+  it("accepts the connection fields the Node dev host adds, and a success without them", () => {
+    expect(isDecisionResponse({ ...noulResponse, connection: "new", keepAliveSeconds: 4 })).toBe(
       true,
     );
+    expect(
+      isDecisionResponse({ ...noulResponse, connection: "reused", keepAliveSeconds: 60 }),
+    ).toBe(true);
+    expect(isDecisionResponse(noulResponse)).toBe(true);
+  });
+
+  it.each([
+    ["a keep-alive the server does not offer", { keepAliveSeconds: 5 }, "keepAliveSeconds"],
+    ["an unknown connection kind", { connection: "warm" }, "connection"],
+  ])("rejects a success with %s", (_name, fields, path) => {
+    const body = { ...noulResponse, ...fields };
+
+    expect(isDecisionResponse(body)).toBe(false);
+    expect(firstIssuePath(decisionResponseSchema, body)).toBe(path);
   });
 
   // The spike's malformed responses, each with the path of its first problem.
@@ -174,7 +194,11 @@ describe("isWarmResponse", () => {
 
 /** A success as the Worker builds it, round-tripped through JSON as the browser receives it. */
 const listed = JSON.parse(
-  JSON.stringify({ ok: true, providers: [typesafe, subq, openai].map(toProviderSummary) }),
+  JSON.stringify({
+    ok: true,
+    providers: [typesafe, subq, openai].map(toProviderSummary),
+    host: { connectionMetrics: false },
+  }),
 ) as unknown;
 
 const missingKeys = { ok: false, error: "No provider key is set, and at least one is required." };
@@ -196,6 +220,16 @@ describe("isProvidersResponse", () => {
   it.each([
     { name: "a list in place of the response", body: [listed], path: "" },
     { name: "a success without providers", body: { ok: true }, path: "providers" },
+    {
+      name: "a success that does not say what the host reports",
+      body: replaced(listed, "host", undefined),
+      path: "host",
+    },
+    {
+      name: "a provider that does not say whether it can warm",
+      body: replaced(listed, "providers.0.canWarm", undefined),
+      path: "providers.0.canWarm",
+    },
     {
       // The server answers 503 instead of an empty list.
       name: "a success with no providers",

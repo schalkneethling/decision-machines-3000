@@ -11,10 +11,11 @@
  * response schemas live here because they carry no wording of their own. The
  * constants (the keep-alive durations and the endpoints) stay hand-written.
  *
- * `POST /api/decide/{provider}` is the only decision endpoint. The warm-connection
- * fields (`connection`, `keepAliveSeconds`) left the success shape with the old
- * `/api/jev` middleware; issue #9 brings them back as optional fields for the
- * Node dev host.
+ * `POST /api/decide/{provider}` is the only decision endpoint. A success carries
+ * the warm-connection fields (`connection`, `keepAliveSeconds`) only when the
+ * host can observe its connections, which only the Node dev host can (ADR-0002).
+ * `POST /api/warm/{provider}` opens a connection to a provider ahead of a run,
+ * on that host only.
  *
  * Grammar source: https://docs.typesafe.ai/api.md and the `@typesafe-ai/sdk`
  * `noul()`, `choice()`, and `score()` builders. Zod Mini APIs used, read from
@@ -30,7 +31,11 @@ import type { ProviderId } from "../providers/catalog.ts";
 // `content` builder at run time, and this module only names its inferred type.
 import type { ValidDecisionRequest } from "./validate.ts";
 
-/** How long, in seconds, the server may keep an idle connection to TypeSafe open. 4 is Node's default. */
+/**
+ * How long, in seconds, the Node dev host may keep an idle connection to a
+ * provider open. 4 is Node's default. The warm form builds its options from
+ * this list, so it is the only place the values are written.
+ */
 export const KEEP_ALIVE_SECONDS = [4, 30, 60] as const;
 
 export type KeepAliveSeconds = (typeof KEEP_ALIVE_SECONDS)[number];
@@ -46,13 +51,17 @@ export function decideEndpoint(provider: ProviderId): string {
   return `${DECIDE_PATH_PREFIX}${provider}`;
 }
 
+/** The path every warm endpoint starts with; the provider id follows it. */
+export const WARM_PATH_PREFIX = "/api/warm/";
+
 /**
- * `POST /api/jev/warm`: set the keep-alive and opened a connection to TypeSafe
- * with a call that costs no tokens. Nothing serves it since the old `/api/jev`
- * middleware was removed (#8), so the warm form is hidden; issue #9 replaces
- * it with a warm route per provider on the Node dev host.
+ * `POST /api/warm/{provider}`: sets the keep-alive and opens a connection to the
+ * provider with a call that costs no tokens. Only the Node dev host serves it;
+ * the Worker answers 501 (ADR-0002).
  */
-export const WARM_ENDPOINT = "/api/jev/warm";
+export function warmEndpoint(provider: ProviderId): string {
+  return `${WARM_PATH_PREFIX}${provider}`;
+}
 
 // ---------------------------------------------------------------------------
 // Content: what TypeSafe accepts as state, instructions, or a description
@@ -160,7 +169,7 @@ const scoreAnswerSchema = z.object({
 const refusalAnswerSchema = z.object({ type: z.literal("refusal") });
 
 /**
- * Whether the server opened a connection to TypeSafe while warming (`new`:
+ * Whether the server opened a connection to the provider for a call (`new`:
  * TCP and TLS handshakes included in the latency) or reused an idle connection
  * kept from an earlier call (`reused`).
  */
@@ -194,6 +203,10 @@ function decisionSuccessFor<P extends Primitive, A extends z.core.$ZodTypeDiscri
     usage: usageSchema,
     /** Wall-clock milliseconds the server spent waiting on the provider. */
     latencyMs: z.number(),
+    /** Which connection the call used. Only a host that can observe its connections sends it. */
+    connection: z.exactOptional(connectionKindSchema),
+    /** The keep-alive of that connection, sent together with `connection`. */
+    keepAliveSeconds: z.exactOptional(keepAliveSecondsSchema),
     answers: z.record(z.string(), z.discriminatedUnion("type", [answer, refusalAnswerSchema])),
     wire: wireSchema,
   });
@@ -225,13 +238,15 @@ export const decisionResponseSchema = z.discriminatedUnion("ok", [
 
 const warmSuccessSchema = z.object({
   ok: z.literal(true),
-  /** Wall-clock milliseconds the warming call to TypeSafe took. */
+  /** The catalog id of the provider the connection was opened to. */
+  provider: z.literal(PROVIDER_ORDER),
+  /** Wall-clock milliseconds the warming call to the provider took. */
   latencyMs: z.number(),
   connection: connectionKindSchema,
   keepAliveSeconds: keepAliveSecondsSchema,
 });
 
-/** What `POST /api/jev/warm` answers. */
+/** What `POST /api/warm/{provider}` answers. */
 export const warmResponseSchema = z.discriminatedUnion("ok", [warmSuccessSchema, failureSchema]);
 
 export type NoulAnswer = z.output<typeof noulAnswerSchema>;
@@ -270,7 +285,7 @@ export type DecisionResponse<P extends Primitive = Primitive> =
   | DecisionSuccess<P>
   | DecisionFailure;
 
-/** The JSON body `POST /api/jev/warm` accepts. `validateWarmRequest` checks it by hand. */
+/** The JSON body `POST /api/warm/{provider}` accepts. `validateWarmRequest` checks it by hand. */
 export type WarmRequest = {
   keepAliveSeconds: KeepAliveSeconds;
 };

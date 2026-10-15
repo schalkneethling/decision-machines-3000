@@ -197,13 +197,19 @@ export function renderAnswer(question: string, answer: Answer): HTMLLIElement {
  * Who answered, how fast, and with how many input tokens: "Answered by TypeSafe
  * Jev (jev-1.13.0) in 474 ms using 452 input tokens." It is the one place a
  * success names its provider: the catalog's display name for the id the server
- * reports, then the model the provider says it used.
+ * reports, then the model the provider says it used. When the host reports
+ * which connection the call used (only the Node dev host does), the sentence
+ * ends "over a new connection." or "over the warm connection." instead.
  */
 export function metadataSentence(response: DecisionSuccess): string {
   const provider = PROVIDERS[response.provider].displayName;
   const latency = numberFormat.format(Math.round(response.latencyMs));
   const tokens = numberFormat.format(response.usage.input_tokens);
-  return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens.`;
+  const over =
+    response.connection === undefined
+      ? ""
+      : ` over ${response.connection === "new" ? "a new connection" : "the warm connection"}`;
+  return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens${over}.`;
 }
 
 /** The line shown while a run waits, naming the provider it was sent to. */

@@ -1,6 +1,6 @@
 import { PROVIDER_ORDER, PROVIDERS } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
-import type { Protection, ProviderSummary } from "../providers/contract.ts";
+import type { HostSummary, Protection, ProviderSummary } from "../providers/contract.ts";
 import { getProviders } from "./client.ts";
 import { appendWithInlineCode, create, required } from "./dom.ts";
 import { DEPLOYMENT_GUIDE_URL, renderProtectionNotice } from "./protection-notice.ts";
@@ -15,14 +15,19 @@ import { VOCABULARY } from "./vocabulary.ts";
  * support. Each option's name and model are separated by a text space, so the
  * native fallback reads "OpenAI Decisions gpt-6-luna" and not "OpenAI Decisionsgpt-6-luna".
  *
- * The panels learn the choice through `ProviderSelection`, so they do not
- * depend on this module's markup.
+ * The panels and the warm form learn the choice through `ProviderSelection`,
+ * so they do not depend on this module's markup.
  */
 
-/** What the panels read: the provider Run asks, and a way to hear when it changes. */
+/** What the panels and the warm form read: the provider Run asks, and a way to hear when it changes. */
 export type ProviderSelection = {
   /** The selected provider, or undefined while the list loads and when it could not be loaded. */
   current(): ProviderSummary | undefined;
+  /**
+   * What the host that listed the providers can report, from the same answer.
+   * Undefined whenever `current()` is, and set before listeners hear of a provider.
+   */
+  host(): HostSummary | undefined;
   /** Calls `listener` with the new `current()` each time it changes. */
   subscribe(listener: (provider: ProviderSummary | undefined) => void): void;
 };
@@ -99,6 +104,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
 
   let providers: ProviderSummary[] = [];
   let selected: ProviderSummary | undefined;
+  let host: HostSummary | undefined;
   const listeners: ((provider: ProviderSummary | undefined) => void)[] = [];
 
   function choose(provider: ProviderSummary | undefined): void {
@@ -126,6 +132,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
   /** The select, the notice, the legend, and the panels for a state in which no provider is chosen. */
   function showUnavailable(placeholder: string, notice: Node[]): void {
     providers = [];
+    host = undefined;
     select.disabled = true;
     setOptions([placeholderOption(placeholder)]);
     status.textContent = "";
@@ -155,7 +162,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     ]);
   }
 
-  function showReady(list: ProviderSummary[], protection: Protection): void {
+  function showReady(list: ProviderSummary[], listedBy: HostSummary, protection: Protection): void {
     const stored = readStoredProvider();
     const chosen = list.find((provider) => provider.id === stored) ?? list.at(0);
     if (chosen === undefined) {
@@ -166,6 +173,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     if (stored !== undefined && stored !== chosen.id) storeProvider(chosen.id);
 
     providers = list;
+    host = listedBy;
     problem.replaceChildren();
     renderProtectionNotice(protectionNotice, protection);
     const options = list.map(optionFor);
@@ -207,7 +215,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     status.textContent = "";
 
     if (result.kind === "response" && result.response.ok) {
-      showReady(result.response.providers, result.response.protection);
+      showReady(result.response.providers, result.response.host, result.response.protection);
     } else if (result.kind === "response" && result.status === 503) {
       // The route answers 503 only when no provider key is set; any other failure may pass.
       showUnavailable("No provider key is set", [setupNotice()]);
@@ -230,6 +238,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
 
   return {
     current: () => selected,
+    host: () => host,
     subscribe(listener) {
       listeners.push(listener);
     },

@@ -168,7 +168,7 @@ Feature: The TypeSafe adapter translates the neutral request to the wire and bac
   Scenario: No redirect is followed
     Given any provider request
     When fetchJson sends it
-    Then the request carries redirect: "error", so the key header never follows a redirect to another host
+    Then the request carries redirect: "manual" and any 3xx reply is refused (#48), so the key header never follows a redirect to another host
 
   Scenario Outline: Retry-After is read strictly and clamped
     Given a 429 whose Retry-After header is <value>

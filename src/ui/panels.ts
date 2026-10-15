@@ -1,4 +1,4 @@
-import type { Primitive } from "../decision/contract.ts";
+import type { DecisionSuccess, Primitive } from "../decision/contract.ts";
 import { examples } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
@@ -314,12 +314,21 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
   }
 }
 
+export type PanelOptions = {
+  /** Called after every run the provider answered successfully; the warm form restarts its count. */
+  onAnswered?: (response: DecisionSuccess) => void;
+};
+
 /**
  * Fills each panel with its example, wires the Tree and JSON views, and wires
  * Run to the shared readout and to the provider `selection` holds. Run stays
  * disabled while the selection has no provider.
  */
-export function setupPanels(root: Document, selection: ProviderSelection): void {
+export function setupPanels(
+  root: Document,
+  selection: ProviderSelection,
+  { onAnswered }: PanelOptions = {},
+): void {
   const readout = required(root, "#readout-body", HTMLElement);
   // Outside the live region, so the JSON is never announced.
   const wire = required(root, "#wire-body", HTMLElement);
@@ -373,6 +382,7 @@ export function setupPanels(root: Document, selection: ProviderSelection): void 
       const result = await askProvider(provider.id, prepared.body);
       readout.replaceChildren(renderResult(prepared.sent, result));
       if (result.kind === "response") wire.replaceChildren(renderWire(result.response));
+      if (result.kind === "response" && result.response.ok) onAnswered?.(result.response);
     } finally {
       setRunning(undefined);
       // Disabling the focused Run button drops focus to the body; hand it back.

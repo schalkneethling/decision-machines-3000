@@ -471,7 +471,7 @@ describe("decide", () => {
     expect(call.url).toBe("https://api.subq.ai/v1/systemone");
     expect(call.init.method).toBe("POST");
     expect(call.init.signal).toBe(signal);
-    expect(call.init.redirect).toBe("error");
+    expect(call.init.redirect).toBe("manual");
     expect(call.init.headers).toStrictEqual({
       accept: "application/json",
       authorization: `Bearer ${API_KEY}`,

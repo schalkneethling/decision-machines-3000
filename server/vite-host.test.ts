@@ -9,6 +9,8 @@ import { MAX_BODY_BYTES, tooLarge } from "../worker/body-limit.ts";
 import type { ProviderKeys } from "../worker/env.ts";
 import { MISSING_KEYS_MESSAGE } from "../worker/env.ts";
 import { defaultDeps, handle } from "../worker/handler.ts";
+import type { KeepAliveSeconds } from "../src/decision/contract.ts";
+import type { DevConnections } from "./connection.ts";
 import { apiMiddleware, providerKeysFromProcessEnv, viteHostPlugin } from "./vite-host.ts";
 
 /*
@@ -17,6 +19,15 @@ import { apiMiddleware, providerKeysFromProcessEnv, viteHostPlugin } from "./vit
  */
 
 type Middleware = Connect.NextHandleFunction;
+
+/** Plugins configured by a test, closed again after it, as Vite closes them when the dev server stops. */
+const configured: Plugin[] = [];
+
+/** Calls the plugin's `buildEnd`, which Vite calls when the dev server closes. */
+function closeServer(plugin: Plugin): Promise<void> {
+  const hook = plugin.buildEnd as (() => Promise<void>) | undefined;
+  return hook?.() ?? Promise.resolve();
+}
 
 /** Captures the middleware a plugin registers, and whatever it logs as a warning. */
 function configure(plugin: Plugin): { middleware: Middleware; warn: ReturnType<typeof vi.fn> } {
@@ -28,9 +39,30 @@ function configure(plugin: Plugin): { middleware: Middleware; warn: ReturnType<t
     middlewares: { use: (fn: Middleware) => used.push(fn) },
     httpServer: null,
   });
+  configured.push(plugin);
   const [middleware] = used;
   if (middleware === undefined) throw new Error(`${plugin.name} registered no middleware.`);
   return { middleware, warn };
+}
+
+/**
+ * A connection pool double for the dev host: `upstream` answers its `fetch`,
+ * and every tracked call reports `kind`.
+ */
+function fakePool(upstream: typeof fetch, kind: "new" | "reused" = "new") {
+  let keepAliveSeconds: KeepAliveSeconds = 4;
+  const pool: DevConnections & { close: ReturnType<typeof vi.fn> } = {
+    fetch: upstream,
+    get keepAliveSeconds() {
+      return keepAliveSeconds;
+    },
+    setKeepAlive(seconds) {
+      keepAliveSeconds = seconds;
+    },
+    track: () => ({ finish: () => kind }),
+    close: vi.fn(() => Promise.resolve()),
+  };
+  return pool;
 }
 
 const servers: Server[] = [];
@@ -61,6 +93,7 @@ afterAll(() => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  await Promise.all(configured.splice(0).map(closeServer));
   await Promise.all(
     servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))),
   );
@@ -375,14 +408,23 @@ describe("POST /api/decide/{provider} on the dev host", () => {
     vi.unstubAllGlobals();
   });
 
-  it("serves the route through handle, calling the provider with the Worker's dependencies", async () => {
+  it("serves the route through handle, calling the provider through the connection pool", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const upstream = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(Response.json(recordedReply)),
     );
-    // The test talks to its server with Node's own client, so only the provider call sees this.
-    vi.stubGlobal("fetch", upstream);
-    const base = await serve(configure(viteHostPlugin(() => withTypeSafe)).middleware);
+    const globalFetch = vi.fn();
+    // The test talks to its server with Node's own client, so only a provider call could reach this.
+    vi.stubGlobal("fetch", globalFetch);
+    const pool = fakePool(upstream, "reused");
+    const base = await serve(
+      configure(
+        viteHostPlugin(
+          () => withTypeSafe,
+          () => pool,
+        ),
+      ).middleware,
+    );
 
     const answer = await raw(base, {
       method: "POST",
@@ -398,11 +440,77 @@ describe("POST /api/decide/{provider} on the dev host", () => {
       model: "jev-1.13.0",
       answers: { escalate: { type: "noul", noul: 0.92 } },
       wire: { request: { model: typesafe.model } },
+      connection: "reused",
+      keepAliveSeconds: 4,
     });
+    expect(globalFetch).not.toHaveBeenCalled();
     expect(upstream).toHaveBeenCalledOnce();
     expect(upstream.mock.calls[0]?.[0]).toBe("https://api.typesafe.ai/v1/systemone");
     expect(upstream.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(answer.body.toString()).not.toContain("dev-host-typesafe-key");
+  });
+
+  it("reports connection metrics from GET /api/providers, which the Worker does not", async () => {
+    const plugin = viteHostPlugin(
+      () => withTypeSafe,
+      () => fakePool(vi.fn()),
+    );
+    const viaPlugin = await serve(configure(plugin).middleware);
+    const withWorkerDeps = await serve(apiMiddleware(() => withTypeSafe));
+
+    const devHost = (await (await fetch(`${viaPlugin}/api/providers`)).json()) as unknown;
+    const worker = (await (await fetch(`${withWorkerDeps}/api/providers`)).json()) as unknown;
+
+    expect(devHost).toMatchObject({ ok: true, host: { connectionMetrics: true } });
+    expect(worker).toMatchObject({ ok: true, host: { connectionMetrics: false } });
+  });
+
+  it("warms TypeSafe with GET /v1/models through the connection pool", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const upstream = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(Response.json({ object: "list", data: [] })),
+    );
+    const pool = fakePool(upstream, "new");
+    const base = await serve(
+      configure(
+        viteHostPlugin(
+          () => withTypeSafe,
+          () => pool,
+        ),
+      ).middleware,
+    );
+
+    const answer = await raw(base, {
+      method: "POST",
+      path: "/api/warm/typesafe",
+      headers: { "content-type": "application/json" },
+      body: Buffer.from(JSON.stringify({ keepAliveSeconds: 60 })),
+    });
+
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body.toString())).toMatchObject({
+      ok: true,
+      provider: "typesafe",
+      connection: "new",
+      keepAliveSeconds: 60,
+    });
+    expect(upstream).toHaveBeenCalledOnce();
+    expect(upstream.mock.calls[0]?.[0]).toBe("https://api.typesafe.ai/v1/models");
+    expect(upstream.mock.calls[0]?.[1]?.method).toBe("GET");
+    expect(pool.keepAliveSeconds).toBe(60);
+  });
+
+  it("opens one pool per dev server and closes it when the server closes", async () => {
+    const pool = fakePool(vi.fn());
+    const openPool = vi.fn(() => pool);
+    const plugin = viteHostPlugin(() => withTypeSafe, openPool);
+
+    configure(plugin);
+    expect(openPool).toHaveBeenCalledOnce();
+    expect(pool.close).not.toHaveBeenCalled();
+
+    await closeServer(plugin);
+    expect(pool.close).toHaveBeenCalledOnce();
   });
 
   it("answers the old /api/jev paths with a JSON 404, because nothing mounts them any more", async () => {

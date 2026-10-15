@@ -6,7 +6,9 @@
  * and the request itself (400, with the validator's own message and path).
  * Only then does it call the provider, once, through the adapter, with one
  * 25-second budget and no retry, and map a failure to one status per
- * `ProviderError` kind (`STATUS_FOR_KIND`).
+ * `ProviderError` kind (`STATUS_FOR_KIND` in `provider-route.ts`). On a host
+ * that passes a connection pool (the Node dev host), the success also says
+ * which connection the call used and the pool's keep-alive.
  *
  * The route reads the key from `env` and hands it to the adapter's `decide`,
  * which passes it to `fetchJson` and nowhere else. No message here names a key
@@ -16,17 +18,27 @@
 import type { DecisionSuccess } from "../src/decision/contract.ts";
 import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
-import { PROVIDERS, PROVIDER_ORDER } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor, ProviderId } from "../src/providers/catalog.ts";
-import { MAX_BODY_BYTES, declaredLength, tooLarge } from "./body-limit.ts";
-import { PROVIDER_KEY_NAMES, isKeySet, isPlaceholder } from "./env.ts";
+import { MAX_BODY_BYTES, tooLarge } from "./body-limit.ts";
 import type { ProviderKeys } from "./env.ts";
-import type { HandlerDeps } from "./handler.ts";
+import type { HandlerDeps, TrackedCall } from "./handler.ts";
 import { ProviderError } from "./providers/adapter.ts";
-import type { AdapterResult, ProviderAdapter, ProviderErrorKind } from "./providers/adapter.ts";
+import type { AdapterResult, ProviderAdapter } from "./providers/adapter.ts";
 import { openaiAdapter } from "./providers/openai.ts";
 import { subqAdapter } from "./providers/subq.ts";
 import { typesafeAdapter } from "./providers/typesafe.ts";
+import {
+  JSON_TYPE,
+  decodeUtf8,
+  logLine,
+  mediaTypeOf,
+  parseJson,
+  providerFailure,
+  readWithin,
+  refuse,
+  resolveProvider,
+} from "./provider-route.ts";
+import type { Read } from "./provider-route.ts";
 import { failure, json } from "./respond.ts";
 
 /**
@@ -37,7 +49,6 @@ import { failure, json } from "./respond.ts";
  */
 export const PROVIDER_TIMEOUT_MS = 25_000;
 
-const JSON_TYPE = "application/json";
 const MULTIPART_TYPE = "multipart/form-data";
 
 /** The adapter for each provider. Adding a provider to the catalog without one is a type error. */
@@ -45,21 +56,6 @@ const ADAPTERS: Readonly<Record<ProviderId, ProviderAdapter>> = {
   typesafe: typesafeAdapter,
   subq: subqAdapter,
   openai: openaiAdapter,
-};
-
-/**
- * The status for each kind of provider failure. A key the provider refuses is
- * a 502, not a 401, because the browser's own request was authorised; the
- * failure is between this server and the provider.
- */
-const STATUS_FOR_KIND: Readonly<Record<ProviderErrorKind, number>> = {
-  invalid_request: 422,
-  rate_limited: 429,
-  no_credits: 402,
-  auth: 502,
-  upstream: 502,
-  unreachable: 502,
-  timeout: 504,
 };
 
 /**
@@ -178,88 +174,6 @@ export function displayableResponse(response: unknown): unknown {
 // Reading the request
 // ---------------------------------------------------------------------------
 
-/** A short, plain id is echoed in the 404; anything else is described without being quoted. */
-const ECHOABLE_ID = /^[A-Za-z0-9_-]{1,40}$/;
-
-function unknownProviderMessage(id: string): string {
-  const known = `${PROVIDER_ORDER.slice(0, -1).join(", ")}, or ${PROVIDER_ORDER.at(-1)}`;
-  // The placeholder is never echoed: see `isPlaceholder` in env.ts.
-  const named =
-    ECHOABLE_ID.test(id) && !isPlaceholder(id)
-      ? `No provider is named "${id}".`
-      : "No provider has that id.";
-  return `${named} Use ${known}.`;
-}
-
-function providerById(id: string): ProviderDescriptor | undefined {
-  const known = PROVIDER_ORDER.find((candidate) => candidate === id);
-  return known === undefined ? undefined : PROVIDERS[known];
-}
-
-/** The media type of a Content-Type header, lower-cased and without parameters. */
-function mediaTypeOf(contentType: string | null): string {
-  return (contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-}
-
-/**
- * The body's bytes, or undefined once it is larger than `limit`, held in one
- * copy. A declared Content-Length over the limit is refused without reading.
- * Within the limit, the bytes go straight into one buffer of the declared
- * size, chunk by chunk. Without a declared length, the chunks are kept as the
- * stream hands them over and copied into one buffer once, at the end. Either
- * way the stream is cancelled as soon as the count passes the limit, so an
- * oversized body is never held in full.
- */
-async function readWithin(
-  request: Request,
-  limit: number,
-): Promise<Uint8Array<ArrayBuffer> | undefined> {
-  const declared = declaredLength(request.headers.get("content-length"));
-  if (declared !== undefined && declared > limit) return undefined;
-  if (request.body === null) return new Uint8Array();
-
-  const reader = request.body.getReader();
-  // `buffer` holds the bytes while they fit the declared size; `chunks` takes over otherwise.
-  let buffer: Uint8Array<ArrayBuffer> | undefined =
-    declared === undefined ? undefined : new Uint8Array(declared);
-  const chunks: Uint8Array[] = [];
-  let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (received + value.byteLength > limit) {
-      await reader.cancel();
-      return undefined;
-    }
-    if (buffer !== undefined && received + value.byteLength <= buffer.byteLength) {
-      buffer.set(value, received);
-    } else {
-      // A body longer than it declared: keep what arrived and continue with chunks.
-      if (buffer !== undefined) chunks.push(buffer.subarray(0, received));
-      buffer = undefined;
-      chunks.push(value);
-    }
-    received += value.byteLength;
-  }
-
-  if (buffer !== undefined) {
-    return received === buffer.byteLength ? buffer : buffer.slice(0, received);
-  }
-  const bytes = new Uint8Array(received);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-type Read = { ok: true; value: unknown } | { ok: false; response: Response };
-
-function refuse(status: number, error: string, detail?: string): Read {
-  return { ok: false, response: failure(status, error, { detail }) };
-}
-
 const UNSUPPORTED_TYPE = `Send the request as ${JSON_TYPE}, or as ${MULTIPART_TYPE} with a "request" part and one "image" part per image.`;
 
 /**
@@ -309,35 +223,6 @@ async function requestPart(
 
 const NOT_UTF8 = "The request body is not valid UTF-8. Send the panel's JSON as UTF-8 text.";
 
-/**
- * The body as text, or undefined when it is not valid UTF-8. A lenient decoder
- * would turn a bad byte into U+FFFD and send the provider text the user never
- * wrote, so the decoder is strict (`fatal: true`).
- */
-function decodeUtf8(bytes: Uint8Array<ArrayBuffer>): string | undefined {
-  try {
-    // `ignoreBOM: false` is the default (a leading BOM is dropped); the Workers types require it.
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
-  } catch {
-    return undefined;
-  }
-}
-
-function parseJson(text: string): Read {
-  if (text.trim() === "") {
-    return refuse(400, "The request body is empty. Send the panel's JSON as the body.");
-  }
-  try {
-    return { ok: true, value: JSON.parse(text) as unknown };
-  } catch {
-    // The parser's own message quotes the body, which is not echoed back.
-    return refuse(
-      400,
-      "The request body is not valid JSON. Check for missing quotes, commas, or brackets.",
-    );
-  }
-}
-
 /** The parsed request from a JSON or multipart body, or the refusal to send instead. */
 async function readDecisionRequest(request: Request, provider: ProviderDescriptor): Promise<Read> {
   const contentType = request.headers.get("content-type");
@@ -361,23 +246,17 @@ async function readDecisionRequest(request: Request, provider: ProviderDescripto
 // The route
 // ---------------------------------------------------------------------------
 
-/** One log line: space-separated `name=value` pairs, with text values quoted as JSON. */
-function logLine(fields: Record<string, string | number | undefined>): string {
-  const parts = ["[api] decide"];
-  for (const [name, value] of Object.entries(fields)) {
-    if (value === undefined) continue;
-    parts.push(`${name}=${typeof value === "number" ? value : JSON.stringify(value)}`);
-  }
-  return parts.join(" ");
-}
-
-/** The answer for a provider failure: its status, message, detail, and any `Retry-After`. */
-function providerFailure(error: ProviderError): Response {
-  const headers =
-    error.kind === "rate_limited" && error.retryAfterSeconds !== undefined
-      ? { "retry-after": String(error.retryAfterSeconds) }
-      : undefined;
-  return failure(STATUS_FOR_KIND[error.kind], error.message, { detail: error.detail, headers });
+/**
+ * Which connection a finished call used and the pool's keep-alive, or no
+ * fields at all on a host without a connection pool (the Worker), so the
+ * success there carries neither.
+ */
+function connectionFields(
+  deps: HandlerDeps,
+  tracked: TrackedCall | undefined,
+): Pick<DecisionSuccess, "connection" | "keepAliveSeconds"> {
+  if (deps.connections === undefined || tracked === undefined) return {};
+  return { connection: tracked.finish(), keepAliveSeconds: deps.connections.keepAliveSeconds };
 }
 
 /** Answers `POST /api/decide/{providerId}`; `providerId` is the raw path segment. */
@@ -387,18 +266,9 @@ export async function decide(
   env: ProviderKeys,
   deps: HandlerDeps,
 ): Promise<Response> {
-  const provider = providerById(providerId);
-  if (provider === undefined) {
-    return failure(404, unknownProviderMessage(providerId));
-  }
-  const keyName = PROVIDER_KEY_NAMES[provider.id];
-  const apiKey = env[keyName];
-  if (!isKeySet(apiKey)) {
-    return failure(
-      409,
-      `${provider.displayName} is not set up on this instance. Set ${keyName} to use it.`,
-    );
-  }
+  const resolved = resolveProvider(providerId, env);
+  if (!resolved.ok) return resolved.response;
+  const { provider, apiKey } = resolved;
   const adapter = ADAPTERS[provider.id];
 
   const read = await readDecisionRequest(request, provider);
@@ -415,16 +285,18 @@ export async function decide(
     questions: Object.keys(valid.questions).length,
   };
   const signal = deps.timeoutSignal(PROVIDER_TIMEOUT_MS);
+  const tracked = deps.connections?.track(provider.baseUrl);
   const startedAt = performance.now();
   let decision: AdapterResult;
   try {
     decision = await adapter.decide(valid, apiKey, signal, deps.fetch);
   } catch (thrown) {
     const latencyMs = Math.round(performance.now() - startedAt);
+    tracked?.finish();
     if (thrown instanceof ProviderError) {
       const response = providerFailure(thrown);
       deps.log(
-        logLine({
+        logLine("decide", {
           ...fields,
           status: response.status,
           latencyMs,
@@ -437,7 +309,7 @@ export async function decide(
     }
     // Not a provider failure, so a bug in this app: log its class name only, never its message.
     const name = thrown instanceof Error ? thrown.name : typeof thrown;
-    deps.log(logLine({ ...fields, status: 500, latencyMs, unexpected: name }));
+    deps.log(logLine("decide", { ...fields, status: 500, latencyMs, unexpected: name }));
     return failure(
       500,
       `Something went wrong on the server while asking ${provider.displayName}. Check the server log.`,
@@ -445,7 +317,8 @@ export async function decide(
   }
 
   const latencyMs = Math.round(performance.now() - startedAt);
-  deps.log(logLine({ ...fields, status: 200, latencyMs }));
+  const connection = connectionFields(deps, tracked);
+  deps.log(logLine("decide", { ...fields, status: 200, latencyMs, ...connection }));
   const body: DecisionSuccessBody = {
     ok: true,
     primitive: valid.primitive,
@@ -453,6 +326,7 @@ export async function decide(
     model: decision.model,
     usage: decision.usage,
     latencyMs,
+    ...connection,
     answers: decision.answers,
     wire: { ...wireRecord(adapter, valid), response: displayableResponse(decision.wire.response) },
   };

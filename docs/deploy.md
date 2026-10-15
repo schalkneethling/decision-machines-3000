@@ -8,7 +8,7 @@ The button clones this repository into your GitHub account, asks for the provide
 
 ## 2. Protect the instance (do this first)
 
-**A freshly deployed instance refuses every run.** Each `POST /api/decide/{provider}` answers a JSON 503 that says so, the page shows a notice above the panels, and no provider is called. This is deliberate ([ADR-0003](./adr/0003-fail-closed-access.md)): the Worker holds your provider keys, and anyone who can reach its hostname could otherwise spend your credit. Nothing works until you choose one of the two options below.
+**A freshly deployed instance refuses every run.** Each `POST /api/decide/{provider}` answers a JSON 503 that says so, the page shows a notice above the panels, and no provider is called. The same gate stands in front of `POST /api/warm/{provider}`, the warm-connection demo's route, which a deployed Worker cannot serve anyway (it answers 501 once the gate lets it through; the demo runs only under `vp dev`). This is deliberate ([ADR-0003](./adr/0003-fail-closed-access.md)): the Worker holds your provider keys, and anyone who can reach its hostname could otherwise spend your credit. Nothing works until you choose one of the two options below.
 
 ### Option A, recommended: Cloudflare Access
 

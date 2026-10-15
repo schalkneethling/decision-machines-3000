@@ -59,7 +59,7 @@ function listed(...providers: (typeof typesafe)[]): Response {
 }
 
 function listedWith(protection: Protection, ...providers: (typeof typesafe)[]): Response {
-  return Response.json({ ok: true, providers, protection });
+  return Response.json({ ok: true, providers, host: { connectionMetrics: false }, protection });
 }
 
 const missingKeys = () =>

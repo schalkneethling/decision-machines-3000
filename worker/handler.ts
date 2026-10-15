@@ -9,17 +9,22 @@
  * the deployment's secrets.
  *
  * The routes:
- * - `GET /api/providers` lists the providers whose key is set, and reports how
- *   the instance is protected.
+ * - `GET /api/providers` lists the providers whose key is set, whether this
+ *   host reports connection metrics, and how the instance is protected.
  * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`).
+ * - `POST /api/warm/{provider}` opens a connection to one provider (`warm.ts`),
+ *   on a host that passes `connections` only.
  * - Any other `/api` path answers a JSON 404.
  *
  * Every non-GET request with a route goes through the protection gate
  * (`protection.ts`) before the route runs, unless the route is in
  * `UNGATED_ROUTES`, so a spending route added later is protected by default.
+ * The warm route is gated like the decide route: on an unconfigured Worker it
+ * answers the gate's 503 before its own 501.
  */
 
-import { DECIDE_PATH_PREFIX } from "../src/decision/contract.ts";
+import { DECIDE_PATH_PREFIX, WARM_PATH_PREFIX } from "../src/decision/contract.ts";
+import type { ConnectionKind, KeepAliveSeconds } from "../src/decision/contract.ts";
 import { PROVIDERS } from "../src/providers/catalog.ts";
 import { PROVIDERS_ENDPOINT, toProviderSummary } from "../src/providers/contract.ts";
 import { decide } from "./decide.ts";
@@ -28,6 +33,26 @@ import type { ProviderKeys } from "./env.ts";
 import { configuredProtection, refuseUnprotected, reportProtection } from "./protection.ts";
 import type { Host, ProtectionVars } from "./protection.ts";
 import { failure, json } from "./respond.ts";
+import { warm } from "./warm.ts";
+
+/** One provider call being tracked; `finish` says whether a connection opened for it. */
+export type TrackedCall = {
+  finish(): ConnectionKind;
+};
+
+/**
+ * What a host that owns its connection pool tells the routes about it. Only
+ * the Node dev host has one (`server/connection.ts`): the Worker cannot see or
+ * control connection reuse, so it passes none (ADR-0002).
+ * - `keepAliveSeconds`: how long the pool keeps an idle connection open.
+ * - `setKeepAlive`: changes that for the calls that follow.
+ * - `track`: starts tracking one call to `origin`, a provider's `baseUrl`.
+ */
+export type ConnectionMetrics = {
+  readonly keepAliveSeconds: KeepAliveSeconds;
+  setKeepAlive(keepAliveSeconds: KeepAliveSeconds): void;
+  track(origin: string): TrackedCall;
+};
 
 /** Everything the handler reads from the environment: the provider keys and the protection variables. */
 export type HandlerEnv = ProviderKeys & ProtectionVars;
@@ -43,21 +68,28 @@ export type HandlerEnv = ProviderKeys & ProtectionVars;
  *   hosts pass `AbortSignal.timeout`. Injected because Vitest's fake timers do
  *   not advance `AbortSignal.timeout`, so a test of the 25-second budget passes
  *   one built on `setTimeout` instead.
- * - `log`: where the decide route writes one line per provider call, and the
- *   gate one line per refusal.
+ * - `log`: where the decide and warm routes write one line per provider call,
+ *   and the gate one line per refusal.
+ * - `connections`: the host's connection pool, when it has one. A host that
+ *   passes it must also pass a `fetch` that goes through that pool, because
+ *   the pool can only see the connections its own `fetch` opens. The Worker
+ *   passes none.
  */
 export type HandlerDeps = {
   host: Host;
   fetch: typeof fetch;
   timeoutSignal: (ms: number) => AbortSignal;
   log: (line: string) => void;
+  connections?: ConnectionMetrics;
 };
 
 /**
  * The dependencies a host gives the handler, with `host` naming the caller.
- * `fetch` is bound to `globalThis`, because the handler calls it as
- * `deps.fetch(...)` and workerd rejects a `fetch` called with any other `this`
- * ("Illegal invocation").
+ * The Worker passes `"worker"` and uses these as they are; the Node dev host
+ * passes `"node-dev"` and adds its connection pool on top (`devHostDeps` in
+ * `server/vite-host.ts`). `fetch` is bound to `globalThis`, because the handler
+ * calls it as `deps.fetch(...)` and workerd rejects a `fetch` called with any
+ * other `this` ("Illegal invocation").
  */
 export function defaultDeps(host: Host): HandlerDeps {
   return {
@@ -94,10 +126,11 @@ async function headOf(response: Promise<Response>): Promise<Response> {
 }
 
 /**
- * Lists the providers whose key is set, with the instance's protection state.
- * It reads each key only to decide whether it is set, so no value, length, or
- * prefix can reach the body. The list itself needs no token: it is the public
- * catalog filtered, and the UI needs the protection state to explain a refusal.
+ * Lists the providers whose key is set, whether this host reports connection
+ * metrics, and the instance's protection state. It reads each key only to
+ * decide whether it is set, so no value, length, or prefix can reach the body.
+ * The list itself needs no token: it is the public catalog filtered, and the
+ * UI needs the protection state to explain a refusal.
  */
 async function listProviders(
   request: Request,
@@ -110,7 +143,12 @@ async function listProviders(
   }
   const protection = await reportProtection(request, configuredProtection(env, deps.host), deps);
   return json(
-    { ok: true, providers: ids.map((id) => toProviderSummary(PROVIDERS[id])), protection },
+    {
+      ok: true,
+      providers: ids.map((id) => toProviderSummary(PROVIDERS[id])),
+      host: { connectionMetrics: deps.connections !== undefined },
+      protection,
+    },
     200,
   );
 }
@@ -120,8 +158,8 @@ async function listProviders(
  * `"METHOD /api/path"`. Every non-GET route is gated by default, because any
  * route that is not a read may spend the owner's credit; a route goes here only
  * when it demonstrably spends nothing, with a comment saying why. There is
- * none today. A route with a path parameter, such as the decide route, cannot
- * be listed, and none should be.
+ * none today. A route with a path parameter, such as the decide and warm
+ * routes, cannot be listed, and none should be.
  */
 export const UNGATED_ROUTES: ReadonlySet<string> = new Set<string>();
 
@@ -140,21 +178,28 @@ function gate(request: Request, env: HandlerEnv, deps: HandlerDeps): Promise<Res
 }
 
 /**
- * The provider id in `/api/decide/{id}`: one non-empty path segment, or
- * undefined for any other path. It is the raw segment, still percent-encoded,
- * and the route itself decides whether a provider has that id.
+ * The provider id in `{prefix}{id}`: one non-empty path segment, or undefined
+ * for any other path. It is the raw segment, still percent-encoded, and the
+ * route itself decides whether a provider has that id.
  */
-function decideTarget(pathname: string): string | undefined {
-  if (!pathname.startsWith(DECIDE_PATH_PREFIX)) return undefined;
-  const id = pathname.slice(DECIDE_PATH_PREFIX.length);
+function providerTarget(pathname: string, prefix: string): string | undefined {
+  if (!pathname.startsWith(prefix)) return undefined;
+  const id = pathname.slice(prefix.length);
   return id === "" || id.includes("/") ? undefined : id;
 }
 
-/** The methods a path answers: the decide route for `/api/decide/{id}`, otherwise the table's entry. */
+/**
+ * The methods a path answers: the decide route for `/api/decide/{id}`, the
+ * warm route for `/api/warm/{id}`, otherwise the table's entry.
+ */
 function routesFor(routes: RouteTable, pathname: string): Methods | undefined {
-  const providerId = decideTarget(pathname);
-  if (providerId !== undefined) {
-    return { POST: (request, env, deps) => decide(providerId, request, env, deps) };
+  const decideId = providerTarget(pathname, DECIDE_PATH_PREFIX);
+  if (decideId !== undefined) {
+    return { POST: (request, env, deps) => decide(decideId, request, env, deps) };
+  }
+  const warmId = providerTarget(pathname, WARM_PATH_PREFIX);
+  if (warmId !== undefined) {
+    return { POST: (request, env, deps) => warm(warmId, request, env, deps) };
   }
   return Object.hasOwn(routes, pathname) ? routes[pathname] : undefined;
 }

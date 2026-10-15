@@ -31,6 +31,7 @@ import type { WarmRequest } from "./contract.ts";
 import { characterCount, countOf, idTooLongMessage } from "./count.ts";
 import { isPlainObject } from "./json.ts";
 import type { CountRange, ProviderCapabilities } from "../providers/catalog.ts";
+import { isPlaceholder } from "../providers/placeholder.ts";
 
 /**
  * The primitives a request can name, for the message that lists them. Not
@@ -83,11 +84,20 @@ function quoteChoices(items: readonly string[]): string {
   return `${quoted.slice(0, -1).join(", ")}, or ${quoted.at(-1)}`;
 }
 
+/**
+ * "an unknown field \"statee\"", or just "an unknown field" when the name is
+ * the Deploy button's placeholder, which is never echoed (see
+ * `src/providers/placeholder.ts`). Both validators name unknown fields with it.
+ */
+function unknownField(key: string): string {
+  return isPlaceholder(key) ? "an unknown field" : `an unknown field "${key}"`;
+}
+
 /** The message for an unknown field, with a hint when the field is `type`. */
 function unknownFieldMessage(where: string, key: string, allowed: readonly string[]): string {
   const hint =
     key === "type" ? ` The primitive is set once, with "primitive" at the top of the request.` : "";
-  return `${where} has an unknown field "${key}". It can only contain ${quoteList(allowed)}.${hint}`;
+  return `${where} has ${unknownField(key)}. It can only contain ${quoteList(allowed)}.${hint}`;
 }
 
 /** Text must hold more than whitespace. Objects and lists always pass. */
@@ -455,7 +465,11 @@ export function validateDecisionRequest(
 function pathOf(issue: z.core.$ZodIssue): PropertyKey[] {
   // An unknown-field issue sits on the object and names the field in `keys`, so the field
   // is added to point at it, as in `questions.greeting.type`.
-  if (issue.code === "unrecognized_keys") return [...issue.path, issue.keys[0]];
+  // A field named like the placeholder is left out of the path, so it is never echoed.
+  if (issue.code === "unrecognized_keys") {
+    const [key] = issue.keys;
+    return isPlaceholder(key) ? issue.path : [...issue.path, key];
+  }
   // A blank key cannot be read at the end of a dotted path (`questions.`), so an empty
   // question id or option name is reported at its record, `questions` or `criteria`.
   if (issue.code === "invalid_key" && String(issue.path.at(-1)).trim() === "") {
@@ -468,7 +482,7 @@ export type WarmValidationResult = { ok: true; value: WarmRequest } | Validation
 
 const WARM_KEYS = ["keepAliveSeconds"] as const;
 
-/** Check that `value` is a body `/api/jev/warm` accepts: one of the offered keep-alive durations. */
+/** Check that `value` is a body `POST /api/warm/{provider}` accepts: one of the offered keep-alive durations. */
 export function validateWarmRequest(value: unknown): WarmValidationResult {
   if (!isPlainObject(value)) {
     return {
@@ -478,11 +492,10 @@ export function validateWarmRequest(value: unknown): WarmValidationResult {
   }
   const unknownKey = Object.keys(value).find((key) => !WARM_KEYS.some((known) => known === key));
   if (unknownKey !== undefined) {
-    return {
-      ok: false,
-      error: `The request has an unknown field "${unknownKey}". It can only contain "keepAliveSeconds".`,
-      detail: unknownKey,
-    };
+    const error = `The request has ${unknownField(unknownKey)}. It can only contain "keepAliveSeconds".`;
+    return isPlaceholder(unknownKey)
+      ? { ok: false, error }
+      : { ok: false, error, detail: unknownKey };
   }
   const keepAliveSeconds = KEEP_ALIVE_SECONDS.find((seconds) => seconds === value.keepAliveSeconds);
   if (keepAliveSeconds === undefined) {

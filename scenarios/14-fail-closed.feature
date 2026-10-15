@@ -89,6 +89,17 @@ Feature: A deployed instance refuses provider calls until it is protected or the
     Given a correctly signed token whose aud is the tag with a suffix, with a prefix, or a prefix of the tag, as a string or in a list
     Then it is refused with "audience"
 
+  Scenario: The warm route (#9) is gated like the decide route
+    Given deps.host is "worker" and nothing is configured
+    When POST /api/warm/typesafe is called
+    Then the answer is the gate's 503, not the route's 501, and no provider is called
+    Given deps.host is "worker" and the exact opt-out is set
+    When POST /api/warm/typesafe is called
+    Then the route answers its own 501, because a Worker has no connection pool
+    Given deps.host is "node-dev" with a pool and no protection variable
+    When POST /api/warm/typesafe is called
+    Then the connection is warmed and the answer is 200
+
   Scenario: Every non-GET route is gated by default
     Given a route table with a GET and a POST route at /api/example, and no per-route wrapping
     When POST /api/example is called on an unconfigured worker instance

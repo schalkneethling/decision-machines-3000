@@ -1,18 +1,29 @@
-import { DEFAULT_KEEP_ALIVE_SECONDS, WARM_ENDPOINT } from "../decision/contract.ts";
-import type { KeepAliveSeconds, WarmRequest, WarmResponse } from "../decision/contract.ts";
+import {
+  DEFAULT_KEEP_ALIVE_SECONDS,
+  KEEP_ALIVE_SECONDS,
+  warmEndpoint,
+} from "../decision/contract.ts";
+import type {
+  DecisionSuccess,
+  KeepAliveSeconds,
+  WarmRequest,
+  WarmResponse,
+} from "../decision/contract.ts";
+import type { ProviderId } from "../providers/catalog.ts";
+import type { ProviderSummary } from "../providers/contract.ts";
 import { isKeepAliveSeconds, isWarmResponse, postJson, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { ApiResult } from "./client.ts";
-import { required } from "./dom.ts";
+import { create, required } from "./dom.ts";
+import type { ProviderSelection } from "./provider-select.ts";
 
 /**
- * The warm connection control: asks the server to open a connection to TypeSafe
- * with a chosen keep-alive, then counts down how long that connection stays warm.
+ * The warm connection control: asks the server to open a connection to the
+ * selected provider with a chosen keep-alive, then counts down how long that
+ * connection stays warm. Each run on that provider restarts the count.
  *
- * The form is hidden in `index.html` for now: the old `/api/jev/warm` endpoint
- * went with the `/api/jev` middleware (#8), and a decision success no longer
- * reports its connection. Issue #9 adds a warm route per provider on the Node
- * dev host, shows the form again where connection metrics are available, and
- * brings back the restart of the count after each run.
+ * The form is hidden in `index.html` and stays hidden unless the host reports
+ * connection metrics, which only the Node dev host does (ADR-0002), and the
+ * selected provider declares a warm path.
  */
 
 const numberFormat = new Intl.NumberFormat("en");
@@ -21,6 +32,16 @@ export const COLD_TEXT = "Connection is cold again.";
 
 export function warmForText(seconds: number): string {
   return `Warm for ${seconds} s.`;
+}
+
+/** The keep-alive option's text: "4 s, Node default" for Node's own, otherwise "30 s". */
+export function keepAliveText(seconds: KeepAliveSeconds): string {
+  return seconds === DEFAULT_KEEP_ALIVE_SECONDS ? `${seconds} s, Node default` : `${seconds} s`;
+}
+
+/** The button's text, naming the provider it warms. */
+export function warmLabel(providerName: string, active: boolean): string {
+  return `${active ? "Warming" : "Warm"} the ${providerName} connection`;
 }
 
 export function warmedText(latencyMs: number): string {
@@ -87,13 +108,14 @@ export function createCountdown(
   };
 }
 
-/** POSTs the keep-alive to the warm endpoint. Never rejects. */
+/** POSTs the keep-alive to the warm endpoint of `providerId`. Never rejects. */
 export function warmConnection(
+  providerId: ProviderId,
   keepAliveSeconds: KeepAliveSeconds,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<ApiResult<WarmResponse>> {
   const body: WarmRequest = { keepAliveSeconds };
-  return postJson(WARM_ENDPOINT, JSON.stringify(body), isWarmResponse, timeoutMs);
+  return postJson(warmEndpoint(providerId), JSON.stringify(body), isWarmResponse, timeoutMs);
 }
 
 /** What went wrong, as one sentence for the status line. */
@@ -112,25 +134,73 @@ export function warmFailureText(result: ApiResult<WarmResponse>): string | undef
   }
 }
 
-/** Wires the warm form: the keep-alive select, the Warm connection button, and the countdown output. */
-export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): void {
+/** What the panels tell the warm form. */
+export type WarmControl = {
+  /** A run succeeded: restart the count when it used the connection the form shows. */
+  noteAnswered: (response: DecisionSuccess) => void;
+};
+
+/**
+ * Wires the warm form: the keep-alive select, built from `KEEP_ALIVE_SECONDS`,
+ * the button that warms the provider `selection` holds, and the countdown output.
+ */
+export function setupWarm(
+  root: Document,
+  selection: ProviderSelection,
+  repeat: Repeat = repeatWithInterval,
+): WarmControl {
   const form = required(root, "form.warm", HTMLFormElement);
   const select = required(form, "select.warm-keep-alive", HTMLSelectElement);
   const button = required(form, "button.warm-button", HTMLButtonElement);
   const label = required(form, ".warm-label", HTMLElement);
+  const sizer = required(form, ".run-sizer", HTMLElement);
   const status = required(form, "output.warm-status", HTMLOutputElement);
+
+  select.replaceChildren(
+    ...KEEP_ALIVE_SECONDS.map((seconds) => {
+      const option = create("option", {
+        text: keepAliveText(seconds),
+        attributes: { value: String(seconds) },
+      });
+      option.selected = seconds === DEFAULT_KEEP_ALIVE_SECONDS;
+      return option;
+    }),
+  );
 
   const countdown = createCountdown((text) => {
     status.value = text;
     delete status.dataset.tone;
   }, repeat);
 
-  let warming = false;
+  /** The provider the form warms, or undefined while the form is hidden. */
+  let provider: ProviderSummary | undefined;
+  /** The providers with a warm in flight. Only the one the form shows affects the button. */
+  const warming = new Set<ProviderId>();
 
-  function setWarming(active: boolean): void {
-    warming = active;
+  /** The label and the disabled state, for the provider the form shows. */
+  function renderButton(): void {
+    const name = provider?.displayName ?? "";
+    const active = provider !== undefined && warming.has(provider.id);
+    label.textContent = warmLabel(name, active);
+    // The sizer holds the longer text, so the button keeps its width while it warms.
+    sizer.textContent = warmLabel(name, true);
     button.disabled = active;
-    label.textContent = active ? "Warming" : "Warm connection";
+  }
+
+  function follow(next: ProviderSummary | undefined): void {
+    const warmable =
+      next !== undefined && next.canWarm && selection.host()?.connectionMetrics === true
+        ? next
+        : undefined;
+    if (warmable?.id !== provider?.id) {
+      // The count and any message were about the previous provider's connection.
+      countdown.stop();
+      status.value = "";
+      delete status.dataset.tone;
+    }
+    provider = warmable;
+    form.hidden = warmable === undefined;
+    renderButton();
   }
 
   function selectedKeepAlive(): KeepAliveSeconds {
@@ -138,10 +208,14 @@ export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): 
     return isKeepAliveSeconds(seconds) ? seconds : DEFAULT_KEEP_ALIVE_SECONDS;
   }
 
-  async function warm(): Promise<void> {
-    setWarming(true);
+  async function warm(target: ProviderSummary): Promise<void> {
+    warming.add(target.id);
+    renderButton();
     try {
-      const result = await warmConnection(selectedKeepAlive());
+      const result = await warmConnection(target.id, selectedKeepAlive());
+      // The form shows another provider now, so the answer is about a connection it does not show.
+      // If the viewer came back to this provider, the answer is about the shown connection and counts.
+      if (provider?.id !== target.id) return;
       if (result.kind === "response" && result.response.ok) {
         countdown.start(result.response.keepAliveSeconds, warmedText(result.response.latencyMs));
         return;
@@ -150,9 +224,10 @@ export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): 
       status.value = `Could not warm the connection. ${warmFailureText(result) ?? ""}`.trim();
       status.dataset.tone = "alert";
     } finally {
-      setWarming(false);
+      warming.delete(target.id);
+      renderButton();
       // Disabling the focused button drops focus to the body; hand it back.
-      if (root.activeElement === null || root.activeElement === root.body) {
+      if (!form.hidden && (root.activeElement === null || root.activeElement === root.body)) {
         button.focus({ preventScroll: true });
       }
     }
@@ -160,7 +235,17 @@ export function setupWarm(root: Document, repeat: Repeat = repeatWithInterval): 
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (warming) return;
-    void warm();
+    if (provider === undefined || warming.has(provider.id)) return;
+    void warm(provider);
   });
+
+  selection.subscribe(follow);
+  follow(selection.current());
+
+  return {
+    noteAnswered: (response) => {
+      if (response.keepAliveSeconds === undefined || response.provider !== provider?.id) return;
+      countdown.start(response.keepAliveSeconds);
+    },
+  };
 }

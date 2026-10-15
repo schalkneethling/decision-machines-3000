@@ -636,7 +636,8 @@ p.node-label {
 }
 
 .criteria,
-.option-group {
+.option-group,
+.level-group {
   display: grid;
   gap: 0.5rem;
   min-inline-size: 0;

@@ -36,8 +36,9 @@
  * `name`: a name the request did not ask, a name answered twice, a question
  * left unanswered, and an answer of the wrong type are all `upstream` errors,
  * as they are for TypeSafe. The answers come back in the request's order,
- * whatever order the reply used, because the UI renders them in record order. A `predicate` answer becomes `{ type: "noul", noul }`
- * from its `probability`; `probabilities` lists become records keyed by
+ * whatever order the reply used, because the UI renders them in record order.
+ * A `predicate` answer becomes `{ type: "noul", noul }` from its
+ * `probability`; `probabilities` lists become records keyed by
  * `String(value)`; a score's `legend` is rebuilt from the request's levels by
  * index; a `refusal` passes through as the contract's refusal; and `usage` is
  * the two fields the contract carries.

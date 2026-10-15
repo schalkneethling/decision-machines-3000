@@ -15,8 +15,16 @@ describe("vocabulary legend", () => {
     }
   });
 
-  it("gives OpenAI score levels a label only, as the recorded request has", () => {
-    expect(term("Score levels", "openai")).toBe("`levels`, a list of `label`");
+  it("gives OpenAI score levels a label, and a description only for a structured level, as its adapter sends", () => {
+    expect(term("Score levels", "openai")).toBe(
+      "`levels`, a list of `label`, with a `description` for a structured level",
+    );
+  });
+
+  it("says OpenAI gets the yes/no meanings as lines in the instructions, as its adapter sends", () => {
+    expect(term("Yes/no meaning", "openai")).toBe(
+      "No such field; added to `instructions` as “Yes means:” and “No means:” lines",
+    );
   });
 
   it("says the refusal answer is this app's own shape, and that the other providers send none", () => {

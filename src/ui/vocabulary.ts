@@ -43,15 +43,14 @@ export const VOCABULARY: readonly VocabularyRow[] = [
   },
   {
     // TypeSafe and SubQ: recorded request (`criteria` with `true` and `false`).
-    // OpenAI: this is the adapter's mapping, not a field OpenAI has. The recorded
-    // OpenAI request has no yes/no meaning, and the plan has the adapter append
-    // the meanings to `instructions`; issue #13 shows them as "Yes means" and
-    // "No means". Reconcile this row when the OpenAI adapter (#11) lands.
+    // OpenAI has no such field. Its adapter's `toWire`
+    // (`worker/providers/openai.ts`) appends each meaning to the question's
+    // `instructions` as a "Yes means:" or "No means:" line.
     shared: "Yes/no meaning",
     byProvider: {
       typesafe: "`criteria.true` and `criteria.false`",
       subq: "`criteria.true` and `criteria.false`",
-      openai: "No such field; the adapter adds the meanings to the question's `instructions`",
+      openai: "No such field; added to `instructions` as “Yes means:” and “No means:” lines",
     },
   },
   {
@@ -67,13 +66,14 @@ export const VOCABULARY: readonly VocabularyRow[] = [
   },
   {
     // Recorded requests: `criteria` is a list of level texts for TypeSafe and
-    // SubQ; OpenAI's `levels` is a list of objects with a `label`. No recorded
-    // OpenAI level has a description, so none is named here.
+    // SubQ; OpenAI's `levels` is a list of objects with a `label`. The OpenAI
+    // adapter's `toLevels` also sends a `description`, but only for a level that
+    // is an object or a list, which it then labels by index.
     shared: "Score levels",
     byProvider: {
       typesafe: "`criteria`, a list",
       subq: "`criteria`, a list",
-      openai: "`levels`, a list of `label`",
+      openai: "`levels`, a list of `label`, with a `description` for a structured level",
     },
   },
   {

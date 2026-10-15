@@ -136,6 +136,25 @@ describe("tree structure", () => {
       /Sends 6 questions, film_0 to film_5\./,
     );
   });
+
+  it("numbers score levels from 0 and says so under the list", () => {
+    const harness = mount(scoreExample);
+    const labels = harness
+      .all(".level-row .field-description label")
+      .map((label) => label.textContent);
+    expect(labels).toEqual(["Level 0", "Level 1", "Level 2", "Level 3"]);
+    const hint = harness.get("#test-shared-levels-hint");
+    expect(hint.textContent).toBe("Levels are numbered from 0, as the model reports them.");
+    expect(harness.get(".level-row").closest("ul")?.getAttribute("aria-describedby")).toBe(
+      "test-shared-levels-hint",
+    );
+  });
+
+  it("leaves option numbering from 1 and shows no levels hint on a choice request", () => {
+    const harness = mount(choiceExample);
+    expect(document.querySelector("#test-shared-levels-hint")).toBeNull();
+    expect(harness.get<HTMLLabelElement>(".option-row label").textContent).toBe("Option 1 name");
+  });
 });
 
 describe("editing", () => {

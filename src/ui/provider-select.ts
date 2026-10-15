@@ -1,3 +1,4 @@
+import { PROVIDER_ORDER, PROVIDERS } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
 import { getProviders } from "./client.ts";
@@ -26,9 +27,6 @@ export type ProviderSelection = {
 };
 
 const PROVIDER_STORAGE_KEY = "decisionmachines3000:provider";
-
-/** The secrets that enable a provider, named in the setup notice. They match `worker/env.ts`. */
-export const PROVIDER_KEYS = ["TYPESAFE_API_KEY", "SUBQ_API_KEY", "OPENAI_API_KEY"] as const;
 
 /**
  * Where the setup notice sends the owner. The deployment guide is not written
@@ -76,10 +74,11 @@ function placeholderOption(text: string): HTMLOptionElement {
 
 /** The notice for an instance with no provider key: which keys fix it, and where to read how. */
 function setupNotice(): HTMLElement {
+  const names = PROVIDER_ORDER.map((id) => PROVIDERS[id].keyName);
   const keys: (Node | string)[] = [];
-  PROVIDER_KEYS.forEach((key, index) => {
-    if (index > 0) keys.push(index === PROVIDER_KEYS.length - 1 ? ", or " : ", ");
-    keys.push(create("code", { text: key }));
+  names.forEach((name, index) => {
+    if (index > 0) keys.push(index === names.length - 1 ? ", or " : ", ");
+    keys.push(create("code", { text: name }));
   });
   return create("p", { className: "provider-problem-message" }, [
     "This instance has no provider key. Set at least one of ",
@@ -146,7 +145,9 @@ export function setupProviderSelect(root: Document): ProviderSelection {
       attributes: { type: "button" },
     });
     retry.addEventListener("click", () => {
-      load(true).catch(showFailed);
+      // A Retry that is waiting for its answer ignores further presses.
+      if (retry.getAttribute("aria-disabled") === "true") return;
+      load(retry).catch(showFailed);
     });
     showUnavailable("Providers unavailable", [
       create("p", {
@@ -177,22 +178,45 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     choose(chosen);
   }
 
-  /** Fetches the list. `refocus` hands focus back to the select or the new Retry after the old Retry went away. */
-  async function load(refocus: boolean): Promise<void> {
-    showUnavailable("Loading providers…", []);
+  /**
+   * Puts focus on the first thing the viewer can use after a retry: the select
+   * when the list loaded, otherwise the new Retry, otherwise the setup notice.
+   * The pressed Retry was removed, so focus would otherwise fall to the body.
+   */
+  function focusOutcome(): void {
+    if (!select.disabled) {
+      select.focus();
+      return;
+    }
+    (root.querySelector<HTMLElement>(".provider-retry") ?? problem).focus();
+  }
+
+  /**
+   * Fetches the list. `retry` is the Retry button that asked for a reload, if
+   * one did. It stays in place and focused, marked `aria-disabled`, and the
+   * status line says the list is loading, until the answer decides what
+   * replaces it and where focus goes. A first load has no Retry and does not
+   * move focus.
+   */
+  async function load(retry?: HTMLElement): Promise<void> {
+    if (retry === undefined) {
+      showUnavailable("Loading providers…", []);
+    } else {
+      retry.setAttribute("aria-disabled", "true");
+      status.textContent = "Loading providers…";
+    }
     const result = await getProviders();
+    status.textContent = "";
+
     if (result.kind === "response" && result.response.ok) {
       showReady(result.response.providers);
-      if (refocus) select.focus();
-      return;
-    }
-    // The route answers 503 only when no provider key is set; any other failure may pass.
-    if (result.kind === "response" && result.status === 503) {
+    } else if (result.kind === "response" && result.status === 503) {
+      // The route answers 503 only when no provider key is set; any other failure may pass.
       showUnavailable("No provider key is set", [setupNotice()]);
-      return;
+    } else {
+      showFailed();
     }
-    showFailed();
-    if (refocus) root.querySelector<HTMLElement>(".provider-retry")?.focus();
+    if (retry !== undefined) focusOutcome();
   }
 
   select.addEventListener("change", () => {
@@ -204,7 +228,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     choose(next);
   });
 
-  load(false).catch(showFailed);
+  load().catch(showFailed);
 
   return {
     current: () => selected,

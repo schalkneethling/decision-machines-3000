@@ -84,9 +84,35 @@ Feature: A provider select picks which configured provider Run asks
     When the user changes the provider to OpenAI Decisions
     Then the vocabulary legend lists the words OpenAI Decisions uses, such as predicate for a yes/no question
 
-  Scenario: The notice names the same keys the Worker reports
-    Given the Worker names three provider keys in its 503 message
-    Then the setup notice names the same three keys
+  Scenario: The setup notice names the keys in catalog order, from the catalog
+    Given each provider in the catalog has a keyName
+    When the setup notice is shown
+    Then it names TYPESAFE_API_KEY, SUBQ_API_KEY, and OPENAI_API_KEY, in that order
+
+  Scenario: A stored value that is not a provider id is replaced
+    Given localStorage holds "", "__proto__", or "toString"
+    When the page loads
+    Then the first option is selected and localStorage holds its id
+
+  Scenario: Retry keeps its place and the reload is announced while it is in flight
+    Given the list failed to load and Retry has focus
+    When the user presses Retry
+    Then Retry stays in the page with aria-disabled="true" and keeps focus
+    And the role="status" line reads "Loading providers…"
+    And pressing Retry again sends no second request
+    When the list arrives
+    Then the status line is empty and focus moves to the select
+
+  Scenario: A Retry that ends in the missing-key 503 moves focus to the setup notice
+    Given the list failed to load and the user presses Retry
+    When the reload answers 503
+    Then the setup notice is shown and has focus
+    But a page that loads straight into the 503 does not move focus
+
+  Scenario: A provider change never moves focus
+    Given the viewer's focus is on a control outside the panel
+    When the provider changes and a JSON error is refreshed
+    Then document.activeElement is unchanged
 
   # Manual step, run by the coordinator with all three keys set (needs `vp dev`, which needs 1Password).
   Scenario: Live check across all three providers in Chrome or Edge, then in Firefox

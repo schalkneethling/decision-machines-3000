@@ -290,12 +290,19 @@ describe("run", () => {
 });
 
 describe("provider selection", () => {
-  /** A copy of `provider` whose Score levels have no upper limit. */
-  function withoutLevelLimit(provider: ProviderSummary): ProviderSummary {
+  /** A copy of `provider` whose Score levels stop at `max`, or have no upper limit. */
+  function withLevelLimit(provider: ProviderSummary, max?: number): ProviderSummary {
     return {
       ...provider,
-      capabilities: { ...provider.capabilities, scoreLevels: { min: 2 } },
+      capabilities: {
+        ...provider.capabilities,
+        scoreLevels: max === undefined ? { min: 2 } : { min: 2, max },
+      },
     };
+  }
+
+  function withoutLevelLimit(provider: ProviderSummary): ProviderSummary {
+    return withLevelLimit(provider);
   }
 
   function runButton(primitive: string): HTMLButtonElement {
@@ -368,14 +375,34 @@ describe("provider selection", () => {
     viewButton("score", "tree").click();
     expect(get("#score-error").hidden).toBe(false);
     expect(status("score").dataset.tone).toBe("alert");
+    // The refused switch left focus in the textarea; the viewer then moves on to another Run button.
+    const elsewhere = runButton("noul");
+    elsewhere.focus();
 
     choose(unlimited);
     expect(get("#score-error").hidden).toBe(true);
     expect(status("score").textContent).toBe("");
     expect(runButton("score").disabled).toBe(false);
+    expect(document.activeElement).toBe(elsewhere);
   });
 
-  it("shows a new problem in the JSON view when the new provider refuses the request", () => {
+  it("updates a shown JSON error to the new provider's limit without moving focus", () => {
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    viewButton("score", "tree").click();
+    expect(get("#score-error").textContent).toContain("at most 10");
+    const elsewhere = runButton("noul");
+    elsewhere.focus();
+
+    choose(withLevelLimit(subq, 6));
+    expect(get("#score-error").hidden).toBe(false);
+    expect(get("#score-error").textContent).toContain("at most 6");
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("shows nothing in the JSON view when a provider change makes valid JSON invalid, and Run then reports it", () => {
     const unlimited = withoutLevelLimit(subq);
     const { selection, choose } = selectionOf(unlimited);
     setupPanels(document, selection);
@@ -392,20 +419,21 @@ describe("provider selection", () => {
     expect(get("#score-error").hidden).toBe(false);
   });
 
-  it("leaves an alert that the new provider also causes", () => {
-    const { selection, choose } = selectionOf(typesafe);
+  it("replaces an alert with the new provider's own limit in the tree view", () => {
+    const { selection, choose } = selectionOf(withoutLevelLimit(subq));
     setupPanels(document, selection);
-    const instructions = form("noul").querySelectorAll<HTMLTextAreaElement>(
-      '[data-control="instructions"]',
-    )[1];
-    if (instructions === undefined) throw new Error("No second question.");
-    instructions.value = "";
-    instructions.dispatchEvent(new Event("input", { bubbles: true }));
-    submit("noul");
-    expect(status("noul").dataset.tone).toBe("alert");
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    viewButton("score", "tree").click();
 
-    choose(subq);
-    expect(status("noul").textContent).toBe("Write the question you want answered.");
-    expect(status("noul").dataset.tone).toBe("alert");
+    choose(typesafe);
+    submit("score");
+    expect(status("score").dataset.tone).toBe("alert");
+    expect(status("score").textContent).toContain("at most 10");
+
+    choose(withLevelLimit(subq, 6));
+    expect(status("score").dataset.tone).toBe("alert");
+    expect(status("score").textContent).toContain("at most 6");
+    expect(status("score").textContent).not.toContain("at most 10");
   });
 });

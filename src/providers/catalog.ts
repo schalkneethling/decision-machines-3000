@@ -16,6 +16,9 @@
 
 export type ProviderId = "typesafe" | "subq" | "openai";
 
+/** The secret that enables each provider. The Worker reads it, and the setup notice names it. */
+export type ProviderKeyName = "TYPESAFE_API_KEY" | "SUBQ_API_KEY" | "OPENAI_API_KEY";
+
 /** A range of counts. An undefined `max` means the provider states no upper limit. */
 export type CountRange = {
   min: number;
@@ -50,6 +53,8 @@ export type ProviderDescriptor = {
   displayName: string;
   /** The model id requests are pinned to. */
   model: string;
+  /** The name of the Worker secret that holds this provider's API key. */
+  keyName: ProviderKeyName;
   /**
    * The origin every API path of the provider is resolved against, with no
    * trailing slash. `GET /api/providers` never sends it, but it is not secret:
@@ -99,6 +104,7 @@ export const typesafe: ProviderDescriptor = {
   id: "typesafe",
   displayName: "TypeSafe Jev",
   model: "jev-1.13.0",
+  keyName: "TYPESAFE_API_KEY",
   baseUrl: "https://api.typesafe.ai",
   warmPath: "/v1/models",
   capabilities: {
@@ -112,6 +118,7 @@ export const subq: ProviderDescriptor = {
   id: "subq",
   displayName: "SubQ Snap",
   model: "subq-snap-preview",
+  keyName: "SUBQ_API_KEY",
   baseUrl: "https://api.subq.ai",
   warmPath: "/v1/models",
   capabilities: {
@@ -131,6 +138,7 @@ export const openai: ProviderDescriptor = {
   id: "openai",
   displayName: "OpenAI Decisions",
   model: OPENAI_MODEL,
+  keyName: "OPENAI_API_KEY",
   baseUrl: "https://api.openai.com",
   warmPath: `/v1/models/${OPENAI_MODEL}`,
   capabilities: {

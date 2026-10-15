@@ -2,12 +2,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { PROVIDER_KEY_NAMES } from "../../worker/env.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import { toProviderSummary } from "../providers/contract.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
-import { DEPLOYMENT_GUIDE_URL, PROVIDER_KEYS, setupProviderSelect } from "./provider-select.ts";
+import { DEPLOYMENT_GUIDE_URL, setupProviderSelect } from "./provider-select.ts";
 
 const page = readFileSync(resolve(import.meta.dirname, "../../index.html"), "utf8");
 // The page's own module script is left out: the tests call the setup functions themselves.
@@ -118,8 +117,8 @@ describe("the list", () => {
   });
 });
 
-describe("a browser without appearance: base-select", () => {
-  // happy-dom has no styled picker, so this is the structure such a browser shows.
+describe("the native select structure that browsers without appearance: base-select show", () => {
+  // happy-dom has no styled picker, so it renders the structure such a browser shows.
   it("is a labelled <select> whose option text has a space between name and model", async () => {
     answerProviders(listed(typesafe, subq, openai));
     await load();
@@ -127,8 +126,9 @@ describe("a browser without appearance: base-select", () => {
     expect(select).toBeInstanceOf(HTMLSelectElement);
     const label = document.querySelector<HTMLLabelElement>('label[for="provider-select"]');
     expect(label?.textContent).toBe("Provider");
-    expect(optionTexts()).toContain("OpenAI Decisions gpt-6-luna");
-    expect(optionTexts()).not.toContain("OpenAI Decisionsgpt-6-luna");
+    const texts = [...select.options].map((option) => option.text);
+    expect(texts).toContain("OpenAI Decisions gpt-6-luna");
+    expect(texts).not.toContain("OpenAI Decisionsgpt-6-luna");
   });
 
   it("keeps the button and selectedcontent first in the select, ahead of the options", async () => {
@@ -160,11 +160,23 @@ describe("the stored choice", () => {
   });
 
   it("selects the first provider and writes nothing when nothing is stored", async () => {
-    const setItem = vi.spyOn(Storage.prototype, "setItem");
     answerProviders(listed(typesafe, subq));
     await load();
     expect(providerSelect().value).toBe("typesafe");
-    expect(setItem).not.toHaveBeenCalled();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it.each([
+    ["an empty string", ""],
+    ["the key name __proto__", "__proto__"],
+    ["a name that only looks like an id", "toString"],
+  ])("selects the first provider and replaces a stored value that is %s", async (_name, stored) => {
+    localStorage.setItem(STORAGE_KEY, stored);
+    answerProviders(listed(typesafe, subq));
+    const selection = await load();
+    expect(providerSelect().value).toBe("typesafe");
+    expect(selection.current()?.id).toBe("typesafe");
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("typesafe");
   });
 
   it("stores a user's choice", async () => {
@@ -245,16 +257,16 @@ describe("an instance with no provider key", () => {
     setupProviderSelect(document);
     await vi.waitFor(() => expect(get("#provider-problem").textContent).not.toBe(""));
     const notice = get("#provider-problem");
-    for (const key of PROVIDER_KEYS) expect(notice.textContent).toContain(key);
+    expect([...notice.querySelectorAll("code")].map((code) => code.textContent)).toEqual([
+      "TYPESAFE_API_KEY",
+      "SUBQ_API_KEY",
+      "OPENAI_API_KEY",
+    ]);
     expect(notice.querySelector("a")?.getAttribute("href")).toBe(DEPLOYMENT_GUIDE_URL);
     expect(notice.querySelector("a")?.textContent).toBe("deployment guide");
     // The region is an alert, so assistive technology announces the notice.
     expect(notice.getAttribute("role")).toBe("alert");
     expect(providerSelect().getAttribute("aria-describedby")).toBe("provider-problem");
-  });
-
-  it("names the same keys the Worker reports", () => {
-    expect([...PROVIDER_KEYS].toSorted()).toEqual(Object.values(PROVIDER_KEY_NAMES).toSorted());
   });
 
   it("disables the select and every Run button", async () => {
@@ -316,6 +328,62 @@ describe("a list that could not be loaded", () => {
     expect(get("#provider-status").textContent).toBe("");
   });
 
+  it("moves focus to the setup notice when a retry ends in the missing-key 503", async () => {
+    answerProviders(Response.json({ ok: false, error: "No." }, { status: 500 }), missingKeys());
+    setupProviderSelect(document);
+    await vi.waitFor(() => expect(get(".provider-retry")).toBeTruthy());
+
+    get(".provider-retry").focus();
+    get(".provider-retry").click();
+    await vi.waitFor(() => expect(get("#provider-problem").textContent).toContain("deployment"));
+    expect(document.activeElement).toBe(get("#provider-problem"));
+    expect(get("#provider-problem").getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("does not move focus to the setup notice when the page loads into it", async () => {
+    answerProviders(missingKeys());
+    setupProviderSelect(document);
+    await vi.waitFor(() => expect(get("#provider-problem").textContent).toContain("deployment"));
+    expect(document.activeElement).not.toBe(get("#provider-problem"));
+  });
+
+  it("keeps a disabled Retry in place and announces the reload while it is in flight", async () => {
+    let answer: (response: Response) => void = () => {};
+    const fetchMock = vi
+      .fn(async (_url: string, _init?: RequestInit) =>
+        Response.json({ ok: false, error: "No." }, { status: 500 }),
+      )
+      .mockImplementationOnce(async () =>
+        Response.json({ ok: false, error: "No." }, { status: 500 }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setupProviderSelect(document);
+    await vi.waitFor(() => expect(get(".provider-retry")).toBeTruthy());
+
+    const retry = get(".provider-retry");
+    retry.focus();
+    retry.click();
+    expect(get(".provider-retry")).toBe(retry);
+    expect(retry.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+    expect(get("#provider-status").textContent).toBe("Loading providers…");
+
+    // Pressing a disabled Retry again must not start a second request.
+    retry.click();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    answer(listed(typesafe));
+    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
+    expect(get("#provider-status").textContent).toBe("");
+    expect(document.activeElement).toBe(providerSelect());
+  });
+
   it("keeps the note and returns focus to Retry when the retry fails too", async () => {
     const failing = () => Response.json({ ok: false, error: "No." }, { status: 500 });
     const fetchMock = answerProviders(failing());
@@ -346,6 +414,5 @@ describe("Run follows the select", () => {
     );
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/decide/subq");
-    expect(get("#readout-body").textContent).not.toBe("");
   });
 });

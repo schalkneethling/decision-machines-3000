@@ -10,6 +10,14 @@ import {
 } from "./catalog.ts";
 
 describe("provider catalog", () => {
+  it("names the secret that enables each provider", () => {
+    expect(PROVIDER_ORDER.map((id) => PROVIDERS[id].keyName)).toEqual([
+      "TYPESAFE_API_KEY",
+      "SUBQ_API_KEY",
+      "OPENAI_API_KEY",
+    ]);
+  });
+
   it("declares the warm path of each provider", () => {
     expect(typesafe.warmPath).toBe("/v1/models");
     expect(subq.warmPath).toBe("/v1/models");

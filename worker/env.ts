@@ -6,17 +6,17 @@
  * `Env` from `wrangler types`.
  */
 
-import { PROVIDER_ORDER } from "../src/providers/catalog.ts";
-import type { ProviderId } from "../src/providers/catalog.ts";
+import { PROVIDER_ORDER, PROVIDERS } from "../src/providers/catalog.ts";
+import type { ProviderId, ProviderKeyName } from "../src/providers/catalog.ts";
 
-/** The secret that enables each provider. */
-export const PROVIDER_KEY_NAMES = {
-  typesafe: "TYPESAFE_API_KEY",
-  subq: "SUBQ_API_KEY",
-  openai: "OPENAI_API_KEY",
-} as const satisfies Record<ProviderId, string>;
+export type { ProviderKeyName };
 
-export type ProviderKeyName = (typeof PROVIDER_KEY_NAMES)[ProviderId];
+/** The secret that enables each provider, taken from the catalog's `keyName`. */
+export const PROVIDER_KEY_NAMES: Readonly<Record<ProviderId, ProviderKeyName>> = {
+  typesafe: PROVIDERS.typesafe.keyName,
+  subq: PROVIDERS.subq.keyName,
+  openai: PROVIDERS.openai.keyName,
+};
 
 /**
  * The provider keys, each optional because a deployment may set any subset of

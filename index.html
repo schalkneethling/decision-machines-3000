@@ -33,7 +33,7 @@
         -->
         <select
           id="provider-select"
-          class="provider-select"
+          class="tree-field tree-select provider-select"
           name="provider"
           aria-describedby="provider-problem"
           disabled
@@ -43,7 +43,7 @@
           </button>
           <option value="" selected disabled>Loading providers…</option>
         </select>
-        <div id="provider-problem" class="provider-problem" role="alert"></div>
+        <div id="provider-problem" class="provider-problem" role="alert" tabindex="-1"></div>
         <p id="provider-status" class="provider-status" role="status"></p>
         <details id="provider-vocabulary" class="provider-vocabulary" hidden>
           <summary class="provider-vocabulary-summary"></summary>

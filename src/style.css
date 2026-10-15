@@ -288,32 +288,29 @@ code {
   visibility: hidden;
 }
 
-/* Provider select: a real <select>, styled further where appearance: base-select is supported */
+/*
+ * Provider select: a real <select> that wears the same .tree-field and .tree-select
+ * rules as the other selects, and is restyled further where appearance: base-select
+ * is supported.
+ *
+ * The live regions below start empty and stay in the page, because assistive
+ * technology announces a change inside a region that is already there. An empty
+ * region is zero tall, so only the gap between rows would still show. Spacing is
+ * therefore a margin on each row that has content, not a gap on the grid.
+ */
 .provider {
   display: grid;
-  gap: 0.5rem;
   max-inline-size: 30rem;
+}
+
+.provider > * + *:not(:empty) {
+  margin-block-start: 0.5rem;
 }
 
 .provider-label {
   color: var(--ink-muted);
   font-size: var(--size-meta);
   line-height: var(--leading-meta);
-}
-
-.provider-select {
-  box-sizing: border-box;
-  inline-size: 100%;
-  min-block-size: 2.75rem;
-  margin: 0;
-  padding: 0.5rem 0.75rem;
-  background: var(--well);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-well);
-  font-family: var(--font-sans);
-  font-size: var(--size-body);
-  line-height: var(--leading-body);
 }
 
 .provider-select:disabled {
@@ -326,21 +323,27 @@ code {
   font-size: var(--size-meta);
 }
 
-/* Both the select and its picker opt in, as MDN's Customizable select guide requires. */
+/*
+ * Both the select and its picker opt in, as MDN's Customizable select guide
+ * requires. The selectors name the element so they outrank .tree-select, which
+ * comes later in this file and sets appearance: none and its own arrow.
+ */
 @supports (appearance: base-select) {
-  .provider-select,
-  .provider-select::picker(select) {
+  select.provider-select,
+  select.provider-select::picker(select) {
     appearance: base-select;
   }
 
-  .provider-select {
+  select.provider-select {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    padding-inline-end: 0.5rem;
+    background-image: none;
     cursor: pointer;
   }
 
-  .provider-select:disabled {
+  select.provider-select:disabled {
     cursor: not-allowed;
   }
 
@@ -371,9 +374,16 @@ code {
     cursor: pointer;
   }
 
+  /*
+   * The highlighted option gets an inset outline in the ink colour. A background
+   * change cannot do this job: --well on --surface is only 1.07:1 in the light
+   * scheme. --ink on --surface is 11.55:1 in dark and 15.05:1 in light.
+   */
   .provider-select option:hover,
+  .provider-select option:focus,
   .provider-select option:focus-visible {
-    background: var(--well);
+    outline: 2px solid var(--ink);
+    outline-offset: -2px;
   }
 
   .provider-select option::checkmark {
@@ -502,7 +512,7 @@ code {
 
 .request-field:focus-visible,
 .run:focus-visible,
-.provider-select:focus-visible,
+.provider-problem:focus-visible,
 .provider-retry:focus-visible,
 .provider-vocabulary-summary:focus-visible,
 .raw-summary:focus-visible,

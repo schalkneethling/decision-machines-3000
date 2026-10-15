@@ -63,7 +63,13 @@ import {
   parseReply,
   unreadableReply,
 } from "./adapter.ts";
-import type { FailureOverride, Fetch, ProviderAdapter, ProviderDecision } from "./adapter.ts";
+import type {
+  AdapterResult,
+  FailureOverride,
+  Fetch,
+  ProviderAdapter,
+  ProviderDecision,
+} from "./adapter.ts";
 import { decisionReplySchema, errorEnvelopeSchema } from "./openai-schema.ts";
 import type { ErrorEnvelope, WireAnswer } from "./openai-schema.ts";
 
@@ -442,7 +448,7 @@ export async function decide(
   apiKey: string,
   signal: AbortSignal,
   fetch: Fetch,
-): Promise<ProviderDecision> {
+): Promise<AdapterResult> {
   const reply = await fetchJson(fetch, signal, openai, apiKey, DECISION_URL, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
@@ -457,7 +463,7 @@ export async function decide(
       overrideFor(reply.status, error),
     );
   }
-  return fromWire(request, reply.body);
+  return { ...fromWire(request, reply.body), wire: { response: reply.body } };
 }
 
 export const openaiAdapter = {

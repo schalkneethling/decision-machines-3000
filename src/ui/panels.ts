@@ -19,6 +19,7 @@ import {
   renderResponse,
   renderUnreachable,
 } from "./readout.ts";
+import { renderWire } from "./wire-view.ts";
 
 type View = "tree" | "json";
 
@@ -272,6 +273,8 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
 /** Fills each panel with its example, wires the Tree and JSON views, and wires Run to the shared readout. */
 export function setupPanels(root: Document): void {
   const readout = required(root, "#readout-body", HTMLElement);
+  // Outside the live region, so the JSON is never announced.
+  const wire = required(root, "#wire-body", HTMLElement);
   // The one place the panels learn which provider's limits apply.
   const capabilities = DEFAULT_PROVIDER.capabilities;
   const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
@@ -297,10 +300,12 @@ export function setupPanels(root: Document): void {
     setStatus(panel, "");
     setRunning(panel);
     readout.replaceChildren(renderLoading());
+    wire.replaceChildren();
     try {
       // Hard-wired to the default provider until the provider select lands (#12).
       const result = await askProvider(DEFAULT_PROVIDER.id, prepared.body);
       readout.replaceChildren(renderResult(prepared.sent, result));
+      if (result.kind === "response") wire.replaceChildren(renderWire(result.response));
     } finally {
       setRunning(undefined);
       // Disabling the focused Run button drops focus to the body; hand it back.
@@ -348,6 +353,7 @@ export function setupPanels(root: Document): void {
         return;
       }
       run(panel).catch((error: unknown) => {
+        wire.replaceChildren();
         readout.replaceChildren(
           renderError(
             "Something went wrong while showing the answer.",

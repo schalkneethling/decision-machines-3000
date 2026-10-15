@@ -780,7 +780,7 @@ describe("decide", () => {
     const signal = liveSignal();
     const decision = await decide(noulRequest, API_KEY, signal, fetch);
 
-    expect(decision).toStrictEqual(fromWire(noulRequest, body));
+    expect(decision).toStrictEqual({ ...fromWire(noulRequest, body), wire: { response: body } });
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call?.url).toBe("https://api.openai.com/v1/decisions");
@@ -796,6 +796,17 @@ describe("decide", () => {
     expect(JSON.parse(call?.init.body as string)).toStrictEqual(toWire(noulRequest));
   });
 
+  it("returns the key redacted in wire.response when the provider's reply quotes it", async () => {
+    const quoted = { ...replyWith("three-types", "escalate"), note: `echoed ${API_KEY}` };
+    const { fetch } = jsonFetch(200, quoted);
+    const decision = await decide(noulRequest, API_KEY, liveSignal(), fetch);
+
+    expect(decision.wire.response).toStrictEqual({
+      ...replyWith("three-types", "escalate"),
+      note: "echoed [redacted]",
+    });
+    expect(JSON.stringify(decision)).not.toContain(API_KEY);
+  });
   it("maps the recorded 401 to auth by its status, because OpenAI sends code null", async () => {
     const recorded = fixture("bad-key");
     expect(recorded.body).toMatchObject({ error: { code: null, param: null } });

@@ -23,7 +23,7 @@ import { PROVIDER_KEY_NAMES, isKeySet, isPlaceholder } from "./env.ts";
 import type { ProviderKeys } from "./env.ts";
 import type { HandlerDeps } from "./handler.ts";
 import { ProviderError } from "./providers/adapter.ts";
-import type { ProviderAdapter, ProviderDecision, ProviderErrorKind } from "./providers/adapter.ts";
+import type { AdapterResult, ProviderAdapter, ProviderErrorKind } from "./providers/adapter.ts";
 import { openaiAdapter } from "./providers/openai.ts";
 import { typesafeAdapter } from "./providers/typesafe.ts";
 import { failure, json } from "./respond.ts";
@@ -66,7 +66,9 @@ const STATUS_FOR_KIND: Readonly<Record<ProviderErrorKind, number>> = {
  * interface and so does not fit the contract's JSON record; once serialised it
  * is that record, which the browser checks with the contract's schema.
  */
-export type DecisionSuccessBody = Omit<DecisionSuccess, "wire"> & { wire: { request: object } };
+export type DecisionSuccessBody = Omit<DecisionSuccess, "wire"> & {
+  wire: { request: object; response: unknown };
+};
 
 // ---------------------------------------------------------------------------
 // The wire record
@@ -120,6 +122,54 @@ export function wireRecord(
   request: ValidDecisionRequest,
 ): { request: object } {
   return { request: adapter.toWire(withImagePlaceholders(request)) };
+}
+
+// ---------------------------------------------------------------------------
+// The provider's reply, for display
+// ---------------------------------------------------------------------------
+
+/**
+ * How many levels of arrays and objects a provider reply may nest and still be
+ * shown. The browser checks the whole success with a recursive schema, which
+ * throws near 5,000 levels, and `json()` throws past about 8,000. The answers
+ * are valid in those cases, so only the display copy is replaced.
+ */
+export const MAX_WIRE_DEPTH = 64;
+
+/**
+ * The most serialised text of a provider reply the wire view shows, 256 KiB.
+ * A larger reply would freeze the tab while it is laid out, and nobody can read
+ * it there anyway.
+ */
+export const MAX_WIRE_RESPONSE_CHARACTERS = 256 * 1024;
+
+/** True when `value` nests arrays or objects more than `limit` levels deep. Iterative, so depth cannot overflow the stack. */
+function nestsDeeperThan(value: unknown, limit: number): boolean {
+  const pending: { node: unknown; depth: number }[] = [{ node: value, depth: 0 }];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const { node, depth } = next;
+    if (typeof node !== "object" || node === null) continue;
+    if (depth + 1 > limit) return true;
+    for (const child of Object.values(node)) pending.push({ node: child, depth: depth + 1 });
+  }
+  return false;
+}
+
+/**
+ * The provider's reply as the success carries it: the reply itself, or a
+ * placeholder string that says which limit it hit, so one odd reply can never
+ * stop the answers from arriving. The depth is checked first, because only a
+ * body within the depth limit is safe to serialise for its size.
+ */
+export function displayableResponse(response: unknown): unknown {
+  if (nestsDeeperThan(response, MAX_WIRE_DEPTH)) {
+    return `<provider reply not shown: nested more than ${MAX_WIRE_DEPTH} levels>`;
+  }
+  const characters = JSON.stringify(response)?.length ?? 0;
+  if (characters > MAX_WIRE_RESPONSE_CHARACTERS) {
+    return `<provider reply not shown: ${formatBytes(characters)}, over the ${formatBytes(MAX_WIRE_RESPONSE_CHARACTERS)} display limit>`;
+  }
+  return response;
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +417,7 @@ export async function decide(
   };
   const signal = deps.timeoutSignal(PROVIDER_TIMEOUT_MS);
   const startedAt = performance.now();
-  let decision: ProviderDecision;
+  let decision: AdapterResult;
   try {
     decision = await adapter.decide(valid, apiKey, signal, deps.fetch);
   } catch (thrown) {
@@ -405,7 +455,7 @@ export async function decide(
     usage: decision.usage,
     latencyMs,
     answers: decision.answers,
-    wire: wireRecord(adapter, valid),
+    wire: { ...wireRecord(adapter, valid), response: displayableResponse(decision.wire.response) },
   };
   return json(body, 200);
 }

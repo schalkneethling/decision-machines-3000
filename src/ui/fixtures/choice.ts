@@ -1,14 +1,16 @@
 import type { DecisionSuccess } from "../../decision/contract.ts";
 import { choiceExample } from "../../decision/examples.ts";
-import { typesafeWireRequest } from "./wire.ts";
+import { typesafeWireRequest, typesafeWireResponse } from "./wire.ts";
 
 /**
  * A real TypeSafe Jev answer to `choiceExample` from src/decision/examples.ts,
  * recorded from the old `/api/jev` endpoint and reshaped to the
  * `/api/decide/typesafe` success: `provider` and `wire` added, and the
- * connection fields that success no longer carries removed.
+ * connection fields that success no longer carries removed. Its `wire.response`
+ * is rebuilt from those values, not recorded again; `typesafe.test.ts` checks it
+ * has the fields of the recordings in `worker/providers/fixtures/typesafe/`.
  */
-export const choiceResponse: DecisionSuccess<"choice"> = {
+const reading: Omit<DecisionSuccess<"choice">, "wire"> = {
   ok: true,
   primitive: "choice",
   provider: "typesafe",
@@ -104,5 +106,9 @@ export const choiceResponse: DecisionSuccess<"choice"> = {
       },
     },
   },
-  wire: { request: typesafeWireRequest(choiceExample) },
+};
+
+export const choiceResponse: DecisionSuccess<"choice"> = {
+  ...reading,
+  wire: { request: typesafeWireRequest(choiceExample), response: typesafeWireResponse(reading) },
 };

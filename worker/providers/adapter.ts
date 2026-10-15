@@ -108,6 +108,14 @@ export class ProviderError extends Error {
  */
 export type ProviderDecision = Pick<DecisionSuccess, "model" | "usage" | "answers">;
 
+/**
+ * What `decide` returns: the provider's part of the decision, plus
+ * `wire.response`, the provider's reply body exactly as `fetchJson` returned it,
+ * so with the API key already redacted. `fromWire` stays pure and returns the
+ * decision without `wire`.
+ */
+export type AdapterResult = ProviderDecision & { wire: { response: unknown } };
+
 /** The `fetch` a host hands to an adapter: the Worker's, Node's, or a test stub. */
 export type Fetch = typeof fetch;
 
@@ -132,7 +140,7 @@ export type ProviderAdapter = {
     apiKey: string,
     signal: AbortSignal,
     fetch: Fetch,
-  ): Promise<ProviderDecision>;
+  ): Promise<AdapterResult>;
 };
 
 // ---------------------------------------------------------------------------

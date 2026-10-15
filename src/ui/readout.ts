@@ -206,16 +206,6 @@ export function metadataSentence(response: DecisionSuccess): string {
   return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens.`;
 }
 
-function rawResponse(response: DecisionResponse): HTMLDetailsElement {
-  const code = create("code", { text: JSON.stringify(response, null, 2) });
-  const details = create("details", { className: "raw" }, [
-    create("summary", { className: "raw-summary", text: "Raw response" }),
-    create("pre", { className: "raw-code" }, [code]),
-  ]);
-  details.open = true;
-  return details;
-}
-
 /** The line shown while a run waits, naming the provider it was sent to. */
 export function renderLoading(providerName: string): HTMLElement {
   return create("p", { className: "readout-status", text: `Asking ${providerName}…` });
@@ -247,13 +237,14 @@ export function renderNonJson(status: number): HTMLElement {
   );
 }
 
-/** The full readout for a finished run: failure, or metadata, answers, and raw JSON. */
+/**
+ * The readout for a finished run: a failure, or metadata and answers. It is what a
+ * screen reader announces, so the JSON of the wire view is rendered apart from it
+ * by `renderWire`.
+ */
 export function renderResponse(sent: unknown, response: DecisionResponse): HTMLElement {
   if (!response.ok) {
-    return create("div", { className: "reading" }, [
-      renderError(response.error, response.detail),
-      rawResponse(response),
-    ]);
+    return create("div", { className: "reading" }, [renderError(response.error, response.detail)]);
   }
 
   const answers = create(
@@ -268,6 +259,5 @@ export function renderResponse(sent: unknown, response: DecisionResponse): HTMLE
   return create("div", { className: "reading" }, [
     create("p", { className: "reading-meta", text: metadataSentence(response) }),
     answers,
-    rawResponse(response),
   ]);
 }

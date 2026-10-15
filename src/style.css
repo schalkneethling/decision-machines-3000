@@ -979,6 +979,20 @@ textarea.tree-field {
   border-radius: 2px;
 }
 
+/* The wire view sits below the live region and is empty until a run finishes */
+.wire-body {
+  margin-block-start: 1.5rem;
+}
+
+.wire-body:empty {
+  display: none;
+}
+
+.wire-view {
+  display: grid;
+  gap: 1.5rem;
+}
+
 /* Raw response. The details element is a grid item: without min-inline-size 0 its
    min-content (the longest JSON line) would widen the whole readout. */
 .raw {

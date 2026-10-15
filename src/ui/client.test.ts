@@ -8,6 +8,7 @@ import {
   isDecisionResponse,
   isProvidersResponse,
   isWarmResponse,
+  postJson,
 } from "./client.ts";
 import { choiceResponse } from "./fixtures/choice.ts";
 import { noulResponse } from "./fixtures/noul.ts";
@@ -43,6 +44,24 @@ const refusalResponse = {
 const failure = { ok: false, error: 'Set "primitive" to …', detail: "primitive" };
 
 const warmed = { ok: true, latencyMs: 950, connection: "new", keepAliveSeconds: 30 };
+
+describe("postJson with a check that throws", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports an unrecognised body, never an unreachable endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 200 })),
+    );
+    const throwing = (_value: unknown): _value is unknown => {
+      throw new RangeError("Maximum call stack size exceeded");
+    };
+
+    expect(await postJson("/api/x", "{}", throwing)).toEqual({ kind: "unrecognised", status: 200 });
+  });
+});
 
 describe("isDecisionResponse", () => {
   it.each([

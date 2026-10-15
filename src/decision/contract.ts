@@ -175,8 +175,9 @@ const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number
  * What the server sent the provider, for the wire view (#13). `request` is the
  * provider's own request body, built by the adapter's `toWire`, with every
  * image's data replaced by a placeholder such as `<image 1: image/png, 230 KB>`.
+ * `response` is the provider's reply body as it arrived, with the API key redacted.
  */
-const wireSchema = z.object({ request: z.record(z.string(), z.json()) });
+const wireSchema = z.object({ request: z.record(z.string(), z.json()), response: z.json() });
 
 /** One success schema per primitive, so `primitive` decides which answers are allowed. */
 function decisionSuccessFor<P extends Primitive, A extends z.core.$ZodTypeDiscriminable>(

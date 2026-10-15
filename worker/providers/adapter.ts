@@ -232,18 +232,19 @@ function transportCause(thrown: unknown): TransportCause {
 
 /**
  * Sends `request` to `url` with the key in the `authorization` header and
- * parses the reply as JSON. The signal is applied to the exchange, no redirect
- * is followed (a redirect would carry the key header to another host), and the
- * body is read as text before parsing, so a body that is not JSON is reported
- * for what it is rather than as a parse exception. Any copy of the key in that
- * text is replaced before parsing, so a provider that quotes the key in an error
- * message cannot carry it into a detail.
+ * parses the reply as JSON. The signal is applied to the exchange. No redirect
+ * is followed, because a redirect would carry the key header to another host,
+ * and a redirect reply is refused. The body is read as text before parsing, so
+ * a body that is not JSON is reported for what it is rather than as a parse
+ * exception. Any copy of the key in that text is replaced before parsing, so a
+ * provider that quotes the key in an error message cannot carry it into a
+ * detail.
  *
  * Throws a `ProviderError`: `auth` when the key cannot be sent, `timeout` when
  * the signal aborted the exchange, `unreachable` when `fetch` rejected for
- * another reason (DNS, TLS, a dropped connection), and `upstream` when a
- * successful status carries a body that is not JSON. A failed status is
- * returned, not thrown, so the caller can map it.
+ * another reason (DNS, TLS, a dropped connection), and `upstream` when the
+ * reply is a redirect or a successful status carries a body that is not JSON.
+ * A failed status is returned, not thrown, so the caller can map it.
  */
 export async function fetchJson(
   fetch: Fetch,
@@ -262,10 +263,16 @@ export async function fetchJson(
       headers: { ...request.headers, authorization: `Bearer ${apiKey}` },
       body: request.body,
       signal,
-      redirect: "error",
+      // "manual", not "error": workerd rejects "error" with a TypeError, which
+      // made every provider call fail on a deployed Worker (#48). "manual" hands
+      // back the redirect itself, unfollowed, and `refuseRedirect` rejects it.
+      redirect: "manual",
     });
+    await refuseRedirect(provider, response);
     text = await response.text();
   } catch (thrown) {
+    // The redirect refusal is already a `ProviderError`, not a transport failure.
+    if (thrown instanceof ProviderError) throw thrown;
     const cause = transportCause(thrown);
     if (signal.aborted) {
       throw new ProviderError(
@@ -292,6 +299,22 @@ export async function fetchJson(
     );
   }
   return { status: response.status, headers: response.headers, body };
+}
+
+/**
+ * Throws an `upstream` `ProviderError` when `response` is a redirect, the 3xx
+ * status that workerd and Node both hand back for `redirect: "manual"`. The
+ * body is cancelled unread, and the `Location` header is never read, so
+ * nothing the redirect names reaches a message or a log.
+ */
+async function refuseRedirect(provider: ProviderDescriptor, response: Response): Promise<void> {
+  if (response.status < 300 || response.status >= 400) return;
+  await response.body?.cancel().catch(() => undefined);
+  throw new ProviderError(
+    "upstream",
+    `${provider.displayName} answered with a redirect, which this app does not follow.`,
+    { detail: `${response.status} redirect` },
+  );
 }
 
 /** What replaces the key in a reply. It needs no escaping inside a JSON string. */

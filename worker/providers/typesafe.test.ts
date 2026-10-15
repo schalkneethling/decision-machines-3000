@@ -401,8 +401,9 @@ describe("decide", () => {
     expect(call.url).toBe("https://api.typesafe.ai/v1/systemone");
     expect(call.init.method).toBe("POST");
     expect(call.init.signal).toBe(signal);
-    // A redirect would carry the key header to another host, so none is followed.
-    expect(call.init.redirect).toBe("error");
+    // A redirect would carry the key header to another host, so none is followed;
+    // "manual" hands it back unfollowed, and fetchJson refuses it (#48).
+    expect(call.init.redirect).toBe("manual");
     expect(call.init.headers).toStrictEqual({
       accept: "application/json",
       authorization: `Bearer ${API_KEY}`,

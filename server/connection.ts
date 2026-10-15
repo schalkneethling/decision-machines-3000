@@ -137,12 +137,13 @@ export class ConnectionPool implements DevConnections {
    * never needs a new one.
    *
    * The adapters' `fetchJson` sends a URL string, a string method, a plain
-   * header record, a string body or none, a signal, and `redirect: "error"`.
-   * Those fields are copied one by one, because the DOM `RequestInit` and
-   * undici's allow different types for the rest. `redirect` is `"error"`
-   * unless the caller asks otherwise, because following a redirect would carry
-   * the key header to another host. A `Request` object or a body that is not a string is refused rather
-   * than converted. undici's `Response` implements the same spec as the DOM's;
+   * header record, a string body or none, a signal, and `redirect: "manual"`,
+   * then refuses any 3xx itself (#48). Those fields are copied one by one,
+   * because the DOM `RequestInit` and undici's allow different types for the
+   * rest. `redirect` is passed on as given, and is `"error"` when the caller
+   * leaves it out, because following a redirect would carry the key header to
+   * another host. A `Request` object or a body that is not a string is refused
+   * rather than converted. undici's `Response` implements the same spec as the DOM's;
    * TypeScript rejects it as a DOM `Response` only because undici's header
    * iterators lack `[Symbol.dispose]`, hence the cast.
    */

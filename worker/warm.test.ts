@@ -243,7 +243,7 @@ describe("POST /api/warm/{provider}", () => {
     expect(deps.fetch).toHaveBeenCalledOnce();
     const [input, init] = deps.fetch.mock.calls[0] ?? [];
     expect(input).toBe(url);
-    expect(init).toMatchObject({ method: "GET", redirect: "error" });
+    expect(init).toMatchObject({ method: "GET", redirect: "manual" });
     expect(deps.timeoutSignal).toHaveBeenCalledWith(WARM_TIMEOUT_MS);
     expect(keysIn(text)).toEqual([]);
     const log = deps.log.mock.calls.flat().join("\n");

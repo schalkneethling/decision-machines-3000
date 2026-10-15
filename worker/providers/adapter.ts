@@ -232,19 +232,19 @@ function transportCause(thrown: unknown): TransportCause {
 
 /**
  * Sends `request` to `url` with the key in the `authorization` header and
- * parses the reply as JSON. The signal is applied to the exchange, no redirect
- * is followed (a redirect would carry the key header to another host) and a
- * redirect reply is refused, and the
- * body is read as text before parsing, so a body that is not JSON is reported
- * for what it is rather than as a parse exception. Any copy of the key in that
- * text is replaced before parsing, so a provider that quotes the key in an error
- * message cannot carry it into a detail.
+ * parses the reply as JSON. The signal is applied to the exchange. No redirect
+ * is followed, because a redirect would carry the key header to another host,
+ * and a redirect reply is refused. The body is read as text before parsing, so
+ * a body that is not JSON is reported for what it is rather than as a parse
+ * exception. Any copy of the key in that text is replaced before parsing, so a
+ * provider that quotes the key in an error message cannot carry it into a
+ * detail.
  *
  * Throws a `ProviderError`: `auth` when the key cannot be sent, `timeout` when
  * the signal aborted the exchange, `unreachable` when `fetch` rejected for
  * another reason (DNS, TLS, a dropped connection), and `upstream` when the
- * reply is a redirect or a successful status carries a body that is not JSON. A failed status is
- * returned, not thrown, so the caller can map it.
+ * reply is a redirect or a successful status carries a body that is not JSON.
+ * A failed status is returned, not thrown, so the caller can map it.
  */
 export async function fetchJson(
   fetch: Fetch,

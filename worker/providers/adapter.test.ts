@@ -39,14 +39,18 @@ describe("fetchJson and redirects", () => {
     expect(calls[0]?.redirect).toBe("manual");
   });
 
-  it.each([301, 302, 303, 307, 308])(
+  it.each([300, 301, 302, 303, 304, 307, 308])(
     "refuses a %i as an upstream failure without reading its body or naming its target",
     async (status) => {
-      const body = new ReadableStream({
-        pull() {
-          throw new Error("The body of a redirect must not be read.");
-        },
-      });
+      // A 304 is a null-body status, so the Response constructor refuses a body for it.
+      const body =
+        status === 304
+          ? null
+          : new ReadableStream({
+              pull() {
+                throw new Error("The body of a redirect must not be read.");
+              },
+            });
       const location = "https://elsewhere.example/steal";
       const { fetch } = answering(new Response(body, { status, headers: { location } }));
 

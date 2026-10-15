@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { PROVIDERS, PROVIDER_ORDER, openai, subq } from "./catalog.ts";
+import { PROVIDERS, PROVIDER_ORDER, openai, subq, typesafe } from "./catalog.ts";
 import type { ProviderDescriptor } from "./catalog.ts";
 import { toProviderSummary } from "./contract.ts";
 
@@ -16,13 +16,20 @@ describe("toProviderSummary", () => {
   it("copies exactly the public fields of a summary and of its capabilities", () => {
     const summary = toProviderSummary(openai);
 
-    expect(Object.keys(summary).sort()).toEqual(["capabilities", "displayName", "id", "model"]);
+    expect(Object.keys(summary).sort()).toEqual([
+      "canWarm",
+      "capabilities",
+      "displayName",
+      "id",
+      "model",
+    ]);
     expect(Object.keys(summary.capabilities).sort()).toEqual([
       "choiceOptions",
       "images",
       "scoreLevels",
     ]);
     expect(keyPaths(summary).sort()).toEqual([
+      "canWarm",
       "capabilities",
       "capabilities.choiceOptions",
       "capabilities.choiceOptions.max",
@@ -56,8 +63,17 @@ describe("toProviderSummary", () => {
         displayName: descriptor.displayName,
         model: descriptor.model,
         capabilities: descriptor.capabilities,
+        canWarm: descriptor.warmPath !== undefined,
       });
     }
+  });
+
+  it("says whether a provider can warm, without the warm path itself", () => {
+    const { warmPath: _warmPath, ...withoutWarmPath } = typesafe;
+
+    expect(toProviderSummary(typesafe).canWarm).toBe(true);
+    expect(toProviderSummary(withoutWarmPath).canWarm).toBe(false);
+    expect(JSON.stringify(toProviderSummary(typesafe))).not.toContain(typesafe.warmPath ?? "");
   });
 
   it("drops a server-only field added anywhere in a descriptor", () => {

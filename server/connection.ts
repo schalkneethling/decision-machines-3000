@@ -1,6 +1,13 @@
 /**
- * The server's one connection pool to TypeSafe, and an honest record of whether
- * each call had to open a new connection or reused a warm one.
+ * The Node dev host's one connection pool to every provider, and an honest
+ * record of whether each call had to open a new connection or reused a warm one.
+ *
+ * The dev host passes the pool to the Worker's `handle` as `deps.connections`
+ * and its `fetch` as `deps.fetch`, so the decide and warm routes go through it.
+ * It is Node-only (undici and `node:diagnostics_channel`), so nothing under
+ * `worker/` imports it and the Worker bundle never contains it (ADR-0002).
+ * undici's `Agent` keeps a separate set of connections per origin, so one agent
+ * serves all three providers, and one keep-alive applies to all of them.
  *
  * Production lesson: open the connection when the server boots, before the first
  * user request needs it, so nobody pays the TCP and TLS handshakes on the critical
@@ -9,25 +16,20 @@
  * hint to extend it.
  *
  * Sources: undici's `Agent` options (`keepAliveTimeout`, types/client.d.ts), the
- * `dispatcher` fetch option (types/fetch.d.ts), and the `undici:client:connected`
- * diagnostics channel (lib/core/diagnostics.js, published in
- * lib/dispatcher/client.js once a socket is connected).
+ * `dispatcher` and `redirect` fetch options (types/fetch.d.ts), and the
+ * `undici:client:connected` diagnostics channel (lib/core/diagnostics.js,
+ * published in lib/dispatcher/client.js once a socket is connected).
  */
 
 import { subscribe, unsubscribe } from "node:diagnostics_channel";
-import type { Fetch } from "@typesafe-ai/sdk";
 import { Agent, fetch as undiciFetch } from "undici";
 import type { DiagnosticsChannel, RequestInit as UndiciRequestInit } from "undici";
 import { DEFAULT_KEEP_ALIVE_SECONDS } from "../src/decision/contract.ts";
 import type { ConnectionKind, KeepAliveSeconds } from "../src/decision/contract.ts";
+import type { ConnectionMetrics, TrackedCall } from "../worker/handler.ts";
 
 /** Published by undici each time one of its clients finishes opening a socket. */
 export const CONNECTED_CHANNEL = "undici:client:connected";
-
-/** One call being tracked; `finish` reports whether a connection opened for it. */
-export type TrackedCall = {
-  finish(): ConnectionKind;
-};
 
 type InFlight = {
   host: string;
@@ -97,10 +99,20 @@ function createAgent(keepAliveSeconds: KeepAliveSeconds): Agent {
 }
 
 /**
- * Owns the undici `Agent` every TypeSafe call goes through, and listens on
- * `undici:client:connected` to tell new connections from reused ones.
+ * What the dev host needs from a pool: the metrics the routes read, the
+ * `fetch` that goes through it, and a way to close it when the server stops.
  */
-export class TypeSafeConnection {
+export type DevConnections = ConnectionMetrics & {
+  readonly fetch: typeof fetch;
+  close(): Promise<void>;
+};
+
+/**
+ * Owns the undici `Agent` every provider call on the dev host goes through,
+ * and listens on `undici:client:connected` to tell new connections from
+ * reused ones.
+ */
+export class ConnectionPool implements DevConnections {
   readonly #detector = new ConnectionDetector();
   #agent: Agent;
   #keepAliveSeconds: KeepAliveSeconds;
@@ -121,26 +133,33 @@ export class TypeSafeConnection {
   }
 
   /**
-   * A fetch for `TypeSafeClientConfig.fetch` that always uses the current agent,
-   * so changing the keep-alive never needs a new SDK client.
+   * A `fetch` that always uses the current agent, so changing the keep-alive
+   * never needs a new one.
    *
-   * The SDK sends a string method, a plain header record, a string body, and a
-   * signal. Those fields are copied one by one because the DOM `RequestInit` and
-   * undici's allow different types for the rest. The SDK reads the response with
-   * `ok`, `status`, `headers.get()`, `text()`, `clone()`, and `body.getReader()`,
-   * which undici's `Response` implements to the same spec. TypeScript still
-   * rejects it as a DOM `Response` only because undici's header iterators lack
-   * `[Symbol.dispose]`, hence the cast.
+   * The adapters' `fetchJson` sends a URL string, a string method, a plain
+   * header record, a string body or none, a signal, and `redirect: "error"`.
+   * Those fields are copied one by one, because the DOM `RequestInit` and
+   * undici's allow different types for the rest. `redirect` must be among
+   * them, because following a redirect would carry the key header to another
+   * host. A `Request` object or a body that is not a string is refused rather
+   * than converted. undici's `Response` implements the same spec as the DOM's;
+   * TypeScript rejects it as a DOM `Response` only because undici's header
+   * iterators lack `[Symbol.dispose]`, hence the cast.
    */
-  readonly fetch: Fetch = async (input, init) => {
+  readonly fetch: typeof fetch = async (input, init) => {
+    if (typeof input !== "string" && !(input instanceof URL)) {
+      throw new TypeError("The connection pool takes a URL, not a Request.");
+    }
     const options: UndiciRequestInit = { dispatcher: this.#agent };
     if (init?.method !== undefined) options.method = init.method;
     if (init?.signal !== undefined) options.signal = init.signal;
-    if (init?.headers !== undefined)
+    if (init?.redirect !== undefined) options.redirect = init.redirect;
+    if (init?.headers !== undefined) {
       options.headers = Object.fromEntries(new Headers(init.headers));
+    }
     if (typeof init?.body === "string") options.body = init.body;
     else if (init?.body !== undefined && init.body !== null) {
-      throw new TypeError("The TypeSafe connection only sends string bodies.");
+      throw new TypeError("The connection pool only sends string bodies.");
     }
     const response = await undiciFetch(input, options);
     return response as unknown as Response;
@@ -153,30 +172,18 @@ export class TypeSafeConnection {
     this.#agent = createAgent(keepAliveSeconds);
     this.#keepAliveSeconds = keepAliveSeconds;
     previous.close().catch((error: unknown) => {
-      console.warn("[jev] closing the previous connection pool failed", error);
+      // The class name only: undici's messages can name the origin and the socket.
+      const name = error instanceof Error ? error.name : typeof error;
+      console.warn(`[api] closing the previous connection pool failed: ${name}`);
     });
   }
 
-  /** Run one call to `origin` and report how long it took and which connection it used. */
-  async measure<T>(
-    origin: string,
-    call: () => Promise<T>,
-  ): Promise<{ value: T; latencyMs: number; connection: ConnectionKind }> {
-    const tracked = this.#detector.begin(new URL(origin).host);
-    const startedAt = performance.now();
-    try {
-      const value = await call();
-      return {
-        value,
-        latencyMs: Math.round(performance.now() - startedAt),
-        connection: tracked.finish(),
-      };
-    } finally {
-      tracked.finish();
-    }
+  /** Starts tracking one call to `origin`; its `finish` says whether a socket opened for it. */
+  track(origin: string): TrackedCall {
+    return this.#detector.begin(new URL(origin).host);
   }
 
-  /** Stop listening and close the pool; for dev-server restarts. */
+  /** Stops listening and closes the pool, for when the dev server stops or restarts. */
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;

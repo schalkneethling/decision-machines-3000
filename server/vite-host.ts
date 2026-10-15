@@ -3,10 +3,12 @@
  * `handle` function the Worker uses (ADR-0001).
  *
  * It converts each Node request into a `Request`, passes it to `handle` with the
- * provider keys and the same dependencies the Worker passes (Node's global
- * `fetch`, `AbortSignal.timeout`, and `console.info`), and writes the
- * `Response` back. Every `/api` path reaches `handle`, including the old
- * `/api/jev` paths, which now answer a JSON 404.
+ * provider keys and its dependencies, and writes the `Response` back. The
+ * dependencies are the Worker's (`AbortSignal.timeout` and `console.info`), plus
+ * the dev host's connection pool (`server/connection.ts`): its `fetch` replaces
+ * the global one, and the pool itself is passed as `connections`, so the routes
+ * can report and warm connections (ADR-0002). Every `/api` path reaches
+ * `handle`, including the old `/api/jev` paths, which now answer a JSON 404.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -14,9 +16,12 @@ import type { Connect, Plugin } from "vite-plus";
 import { MISSING_KEYS_MESSAGE, PROVIDER_KEY_NAMES, configuredProviders } from "../worker/env.ts";
 import type { ProviderKeys } from "../worker/env.ts";
 import { defaultDeps, handle, rejectMethod } from "../worker/handler.ts";
+import type { HandlerDeps } from "../worker/handler.ts";
 import { MAX_BODY_BYTES, declaredLength, tooLarge } from "../worker/body-limit.ts";
 import { failure } from "../worker/respond.ts";
 import { useEnglishZodMessages } from "../worker/zod-locale.ts";
+import { ConnectionPool } from "./connection.ts";
+import type { DevConnections } from "./connection.ts";
 
 const LOG_PREFIX = "[api]";
 
@@ -152,15 +157,21 @@ const FORBIDDEN_METHODS: ReadonlySet<string> = new Set(["TRACE"]);
 /** What the dev host calls for each `/api` request: the Worker's `handle`, or a test double. */
 export type Handler = typeof handle;
 
+/** The Worker's dependencies, with every provider call going through `pool`. */
+export function devHostDeps(pool: DevConnections): HandlerDeps {
+  return { ...defaultDeps(), fetch: pool.fetch, connections: pool };
+}
+
 /**
- * Middleware that answers `/api` requests with `handler`, reading the keys per
- * request. A request target that is not a plain path (for example `//host/...`,
- * which a URL parser would read as another host) is passed on untouched, as the
- * Worker's assets layer would treat it.
+ * Middleware that answers `/api` requests with `handler`, reading the keys and
+ * the dependencies per request. A request target that is not a plain path (for
+ * example `//host/...`, which a URL parser would read as another host) is
+ * passed on untouched, as the Worker's assets layer would treat it.
  */
 export function apiMiddleware(
   readKeys: () => ProviderKeys,
   handler: Handler = handle,
+  deps: () => HandlerDeps = defaultDeps,
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     const target = req.url ?? "/";
@@ -194,7 +205,7 @@ export function apiMiddleware(
     toRequest(req, new URL(`${origin}${target}`))
       .then((request) =>
         // The Worker's own 413, so the two hosts answer an oversized body alike.
-        request === undefined ? tooLarge() : handler(request, readKeys(), defaultDeps()),
+        request === undefined ? tooLarge() : handler(request, readKeys(), deps()),
       )
       .then(answered)
       .catch(failed);
@@ -206,8 +217,16 @@ export function apiMiddleware(
  * warns at start-up when no provider key is set, with the same message the
  * handler's 503 carries, and turns on Zod's English messages, as the Worker
  * does when it loads, so both hosts log a rejected provider reply alike.
+ *
+ * Each dev server gets one connection pool from `openPool`, opened when the
+ * server is configured and closed in `buildEnd`, which Vite calls when the dev
+ * server closes, including before a restart.
  */
-export function viteHostPlugin(readKeys: () => ProviderKeys = providerKeysFromProcessEnv): Plugin {
+export function viteHostPlugin(
+  readKeys: () => ProviderKeys = providerKeysFromProcessEnv,
+  openPool: () => DevConnections = () => new ConnectionPool(),
+): Plugin {
+  let pool: DevConnections | undefined;
   return {
     name: "decisionmachines3000:vite-host",
     configureServer(server) {
@@ -215,7 +234,16 @@ export function viteHostPlugin(readKeys: () => ProviderKeys = providerKeysFromPr
       if (configuredProviders(readKeys()).length === 0) {
         server.config.logger.warn(`${LOG_PREFIX} ${MISSING_KEYS_MESSAGE}`);
       }
-      server.middlewares.use(apiMiddleware(readKeys));
+      const opened = openPool();
+      // A server configured again without closing first still leaves one pool open.
+      pool?.close().catch(() => {});
+      pool = opened;
+      server.middlewares.use(apiMiddleware(readKeys, handle, () => devHostDeps(opened)));
+    },
+    async buildEnd() {
+      const closing = pool;
+      pool = undefined;
+      await closing?.close();
     },
   };
 }

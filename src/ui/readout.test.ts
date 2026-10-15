@@ -376,7 +376,26 @@ describe("metadataSentence", () => {
     ).toBe("Answered by OpenAI Decisions (gpt-6-luna) in 412 ms using 452 input tokens.");
   });
 
-  it("mentions no connection, which the success no longer reports", () => {
-    expect(metadataSentence(noulResponse)).not.toMatch(/connection/);
+  it("mentions neither connection nor keep-alive for a success from the Worker host, which has neither field", () => {
+    expect(noulResponse).not.toHaveProperty("connection");
+    expect(noulResponse).not.toHaveProperty("keepAliveSeconds");
+    expect(metadataSentence(noulResponse)).not.toMatch(/connection|keep|warm/i);
+  });
+
+  it("ends with the connection the Node dev host reports", () => {
+    expect(metadataSentence({ ...noulResponse, connection: "new", keepAliveSeconds: 4 })).toBe(
+      "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens over a new connection.",
+    );
+    expect(metadataSentence({ ...noulResponse, connection: "reused", keepAliveSeconds: 30 })).toBe(
+      "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens over the warm connection.",
+    );
+  });
+
+  it("puts the connection in the readout the screen reader announces", () => {
+    const reading = renderResponse(noulExample, { ...noulResponse, connection: "reused" });
+
+    expect(reading.querySelector(".reading-meta")?.textContent).toMatch(
+      /over the warm connection\.$/,
+    );
   });
 });

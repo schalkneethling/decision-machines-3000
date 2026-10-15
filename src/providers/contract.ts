@@ -2,14 +2,16 @@
  * `GET /api/providers`: which providers this instance has a key for.
  *
  * The Worker answers with the public part of each configured provider's
- * catalog descriptor: its id, its display name, its model id, and its
- * capabilities. The base URL and the warm path are left out of the answer, and
- * no key, key length, or key prefix is ever part of it.
+ * catalog descriptor: its id, its display name, its model id, its
+ * capabilities, and whether it declares a warm path. The base URL and the warm
+ * path itself are left out of the answer, and no key, key length, or key
+ * prefix is ever part of it. Beside the list, `host` says what the host that
+ * answered can report, so the browser shows the warm form only where it works.
  *
  * The shape is a Zod Mini schema, following `src/decision/contract.ts`
  * (ADR-0004), so the browser checks the body with the same schema the type is
  * inferred from. Zod Mini APIs used, read from node_modules/zod/v4/mini/schemas.d.ts:
- * `object`, `literal` (with an array of values), `int`, `string`, `array`,
+ * `object`, `literal` (with an array of values), `int`, `string`, `boolean`, `array`,
  * `readonly`, `exactOptional`, `union`, and `discriminatedUnion`; `minLength`
  * from node_modules/zod/v4/mini/checks.d.ts. `z.object` drops unknown keys
  * rather than rejecting them, so a field the server adds later does not break
@@ -46,6 +48,16 @@ const providerSummarySchema = z.object({
   /** The model id requests are pinned to, which the provider select shows beside the name. */
   model: z.string(),
   capabilities: capabilitiesSchema,
+  /** Whether the provider declares a warm path, so the warm form can open a connection to it. */
+  canWarm: z.boolean(),
+});
+
+const hostSummarySchema = z.object({
+  /**
+   * Whether this host can tell a new connection from a reused one and set the
+   * keep-alive. True on the Node dev host and false on the Worker (ADR-0002).
+   */
+  connectionMetrics: z.boolean(),
 });
 
 const providersSuccessSchema = z.object({
@@ -55,6 +67,7 @@ const providersSuccessSchema = z.object({
    * instance with no provider key answers a 503 failure instead.
    */
   providers: z.array(providerSummarySchema).check(z.minLength(1)),
+  host: hostSummarySchema,
 });
 
 /**
@@ -68,6 +81,9 @@ export const providersResponseSchema = z.discriminatedUnion("ok", [
 
 /** The public part of a provider's descriptor. */
 export type ProviderSummary = z.output<typeof providerSummarySchema>;
+
+/** What the host that answered can report about its connections. */
+export type HostSummary = z.output<typeof hostSummarySchema>;
 
 export type ProvidersSuccess = z.output<typeof providersSuccessSchema>;
 
@@ -107,5 +123,6 @@ export function toProviderSummary(descriptor: ProviderDescriptor): ProviderSumma
               mediaTypes: [...images.mediaTypes],
             },
     },
+    canWarm: descriptor.warmPath !== undefined,
   };
 }

@@ -173,18 +173,18 @@
 
       <section class="readout" aria-labelledby="readout-title">
         <h2 id="readout-title" class="visually-hidden">Readout</h2>
-        <!-- Hidden until #9 brings a warm route back on the Node dev host. -->
+        <!--
+          Shown by src/ui/warm.ts only where the host reports connection metrics
+          (the Node dev host) and the selected provider can warm. It fills the
+          keep-alive options from KEEP_ALIVE_SECONDS and names the provider on the button.
+        -->
         <form class="warm" novalidate hidden>
           <label class="warm-field-label" for="keep-alive">Keep warm for</label>
           <select
             id="keep-alive"
             class="tree-field tree-select warm-keep-alive"
             name="keepAliveSeconds"
-          >
-            <option value="4" selected>4 s, Node default</option>
-            <option value="30">30 s</option>
-            <option value="60">60 s</option>
-          </select>
+          ></select>
           <button class="run run-compact warm-button" type="submit">
             <span class="run-label warm-label">Warm connection</span>
             <span class="run-sizer" aria-hidden="true">Warm connection</span>

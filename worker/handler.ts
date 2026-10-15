@@ -9,18 +9,42 @@
  * the deployment's secrets.
  *
  * The routes:
- * - `GET /api/providers` lists the providers whose key is set.
+ * - `GET /api/providers` lists the providers whose key is set, and whether
+ *   this host reports connection metrics.
  * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`).
+ * - `POST /api/warm/{provider}` opens a connection to one provider (`warm.ts`),
+ *   on a host that passes `connections` only.
  * - Any other `/api` path answers a JSON 404.
  */
 
-import { DECIDE_PATH_PREFIX } from "../src/decision/contract.ts";
+import { DECIDE_PATH_PREFIX, WARM_PATH_PREFIX } from "../src/decision/contract.ts";
+import type { ConnectionKind, KeepAliveSeconds } from "../src/decision/contract.ts";
 import { PROVIDERS } from "../src/providers/catalog.ts";
 import { PROVIDERS_ENDPOINT, toProviderSummary } from "../src/providers/contract.ts";
 import { decide } from "./decide.ts";
 import { MISSING_KEYS_MESSAGE, configuredProviders } from "./env.ts";
 import type { ProviderKeys } from "./env.ts";
 import { failure, json } from "./respond.ts";
+import { warm } from "./warm.ts";
+
+/** One provider call being tracked; `finish` says whether a connection opened for it. */
+export type TrackedCall = {
+  finish(): ConnectionKind;
+};
+
+/**
+ * What a host that owns its connection pool tells the routes about it. Only
+ * the Node dev host has one (`server/connection.ts`): the Worker cannot see or
+ * control connection reuse, so it passes none (ADR-0002).
+ * - `keepAliveSeconds`: how long the pool keeps an idle connection open.
+ * - `setKeepAlive`: changes that for the calls that follow.
+ * - `track`: starts tracking one call to `origin`, a provider's `baseUrl`.
+ */
+export type ConnectionMetrics = {
+  readonly keepAliveSeconds: KeepAliveSeconds;
+  setKeepAlive(keepAliveSeconds: KeepAliveSeconds): void;
+  track(origin: string): TrackedCall;
+};
 
 /**
  * What the handler takes from its host instead of from globals, so tests can
@@ -30,18 +54,23 @@ import { failure, json } from "./respond.ts";
  *   hosts pass `AbortSignal.timeout`. Injected because Vitest's fake timers do
  *   not advance `AbortSignal.timeout`, so a test of the 25-second budget passes
  *   one built on `setTimeout` instead.
- * - `log`: where the decide route writes one line per provider call.
+ * - `log`: where the decide and warm routes write one line per provider call.
+ * - `connections`: the host's connection pool, when it has one. A host that
+ *   passes it must also pass a `fetch` that goes through that pool, because
+ *   the pool can only see the connections its own `fetch` opens.
  */
 export type HandlerDeps = {
   fetch: typeof fetch;
   timeoutSignal: (ms: number) => AbortSignal;
   log: (line: string) => void;
+  connections?: ConnectionMetrics;
 };
 
 /**
- * The dependencies both hosts give the handler. `fetch` is bound to
- * `globalThis`, because the handler calls it as `deps.fetch(...)` and workerd
- * rejects a `fetch` called with any other `this` ("Illegal invocation").
+ * The dependencies the Worker gives the handler, and the base the Node dev
+ * host adds its connection pool to. `fetch` is bound to `globalThis`, because
+ * the handler calls it as `deps.fetch(...)` and workerd rejects a `fetch`
+ * called with any other `this` ("Illegal invocation").
  */
 export function defaultDeps(): HandlerDeps {
   return {
@@ -75,32 +104,48 @@ async function headOf(response: Promise<Response>): Promise<Response> {
 }
 
 /**
- * Lists the providers whose key is set. It reads each key only to decide whether
- * it is set, so no value, length, or prefix can reach the body.
+ * Lists the providers whose key is set, and whether this host reports
+ * connection metrics. It reads each key only to decide whether it is set, so
+ * no value, length, or prefix can reach the body.
  */
-async function listProviders(_request: Request, env: ProviderKeys): Promise<Response> {
+async function listProviders(
+  _request: Request,
+  env: ProviderKeys,
+  deps: HandlerDeps,
+): Promise<Response> {
   const ids = configuredProviders(env);
   if (ids.length === 0) {
     return failure(503, MISSING_KEYS_MESSAGE);
   }
-  return json({ ok: true, providers: ids.map((id) => toProviderSummary(PROVIDERS[id])) }, 200);
+  return json(
+    {
+      ok: true,
+      providers: ids.map((id) => toProviderSummary(PROVIDERS[id])),
+      host: { connectionMetrics: deps.connections !== undefined },
+    },
+    200,
+  );
 }
 
 /**
- * The provider id in `/api/decide/{id}`: one non-empty path segment, or
- * undefined for any other path. It is the raw segment, still percent-encoded,
- * and the route itself decides whether a provider has that id.
+ * The provider id in `{prefix}{id}`: one non-empty path segment, or undefined
+ * for any other path. It is the raw segment, still percent-encoded, and the
+ * route itself decides whether a provider has that id.
  */
-function decideTarget(pathname: string): string | undefined {
-  if (!pathname.startsWith(DECIDE_PATH_PREFIX)) return undefined;
-  const id = pathname.slice(DECIDE_PATH_PREFIX.length);
+function providerTarget(pathname: string, prefix: string): string | undefined {
+  if (!pathname.startsWith(prefix)) return undefined;
+  const id = pathname.slice(prefix.length);
   return id === "" || id.includes("/") ? undefined : id;
 }
 
 function routesFor(pathname: string): Methods | undefined {
-  const providerId = decideTarget(pathname);
-  if (providerId !== undefined) {
-    return { POST: (request, env, deps) => decide(providerId, request, env, deps) };
+  const decideId = providerTarget(pathname, DECIDE_PATH_PREFIX);
+  if (decideId !== undefined) {
+    return { POST: (request, env, deps) => decide(decideId, request, env, deps) };
+  }
+  const warmId = providerTarget(pathname, WARM_PATH_PREFIX);
+  if (warmId !== undefined) {
+    return { POST: (request, env, deps) => warm(warmId, request, env, deps) };
   }
   return Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
 }

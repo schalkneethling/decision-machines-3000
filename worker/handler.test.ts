@@ -67,8 +67,12 @@ function summaryOf(descriptor: ProviderDescriptor) {
     displayName: descriptor.displayName,
     model: descriptor.model,
     capabilities: descriptor.capabilities,
+    canWarm: descriptor.warmPath !== undefined,
   };
 }
+
+/** What the Worker reports about itself: it cannot observe its connections. */
+const WORKER_HOST = { connectionMetrics: false };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -82,7 +86,7 @@ describe("GET /api/providers", () => {
     const { response, body } = await run(get("/api/providers"), { OPENAI_API_KEY: "x" });
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ ok: true, providers: [summaryOf(openai)] });
+    expect(body).toEqual({ ok: true, providers: [summaryOf(openai)], host: WORKER_HOST });
   });
 
   it("never puts the key or its prefix in the body or the headers", async () => {
@@ -103,13 +107,17 @@ describe("GET /api/providers", () => {
       TYPESAFE_API_KEY: "t",
     });
 
-    expect(body).toEqual({ ok: true, providers: [summaryOf(typesafe), summaryOf(openai)] });
+    expect(body).toEqual({
+      ok: true,
+      providers: [summaryOf(typesafe), summaryOf(openai)],
+      host: WORKER_HOST,
+    });
   });
 
   it("treats a key that only contains the placeholder as a real key", async () => {
     const { body } = await run(get("/api/providers"), { SUBQ_API_KEY: "unset-but-real" });
 
-    expect(body).toEqual({ ok: true, providers: [summaryOf(subq)] });
+    expect(body).toEqual({ ok: true, providers: [summaryOf(subq)], host: WORKER_HOST });
   });
 
   it.each([

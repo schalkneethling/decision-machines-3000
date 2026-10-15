@@ -468,7 +468,7 @@ export type WarmValidationResult = { ok: true; value: WarmRequest } | Validation
 
 const WARM_KEYS = ["keepAliveSeconds"] as const;
 
-/** Check that `value` is a body `/api/jev/warm` accepts: one of the offered keep-alive durations. */
+/** Check that `value` is a body `POST /api/warm/{provider}` accepts: one of the offered keep-alive durations. */
 export function validateWarmRequest(value: unknown): WarmValidationResult {
   if (!isPlainObject(value)) {
     return {

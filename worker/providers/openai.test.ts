@@ -1031,7 +1031,7 @@ describe("through POST /api/decide/openai", () => {
     });
   }
 
-  it("answers a configured OpenAI with a decision, not a 501", async () => {
+  it("answers a configured OpenAI with a decision", async () => {
     const { fetch, calls } = jsonFetch(200, replyWith("three-types", "escalate"));
     const response = await handle(post(noulRequest), env, deps(fetch));
     const text = await response.text();

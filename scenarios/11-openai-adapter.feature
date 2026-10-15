@@ -265,7 +265,7 @@ Feature: The OpenAI Decisions adapter translates the neutral map of questions to
 
   # --- the route ------------------------------------------------------------
 
-  Scenario: A configured OpenAI no longer answers 501
+  Scenario: A configured OpenAI answers through its adapter
     Given OPENAI_API_KEY is set and the stubbed upstream answers a recorded reply
     When POST /api/decide/openai is handled
     Then the response is 200 with provider "openai", model "gpt-6-luna", and wire.request.questions[0].type "predicate"

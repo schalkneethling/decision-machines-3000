@@ -2,11 +2,11 @@
  * `POST /api/decide/{provider}`: runs one decision request on one provider.
  *
  * The route checks, in order: that the provider exists (404), that its key is
- * set (409, naming the variable), that this version has an adapter for it
- * (501), the content type (415), the body size (413), and the request itself
- * (400, with the validator's own message and path). Only then does it call the
- * provider, once, through the adapter, with one 25-second budget and no retry,
- * and map a failure to one status per `ProviderError` kind (`STATUS_FOR_KIND`).
+ * set (409, naming the variable), the content type (415), the body size (413),
+ * and the request itself (400, with the validator's own message and path).
+ * Only then does it call the provider, once, through the adapter, with one
+ * 25-second budget and no retry, and map a failure to one status per
+ * `ProviderError` kind (`STATUS_FOR_KIND`).
  *
  * The route reads the key from `env` and hands it to the adapter's `decide`,
  * which passes it to `fetchJson` and nowhere else. No message here names a key
@@ -25,6 +25,7 @@ import type { HandlerDeps } from "./handler.ts";
 import { ProviderError } from "./providers/adapter.ts";
 import type { AdapterResult, ProviderAdapter, ProviderErrorKind } from "./providers/adapter.ts";
 import { openaiAdapter } from "./providers/openai.ts";
+import { subqAdapter } from "./providers/subq.ts";
 import { typesafeAdapter } from "./providers/typesafe.ts";
 import { failure, json } from "./respond.ts";
 
@@ -39,9 +40,10 @@ export const PROVIDER_TIMEOUT_MS = 25_000;
 const JSON_TYPE = "application/json";
 const MULTIPART_TYPE = "multipart/form-data";
 
-/** The adapter for each provider this version can call. */
-const ADAPTERS: Readonly<Partial<Record<ProviderId, ProviderAdapter>>> = {
+/** The adapter for each provider. Adding a provider to the catalog without one is a type error. */
+const ADAPTERS: Readonly<Record<ProviderId, ProviderAdapter>> = {
   typesafe: typesafeAdapter,
+  subq: subqAdapter,
   openai: openaiAdapter,
 };
 
@@ -398,9 +400,6 @@ export async function decide(
     );
   }
   const adapter = ADAPTERS[provider.id];
-  if (adapter === undefined) {
-    return failure(501, `${provider.displayName} is not available in this version yet.`);
-  }
 
   const read = await readDecisionRequest(request, provider);
   if (!read.ok) return read.response;

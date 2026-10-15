@@ -14,14 +14,14 @@ export const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Everything a request to one of the `/api` endpoints can end in, so the caller renders each case explicitly:
- * - `response`: a JSON body in the expected shape, a success or a failure.
+ * - `response`: a JSON body in the expected shape, a success or a failure, with the HTTP status it came with.
  * - `unrecognised`: a JSON body in another shape.
  * - `non_json`: an answer whose body is not JSON, such as a proxy's HTML error page.
  * - `unreachable`: no answer arrived at all, because `fetch` rejected.
  * - `timeout`: no answer arrived in time.
  */
 export type ApiResult<T> =
-  | { kind: "response"; response: T }
+  | { kind: "response"; status: number; response: T }
   | { kind: "unrecognised"; status: number }
   | { kind: "non_json"; status: number }
   | { kind: "unreachable"; detail?: string }
@@ -78,7 +78,7 @@ async function requestJson<T>(
       return { kind: "unrecognised", status: response.status };
     }
 
-    return { kind: "response", response: parsed };
+    return { kind: "response", status: response.status, response: parsed };
   } catch (error) {
     if (timedOut) {
       return { kind: "timeout" };

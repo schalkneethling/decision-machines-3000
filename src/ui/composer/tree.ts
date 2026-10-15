@@ -67,6 +67,8 @@ export type Composer = {
   revealIssues(): Issue[];
   /** Moves focus to the control an issue is about. */
   focusIssue(issue: Issue): void;
+  /** Reports problems against other limits from now on, and updates the issues already shown. */
+  setCapabilities(capabilities: ProviderCapabilities): void;
 };
 
 /** What the shared and per-question criteria are called in each primitive. */
@@ -118,6 +120,7 @@ function stateHint(model: ComposerModel): string {
 
 export function createComposer(options: ComposerOptions): Composer {
   const { prefix, announce, onChange } = options;
+  let { capabilities } = options;
   let model = options.model;
   const element = create("div", { className: "tree" });
   /** Rows whose issues show; the rest wait until they are edited or Run reveals them. */
@@ -205,7 +208,7 @@ export function createComposer(options: ComposerOptions): Composer {
    * whose messages or invalid fields differ from what they show now.
    */
   function showIssues(): Issue[] {
-    const issues = findIssues(model, options.capabilities);
+    const issues = findIssues(model, capabilities);
     const next = new Map<string, ShownIssues>();
     for (const issue of issues) {
       if (!revealAll && !touched.has(issue.key)) continue;
@@ -686,6 +689,10 @@ export function createComposer(options: ComposerOptions): Composer {
       return showIssues();
     },
     focusIssue,
+    setCapabilities(next) {
+      capabilities = next;
+      showIssues();
+    },
   };
 }
 

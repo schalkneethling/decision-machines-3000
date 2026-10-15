@@ -3,8 +3,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { choiceExample, noulExample, scoreExample } from "../decision/examples.ts";
+import { PROVIDERS } from "../providers/catalog.ts";
+import { toProviderSummary } from "../providers/contract.ts";
+import type { ProviderSummary } from "../providers/contract.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
+import type { ProviderSelection } from "./provider-select.ts";
 
 const page = readFileSync(resolve(import.meta.dirname, "../../index.html"), "utf8");
 // The page's own module script is left out: the test calls setupPanels itself.
@@ -12,6 +16,26 @@ const body = (/<body>([\s\S]*)<\/body>/.exec(page)?.[1] ?? "").replace(
   /<script[\s\S]*?<\/script>/g,
   "",
 );
+
+const typesafe = toProviderSummary(PROVIDERS.typesafe);
+const subq = toProviderSummary(PROVIDERS.subq);
+
+/** A provider selection the test drives by hand: `choose(undefined)` is "no provider". */
+function selectionOf(initial: ProviderSummary | undefined) {
+  let current: ProviderSummary | undefined = initial;
+  const listeners: ((provider: ProviderSummary | undefined) => void)[] = [];
+  const selection: ProviderSelection = {
+    current: () => current,
+    subscribe: (listener) => listeners.push(listener),
+  };
+  return {
+    selection,
+    choose: (provider: ProviderSummary | undefined) => {
+      current = provider;
+      for (const listener of listeners) listener(provider);
+    },
+  };
+}
 
 function get<T extends HTMLElement = HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);
@@ -63,7 +87,7 @@ describe("view switch", () => {
   });
 
   it("opens every panel in the tree", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     for (const primitive of ["noul", "choice", "score"]) {
       expect(viewButton(primitive, "tree").getAttribute("aria-pressed")).toBe("true");
       expect(get(`form[data-primitive="${primitive}"] [data-view-body="json"]`).hidden).toBe(true);
@@ -71,7 +95,7 @@ describe("view switch", () => {
   });
 
   it("serialises the request into the JSON view", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("choice", "json").click();
     expect(textarea("choice").value).toBe(JSON.stringify(choiceExample, null, 2));
     expect(viewButton("choice", "json").getAttribute("aria-pressed")).toBe("true");
@@ -80,14 +104,14 @@ describe("view switch", () => {
 
   it("ignores a view preference saved under the old key", () => {
     localStorage.setItem("jev-3000:view:score", "json");
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("false");
     expect(viewButton("score", "tree").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("remembers the JSON view per panel", () => {
     localStorage.setItem("decisionmachines3000:view:score", "json");
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
     expect(viewButton("noul", "tree").getAttribute("aria-pressed")).toBe("true");
   });
@@ -95,7 +119,7 @@ describe("view switch", () => {
   it("does not write the stored preference while loading", () => {
     localStorage.setItem("decisionmachines3000:view:score", "json");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     expect(setItem).not.toHaveBeenCalled();
     expect(viewButton("score", "json").getAttribute("aria-pressed")).toBe("true");
     expect(textarea("score").value).toBe(JSON.stringify(scoreExample, null, 2));
@@ -108,13 +132,13 @@ describe("view switch", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("Blocked");
     });
-    expect(() => setupPanels(document)).not.toThrow();
+    expect(() => setupPanels(document, selectionOf(typesafe).selection)).not.toThrow();
     viewButton("noul", "json").click();
     expect(viewButton("noul", "json").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("refuses to switch to the tree while the JSON is invalid", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("noul", "json").click();
     textarea("noul").value = `{"primitive": "noul",`;
     viewButton("noul", "tree").click();
@@ -125,7 +149,7 @@ describe("view switch", () => {
   });
 
   it("refuses to switch to the tree when the JSON fails validation", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("noul", "json").click();
     textarea("noul").value = JSON.stringify({ ...noulExample, state: "" });
     viewButton("noul", "tree").click();
@@ -134,7 +158,7 @@ describe("view switch", () => {
   });
 
   it("clears a shown JSON error as soon as typing makes the text valid", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("noul", "json").click();
     textarea("noul").value = `{"primitive": "noul",`;
     viewButton("noul", "tree").click();
@@ -149,7 +173,7 @@ describe("view switch", () => {
   });
 
   it("keeps the JSON error while the text is still invalid", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("noul", "json").click();
     textarea("noul").value = `{"primitive": "noul",`;
     viewButton("noul", "tree").click();
@@ -160,7 +184,7 @@ describe("view switch", () => {
   });
 
   it("rebuilds the tree from edited JSON", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("noul", "json").click();
     const edited = { ...noulExample, questions: { only: { instructions: "Is it good?" } } };
     textarea("noul").value = JSON.stringify(edited);
@@ -174,7 +198,7 @@ describe("view switch", () => {
   });
 
   it("keeps tree edits through a round trip to JSON and back", () => {
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     const id = form("noul").querySelector<HTMLInputElement>('[data-control="id"]');
     if (id === null) throw new Error("No id field.");
     id.value = "would_recommend";
@@ -191,10 +215,9 @@ describe("view switch", () => {
 describe("run", () => {
   it("posts the tree's request", async () => {
     const fetchMock = mockFetch();
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    // Hard-wired to TypeSafe until the provider select lands (#12).
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/decide/typesafe");
     const sent = fetchMock.mock.calls[0]?.[1].body;
     if (typeof sent !== "string") throw new Error("Expected a JSON string body.");
@@ -203,7 +226,7 @@ describe("run", () => {
 
   it("names the provider that answered in the readout", async () => {
     mockFetch();
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     submit("noul");
     await vi.waitFor(() =>
       expect(document.querySelector(".reading-meta")?.textContent).toBe(
@@ -214,7 +237,7 @@ describe("run", () => {
 
   it("keeps the JSON out of the live region after a success and after a failure", async () => {
     mockFetch();
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     submit("noul");
     await vi.waitFor(() => expect(document.querySelector(".reading-meta")).not.toBeNull());
     const live = get("[aria-live]");
@@ -232,7 +255,7 @@ describe("run", () => {
       ),
     );
     submit("noul");
-    await vi.waitFor(() => expect(document.querySelector('[role="alert"]')).not.toBeNull());
+    await vi.waitFor(() => expect(live.querySelector('[role="alert"]')).not.toBeNull());
     expect(live.querySelector("details, pre")).toBeNull();
     const raw = get("#wire-body details");
     expect(raw.querySelector("summary")?.textContent).toBe("Raw response");
@@ -243,7 +266,7 @@ describe("run", () => {
       "fetch",
       vi.fn(async () => new Response("<html>502 Bad Gateway</html>", { status: 502 })),
     );
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     submit("noul");
     await vi.waitFor(() =>
       expect(document.querySelector("#readout-body")?.textContent).toContain(
@@ -255,7 +278,7 @@ describe("run", () => {
 
   it("reports the first tree problem in the status line instead of posting", () => {
     const fetchMock = mockFetch();
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     const instructions = form("noul").querySelectorAll<HTMLTextAreaElement>(
       '[data-control="instructions"]',
     )[1];
@@ -274,7 +297,7 @@ describe("run", () => {
       "fetch",
       vi.fn(async () => new Response("<!doctype html>", { status: 200 })),
     );
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     submit("noul");
     await vi.waitFor(() => expect(document.body.textContent).toContain("a body that is not JSON"));
     expect(document.body.textContent).not.toMatch(/Jev|TypeSafe/);
@@ -282,12 +305,161 @@ describe("run", () => {
 
   it("posts the JSON text unchanged from the JSON view", async () => {
     const fetchMock = mockFetch();
-    setupPanels(document);
+    setupPanels(document, selectionOf(typesafe).selection);
     viewButton("noul", "json").click();
     const text = JSON.stringify(noulExample);
     textarea("noul").value = text;
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0]?.[1].body).toBe(text);
+  });
+});
+
+describe("provider selection", () => {
+  /** A copy of `provider` whose Score levels stop at `max`, or have no upper limit. */
+  function withLevelLimit(provider: ProviderSummary, max?: number): ProviderSummary {
+    return {
+      ...provider,
+      capabilities: {
+        ...provider.capabilities,
+        scoreLevels: max === undefined ? { min: 2 } : { min: 2, max },
+      },
+    };
+  }
+
+  function withoutLevelLimit(provider: ProviderSummary): ProviderSummary {
+    return withLevelLimit(provider);
+  }
+
+  function runButton(primitive: string): HTMLButtonElement {
+    return get<HTMLButtonElement>(`form[data-primitive="${primitive}"] .run`);
+  }
+
+  it("sends Run to the selected provider and names it while waiting", async () => {
+    const fetchMock = mockFetch();
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    choose(subq);
+    submit("score");
+    expect(get("#readout-body").textContent).toBe("Asking SubQ Snap…");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/decide/subq");
+  });
+
+  it("disables every Run button while there is no provider, and enables them when one arrives", () => {
+    const fetchMock = mockFetch();
+    const { selection, choose } = selectionOf(undefined);
+    setupPanels(document, selection);
+    for (const primitive of ["noul", "choice", "score"]) {
+      expect(runButton(primitive).disabled).toBe(true);
+    }
+    submit("noul");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    choose(typesafe);
+    for (const primitive of ["noul", "choice", "score"]) {
+      expect(runButton(primitive).disabled).toBe(false);
+    }
+
+    choose(undefined);
+    expect(runButton("noul").disabled).toBe(true);
+  });
+
+  /** Eleven levels, which the catalog's providers refuse and a provider with no maximum accepts. */
+  function elevenLevels(): string {
+    const criteria = Array.from({ length: 11 }, (_, index) => `Level ${index}`);
+    return JSON.stringify({ ...scoreExample, criteria });
+  }
+
+  it("clears a panel's alert when the new provider accepts the request", () => {
+    const unlimited = withoutLevelLimit(subq);
+    const { selection, choose } = selectionOf(unlimited);
+    setupPanels(document, selection);
+    // With no limit, 11 levels are fine, and the tree shows them.
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    viewButton("score", "tree").click();
+    expect(viewButton("score", "tree").getAttribute("aria-pressed")).toBe("true");
+
+    // A provider whose maximum is 10 refuses them when Run is pressed.
+    choose(typesafe);
+    submit("score");
+    expect(status("score").dataset.tone).toBe("alert");
+    expect(status("score").textContent).not.toBe("");
+
+    choose(unlimited);
+    expect(status("score").textContent).toBe("");
+    expect(runButton("score").disabled).toBe(false);
+  });
+
+  it("clears the JSON view's error when the new provider accepts the request", () => {
+    const unlimited = withoutLevelLimit(subq);
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    viewButton("score", "tree").click();
+    expect(get("#score-error").hidden).toBe(false);
+    expect(status("score").dataset.tone).toBe("alert");
+    // The refused switch left focus in the textarea; the viewer then moves on to another Run button.
+    const elsewhere = runButton("noul");
+    elsewhere.focus();
+
+    choose(unlimited);
+    expect(get("#score-error").hidden).toBe(true);
+    expect(status("score").textContent).toBe("");
+    expect(runButton("score").disabled).toBe(false);
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("updates a shown JSON error to the new provider's limit without moving focus", () => {
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    viewButton("score", "tree").click();
+    expect(get("#score-error").textContent).toContain("at most 10");
+    const elsewhere = runButton("noul");
+    elsewhere.focus();
+
+    choose(withLevelLimit(subq, 6));
+    expect(get("#score-error").hidden).toBe(false);
+    expect(get("#score-error").textContent).toContain("at most 6");
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("shows nothing in the JSON view when a provider change makes valid JSON invalid, and Run then reports it", () => {
+    const unlimited = withoutLevelLimit(subq);
+    const { selection, choose } = selectionOf(unlimited);
+    setupPanels(document, selection);
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    // Run finds nothing wrong yet, because this provider takes 11 levels.
+    textarea("score").dispatchEvent(new Event("input", { bubbles: true }));
+    expect(get("#score-error").hidden).toBe(true);
+
+    choose(typesafe);
+    // Nothing was shown, so nothing is shown now; Run reports it.
+    expect(get("#score-error").hidden).toBe(true);
+    submit("score");
+    expect(get("#score-error").hidden).toBe(false);
+  });
+
+  it("replaces an alert with the new provider's own limit in the tree view", () => {
+    const { selection, choose } = selectionOf(withoutLevelLimit(subq));
+    setupPanels(document, selection);
+    viewButton("score", "json").click();
+    textarea("score").value = elevenLevels();
+    viewButton("score", "tree").click();
+
+    choose(typesafe);
+    submit("score");
+    expect(status("score").dataset.tone).toBe("alert");
+    expect(status("score").textContent).toContain("at most 10");
+
+    choose(withLevelLimit(subq, 6));
+    expect(status("score").dataset.tone).toBe("alert");
+    expect(status("score").textContent).toContain("at most 6");
+    expect(status("score").textContent).not.toContain("at most 10");
   });
 });

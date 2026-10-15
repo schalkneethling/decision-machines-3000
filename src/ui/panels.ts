@@ -12,6 +12,7 @@ import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
 import { required } from "./dom.ts";
 import { describeJsonError } from "./json-error.ts";
+import type { ProviderSelection } from "./provider-select.ts";
 import {
   renderError,
   renderLoading,
@@ -71,6 +72,12 @@ function storeView(primitive: Primitive, view: View): void {
 
 function isPrimitive(value: string | undefined): value is Primitive {
   return value === "noul" || value === "choice" || value === "score";
+}
+
+/** What a request that failed validation says, with the path to the problem when there is one. */
+function invalidMessage(invalid: { error: string; detail?: string }): string {
+  const where = invalid.detail ? ` Path: ${invalid.detail}.` : "";
+  return `${invalid.error}${where}`;
 }
 
 function setStatus(panel: Panel, message: string, tone: "note" | "alert" = "note"): void {
@@ -158,8 +165,7 @@ function readJson(panel: Panel): ValidDecisionRequest | undefined {
 
   const validation = validateDecisionRequest(parsed, panel.capabilities);
   if (!validation.ok) {
-    const where = validation.detail ? ` Path: ${validation.detail}.` : "";
-    showFieldError(panel, `${validation.error}${where}`);
+    showFieldError(panel, invalidMessage(validation));
     return undefined;
   }
 
@@ -198,12 +204,13 @@ function switchView(panel: Panel, view: View): boolean {
   return true;
 }
 
-function showFieldError(panel: Panel, message: string): void {
+/** Shows `message` under the textarea. Focus moves to the textarea unless `focus` is false. */
+function showFieldError(panel: Panel, message: string, focus = true): void {
   panel.error.textContent = message;
   panel.error.hidden = false;
   panel.field.setAttribute("aria-invalid", "true");
   panel.field.setAttribute("aria-describedby", `${panel.error.id} ${panel.hintId}`);
-  panel.field.focus();
+  if (focus) panel.field.focus();
 }
 
 function clearFieldError(panel: Panel): void {
@@ -235,11 +242,48 @@ function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } 
   // The tree found nothing wrong; the shared validator has the final word.
   const validation = validateDecisionRequest(panel.request, panel.capabilities);
   if (!validation.ok) {
-    const where = validation.detail ? ` Path: ${validation.detail}.` : "";
-    setStatus(panel, `${validation.error}${where}`, "alert");
+    setStatus(panel, invalidMessage(validation), "alert");
     return undefined;
   }
   return { sent: validation.value, body: JSON.stringify(validation.value) };
+}
+
+/**
+ * Checks what a panel shows against the limits of a newly selected provider, so
+ * a problem the old limits caused goes away, and a new one is shown, without
+ * another press of Run. Nothing here moves focus.
+ */
+function revalidate(panel: Panel): void {
+  panel.composer.setCapabilities(panel.capabilities);
+
+  if (panel.view === "json") {
+    const parsed = tryParse(panel.field.value);
+    // A syntax error stays as it is shown; only validity depends on the provider.
+    if (!parsed.ok) return;
+    const validation = validateDecisionRequest(parsed.value, panel.capabilities);
+    if (validation.ok) {
+      panel.request = validation.value;
+      if (!panel.error.hidden) clearFieldError(panel);
+      if (panel.status.dataset.tone === "alert") setStatus(panel, "");
+    } else if (!panel.error.hidden) {
+      showFieldError(panel, invalidMessage(validation), false);
+    }
+    return;
+  }
+
+  // In the tree, an alert means Run found a problem; look again with the new limits.
+  if (panel.status.dataset.tone !== "alert") return;
+  const [issue] = panel.composer.revealIssues();
+  if (issue !== undefined) {
+    setStatus(panel, issue.message, "alert");
+    return;
+  }
+  const validation = validateDecisionRequest(panel.request, panel.capabilities);
+  if (validation.ok) {
+    setStatus(panel, "");
+  } else {
+    setStatus(panel, invalidMessage(validation), "alert");
+  }
 }
 
 function renderResult(sent: unknown, result: AskResult): HTMLElement {
@@ -270,28 +314,52 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
   }
 }
 
-/** Fills each panel with its example, wires the Tree and JSON views, and wires Run to the shared readout. */
-export function setupPanels(root: Document): void {
+/**
+ * Fills each panel with its example, wires the Tree and JSON views, and wires
+ * Run to the shared readout and to the provider `selection` holds. Run stays
+ * disabled while the selection has no provider.
+ */
+export function setupPanels(root: Document, selection: ProviderSelection): void {
   const readout = required(root, "#readout-body", HTMLElement);
   // Outside the live region, so the JSON is never announced.
   const wire = required(root, "#wire-body", HTMLElement);
-  // The one place the panels learn which provider's limits apply.
-  const capabilities = DEFAULT_PROVIDER.capabilities;
+  // Until a provider is selected, requests are checked against the default provider's limits.
+  const capabilities = selection.current()?.capabilities ?? DEFAULT_PROVIDER.capabilities;
   const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
     setupPanel(form, capabilities),
   );
   let running = false;
 
-  function setRunning(active: Panel | undefined): void {
-    running = active !== undefined;
-    readout.setAttribute("aria-busy", String(running));
+  function updateButtons(active?: Panel): void {
+    const unavailable = selection.current() === undefined;
     for (const panel of panels) {
-      panel.button.disabled = running;
+      panel.button.disabled = running || unavailable;
       panel.label.textContent = panel === active ? "Running" : "Run";
     }
   }
 
+  function setRunning(active: Panel | undefined): void {
+    running = active !== undefined;
+    readout.setAttribute("aria-busy", String(running));
+    updateButtons(active);
+  }
+
+  selection.subscribe((provider) => {
+    if (provider !== undefined) {
+      for (const panel of panels) {
+        panel.capabilities = provider.capabilities;
+        revalidate(panel);
+      }
+    }
+    updateButtons();
+  });
+  updateButtons();
+
   async function run(panel: Panel): Promise<void> {
+    const provider = selection.current();
+    if (provider === undefined) {
+      return;
+    }
     const prepared = prepareRun(panel);
     if (prepared === undefined) {
       return;
@@ -299,11 +367,10 @@ export function setupPanels(root: Document): void {
 
     setStatus(panel, "");
     setRunning(panel);
-    readout.replaceChildren(renderLoading());
+    readout.replaceChildren(renderLoading(provider.displayName));
     wire.replaceChildren();
     try {
-      // Hard-wired to the default provider until the provider select lands (#12).
-      const result = await askProvider(DEFAULT_PROVIDER.id, prepared.body);
+      const result = await askProvider(provider.id, prepared.body);
       readout.replaceChildren(renderResult(prepared.sent, result));
       if (result.kind === "response") wire.replaceChildren(renderWire(result.response));
     } finally {

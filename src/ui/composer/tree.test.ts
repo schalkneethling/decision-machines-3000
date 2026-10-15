@@ -61,6 +61,54 @@ function levelKeys(harness: Harness): string[] {
   return criteria?.kind === "score" ? criteria.levels.map((level) => level.key) : [];
 }
 
+describe("setCapabilities", () => {
+  it("re-reports a touched row against the new limits, and clears it again", () => {
+    const harness = mount(scoreExample);
+    // Adding a level touches the shared levels, so their issues show.
+    harness.get<HTMLButtonElement>(control("shared", "add")).click();
+    const slot = harness.get("#test-shared-issue");
+    expect(slot.hidden).toBe(true);
+
+    harness.composer.setCapabilities({
+      ...DEFAULT_PROVIDER.capabilities,
+      scoreLevels: { min: 2, max: 4 },
+    });
+    expect(slot.hidden).toBe(false);
+    expect(slot.textContent).toBe("Shared levels have 5 levels. Use at most 4. Remove 1.");
+
+    harness.composer.setCapabilities(DEFAULT_PROVIDER.capabilities);
+    expect(slot.hidden).toBe(true);
+  });
+
+  it("marks a touched field invalid under the new limits, and valid again after", () => {
+    const harness = mount(noulExample);
+    const [first] = questionKeys(harness);
+    const id = harness.get<HTMLInputElement>(control(first!, "id"));
+    type(id, "would_recommend");
+    expect(id.hasAttribute("aria-invalid")).toBe(false);
+
+    harness.composer.setCapabilities({
+      ...DEFAULT_PROVIDER.capabilities,
+      questionNameMaxLength: 5,
+    });
+    expect(id.getAttribute("aria-invalid")).toBe("true");
+    expect(harness.get(`#test-${first}-issue`).hidden).toBe(false);
+
+    harness.composer.setCapabilities(DEFAULT_PROVIDER.capabilities);
+    expect(id.hasAttribute("aria-invalid")).toBe(false);
+    expect(harness.get(`#test-${first}-issue`).hidden).toBe(true);
+  });
+
+  it("leaves rows that were never touched alone", () => {
+    const harness = mount(scoreExample);
+    harness.composer.setCapabilities({
+      ...DEFAULT_PROVIDER.capabilities,
+      scoreLevels: { min: 2, max: 3 },
+    });
+    expect(harness.get("#test-shared-issue").hidden).toBe(true);
+  });
+});
+
 describe("tree structure", () => {
   it("renders the state, shared criteria, each question, and an add button as one spine", () => {
     const harness = mount(choiceExample);

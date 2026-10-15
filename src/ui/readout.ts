@@ -8,7 +8,7 @@ import type {
   ScoreAnswer,
 } from "../decision/contract.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
-import { create } from "./dom.ts";
+import { appendWithInlineCode, create } from "./dom.ts";
 
 /**
  * Pure renderers for the readout. Each takes data and returns a detached element;
@@ -33,16 +33,6 @@ function clampUnit(value: number): number {
 
 function jsonText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-/** Appends text, turning `backticked` spans into `<code>` elements. */
-function appendWithInlineCode(parent: HTMLElement, text: string): void {
-  text.split(/`([^`]+)`/).forEach((part, index) => {
-    if (part === "") {
-      return;
-    }
-    parent.append(index % 2 === 1 ? create("code", { text: part }) : part);
-  });
 }
 
 /**
@@ -216,8 +206,9 @@ export function metadataSentence(response: DecisionSuccess): string {
   return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens.`;
 }
 
-export function renderLoading(): HTMLElement {
-  return create("p", { className: "readout-status", text: "Asking the model…" });
+/** The line shown while a run waits, naming the provider it was sent to. */
+export function renderLoading(providerName: string): HTMLElement {
+  return create("p", { className: "readout-status", text: `Asking ${providerName}…` });
 }
 
 export function renderError(message: string | (Node | string)[], detail?: string): HTMLElement {

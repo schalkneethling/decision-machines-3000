@@ -174,7 +174,7 @@ describe("renderResponse for a failure", () => {
 
 describe("status renderers", () => {
   it("shows the loading sentence", () => {
-    expect(renderLoading().textContent).toBe("Asking the model…");
+    expect(renderLoading("SubQ Snap").textContent).toBe("Asking SubQ Snap…");
   });
 
   it("says the endpoint could not be reached, without assuming how the app is served", () => {
@@ -247,7 +247,7 @@ describe("provider-neutral copy", () => {
       answers: { recommends: { type: "refusal" } },
     };
     const rendered = [
-      renderLoading(),
+      renderLoading("the selected provider"),
       renderResponse(noulExample, { ...noulResponse, ...model }),
       renderResponse(choiceExample, { ...choiceResponse, ...model }),
       renderResponse(scoreExample, { ...scoreResponse, ...model }),

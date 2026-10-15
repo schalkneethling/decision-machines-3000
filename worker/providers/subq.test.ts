@@ -616,7 +616,7 @@ describe("POST /api/decide/subq", () => {
     return { response, text, body: JSON.parse(text) as Record<string, unknown>, handlerDeps };
   }
 
-  it("answers 200 through the SubQ adapter, no longer 501", async () => {
+  it("answers 200 through the SubQ adapter", async () => {
     const { fetch, calls } = jsonFetch(200, threeTypesReplyWith("escalate"));
     const { response, body } = await post(fetch);
 

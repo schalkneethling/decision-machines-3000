@@ -91,12 +91,11 @@ Feature: The SubQ Snap adapter translates the neutral request to SubQ's wire and
     Then the response status is 402
     And the response error says "SubQ Snap has no credit left on this account"
 
-  Scenario: A configured SubQ no longer answers 501
+  Scenario: A configured SubQ answers through its adapter
     Given SUBQ_API_KEY is set
     When POST /api/decide/subq runs with a valid request and a stubbed success
     Then the response status is 200
     And the provider is "subq" and the model is "subq-snap-preview"
-    And a provider with a key but no adapter, OpenAI until issue #11, still answers 501
 
   Scenario: The key never appears in an error
     Given a stubbed SubQ reply that quotes the API key in its error message

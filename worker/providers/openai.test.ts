@@ -1020,7 +1020,12 @@ describe("through POST /api/decide/openai", () => {
   const env: ProviderKeys = { OPENAI_API_KEY: OPENAI_KEY };
 
   function deps(fetch: Fetch): HandlerDeps {
-    return { fetch, timeoutSignal: () => new AbortController().signal, log: vi.fn() };
+    return {
+      host: "node-dev",
+      fetch,
+      timeoutSignal: () => new AbortController().signal,
+      log: vi.fn(),
+    };
   }
 
   function post(request: DecisionRequest): Request {

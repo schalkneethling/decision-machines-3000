@@ -73,7 +73,11 @@ describe("the dev host middleware", () => {
     const base = await serve(apiMiddleware(() => withOpenAI));
 
     const viaHost = await fetch(`${base}/api/providers`);
-    const direct = await handle(new Request(`${base}/api/providers`), withOpenAI, defaultDeps());
+    const direct = await handle(
+      new Request(`${base}/api/providers`),
+      withOpenAI,
+      defaultDeps("node-dev"),
+    );
 
     expect(viaHost.status).toBe(direct.status);
     expect(viaHost.headers.get("cache-control")).toBe("no-store");

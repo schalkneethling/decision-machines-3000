@@ -1,8 +1,9 @@
 import { PROVIDER_ORDER, PROVIDERS } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
-import type { ProviderSummary } from "../providers/contract.ts";
+import type { Protection, ProviderSummary } from "../providers/contract.ts";
 import { getProviders } from "./client.ts";
 import { appendWithInlineCode, create, required } from "./dom.ts";
+import { DEPLOYMENT_GUIDE_URL, renderProtectionNotice } from "./protection-notice.ts";
 import { VOCABULARY } from "./vocabulary.ts";
 
 /**
@@ -27,12 +28,6 @@ export type ProviderSelection = {
 };
 
 const PROVIDER_STORAGE_KEY = "decisionmachines3000:provider";
-
-/**
- * Where the setup notice sends the owner. The deployment guide is not written
- * yet (issue #17), so this is the README until it is.
- */
-export const DEPLOYMENT_GUIDE_URL = "https://github.com/schalkneethling/jev-3000#readme";
 
 /** The provider this viewer last chose. A per-viewer convenience: any storage failure means "none". */
 function readStoredProvider(): string | undefined {
@@ -97,6 +92,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
   const select = required(root, "#provider-select", HTMLSelectElement);
   const problem = required(root, "#provider-problem", HTMLElement);
   const status = required(root, "#provider-status", HTMLElement);
+  const protectionNotice = required(root, "#protection-notice", HTMLElement);
   const legend = required(root, "#provider-vocabulary", HTMLDetailsElement);
   const legendSummary = required(legend, "summary", HTMLElement);
   const legendList = required(legend, "dl", HTMLElement);
@@ -134,6 +130,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     setOptions([placeholderOption(placeholder)]);
     status.textContent = "";
     problem.replaceChildren(...notice);
+    renderProtectionNotice(protectionNotice, undefined);
     renderLegend(undefined);
     choose(undefined);
   }
@@ -158,7 +155,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     ]);
   }
 
-  function showReady(list: ProviderSummary[]): void {
+  function showReady(list: ProviderSummary[], protection: Protection): void {
     const stored = readStoredProvider();
     const chosen = list.find((provider) => provider.id === stored) ?? list.at(0);
     if (chosen === undefined) {
@@ -170,6 +167,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
 
     providers = list;
     problem.replaceChildren();
+    renderProtectionNotice(protectionNotice, protection);
     const options = list.map(optionFor);
     setOptions(options);
     select.disabled = false;
@@ -209,7 +207,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     status.textContent = "";
 
     if (result.kind === "response" && result.response.ok) {
-      showReady(result.response.providers);
+      showReady(result.response.providers, result.response.protection);
     } else if (result.kind === "response" && result.status === 503) {
       // The route answers 503 only when no provider key is set; any other failure may pass.
       showUnavailable("No provider key is set", [setupNotice()]);

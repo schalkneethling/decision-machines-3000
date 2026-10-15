@@ -9,8 +9,10 @@
  * the deployment's secrets.
  *
  * The routes:
- * - `GET /api/providers` lists the providers whose key is set.
- * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`).
+ * - `GET /api/providers` lists the providers whose key is set, and reports how
+ *   the instance is protected.
+ * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`),
+ *   once the protection gate (`protection.ts`) lets the request through.
  * - Any other `/api` path answers a JSON 404.
  */
 
@@ -20,31 +22,43 @@ import { PROVIDERS_ENDPOINT, toProviderSummary } from "../src/providers/contract
 import { decide } from "./decide.ts";
 import { MISSING_KEYS_MESSAGE, configuredProviders } from "./env.ts";
 import type { ProviderKeys } from "./env.ts";
+import { configuredProtection, refuseUnprotected, reportProtection } from "./protection.ts";
+import type { Host, ProtectionVars } from "./protection.ts";
 import { failure, json } from "./respond.ts";
+
+/** Everything the handler reads from the environment: the provider keys and the protection variables. */
+export type HandlerEnv = ProviderKeys & ProtectionVars;
 
 /**
  * What the handler takes from its host instead of from globals, so tests can
  * pass doubles for each:
- * - `fetch`: the function provider calls go through.
+ * - `host`: which host is calling. Only `"node-dev"`, the Vite dev server in
+ *   Node, counts as local and skips the protection gate; it is a fact about the
+ *   calling code, never read from the request, so no request can claim it.
+ * - `fetch`: the function provider calls and the Access key fetch go through.
  * - `timeoutSignal`: an abort signal that fires after `ms` milliseconds; the
  *   hosts pass `AbortSignal.timeout`. Injected because Vitest's fake timers do
  *   not advance `AbortSignal.timeout`, so a test of the 25-second budget passes
  *   one built on `setTimeout` instead.
- * - `log`: where the decide route writes one line per provider call.
+ * - `log`: where the decide route writes one line per provider call, and the
+ *   gate one line per refusal.
  */
 export type HandlerDeps = {
+  host: Host;
   fetch: typeof fetch;
   timeoutSignal: (ms: number) => AbortSignal;
   log: (line: string) => void;
 };
 
 /**
- * The dependencies both hosts give the handler. `fetch` is bound to
- * `globalThis`, because the handler calls it as `deps.fetch(...)` and workerd
- * rejects a `fetch` called with any other `this` ("Illegal invocation").
+ * The dependencies a host gives the handler, with `host` naming the caller.
+ * `fetch` is bound to `globalThis`, because the handler calls it as
+ * `deps.fetch(...)` and workerd rejects a `fetch` called with any other `this`
+ * ("Illegal invocation").
  */
-export function defaultDeps(): HandlerDeps {
+export function defaultDeps(host: Host): HandlerDeps {
   return {
+    host,
     fetch: globalThis.fetch.bind(globalThis),
     timeoutSignal: (ms) => AbortSignal.timeout(ms),
     log: (line) => {
@@ -53,7 +67,7 @@ export function defaultDeps(): HandlerDeps {
   };
 }
 
-type Route = (request: Request, env: ProviderKeys, deps: HandlerDeps) => Promise<Response>;
+type Route = (request: Request, env: HandlerEnv, deps: HandlerDeps) => Promise<Response>;
 
 type Methods = Readonly<Record<string, Route>>;
 
@@ -75,15 +89,37 @@ async function headOf(response: Promise<Response>): Promise<Response> {
 }
 
 /**
- * Lists the providers whose key is set. It reads each key only to decide whether
- * it is set, so no value, length, or prefix can reach the body.
+ * Lists the providers whose key is set, with the instance's protection state.
+ * It reads each key only to decide whether it is set, so no value, length, or
+ * prefix can reach the body. The list itself needs no token: it is the public
+ * catalog filtered, and the UI needs the protection state to explain a refusal.
  */
-async function listProviders(_request: Request, env: ProviderKeys): Promise<Response> {
+async function listProviders(
+  request: Request,
+  env: HandlerEnv,
+  deps: HandlerDeps,
+): Promise<Response> {
   const ids = configuredProviders(env);
   if (ids.length === 0) {
     return failure(503, MISSING_KEYS_MESSAGE);
   }
-  return json({ ok: true, providers: ids.map((id) => toProviderSummary(PROVIDERS[id])) }, 200);
+  const protection = await reportProtection(request, configuredProtection(env, deps.host), deps);
+  return json(
+    { ok: true, providers: ids.map((id) => toProviderSummary(PROVIDERS[id])), protection },
+    200,
+  );
+}
+
+/**
+ * A route that calls a provider, behind the protection gate: the gate's
+ * refusal, or the route's own answer. It runs before the route reads anything,
+ * so a refused request is never parsed.
+ */
+function protectedRoute(route: Route): Route {
+  return async (request, env, deps) => {
+    const refusal = await refuseUnprotected(request, configuredProtection(env, deps.host), deps);
+    return refusal ?? route(request, env, deps);
+  };
 }
 
 /**
@@ -100,7 +136,7 @@ function decideTarget(pathname: string): string | undefined {
 function routesFor(pathname: string): Methods | undefined {
   const providerId = decideTarget(pathname);
   if (providerId !== undefined) {
-    return { POST: (request, env, deps) => decide(providerId, request, env, deps) };
+    return { POST: protectedRoute((request, env, deps) => decide(providerId, request, env, deps)) };
   }
   return Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
 }
@@ -148,7 +184,7 @@ export function rejectMethod(pathname: string, method: string): Response {
 }
 
 /** Routes one `/api` request to its answer. */
-async function dispatch(request: Request, env: ProviderKeys, deps: HandlerDeps): Promise<Response> {
+async function dispatch(request: Request, env: HandlerEnv, deps: HandlerDeps): Promise<Response> {
   const { pathname } = new URL(request.url);
   const methods = routesFor(pathname);
   if (methods === undefined) {
@@ -174,7 +210,7 @@ async function dispatch(request: Request, env: ProviderKeys, deps: HandlerDeps):
  */
 export async function handle(
   request: Request,
-  env: ProviderKeys,
+  env: HandlerEnv,
   deps: HandlerDeps,
 ): Promise<Response> {
   try {

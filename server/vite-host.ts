@@ -7,6 +7,12 @@
  * `fetch`, `AbortSignal.timeout`, and `console.info`), and writes the
  * `Response` back. Every `/api` path reaches `handle`, including the old
  * `/api/jev` paths, which now answer a JSON 404.
+ *
+ * It names itself the `"node-dev"` host, the only one the protection gate
+ * (ADR-0003) treats as local: this middleware runs only inside the Vite dev
+ * server on the developer's machine, so provider calls proceed here without
+ * Cloudflare Access or the opt-out. That is a fact about this code, not about
+ * any request, which is why no header or hostname can claim it.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -194,7 +200,7 @@ export function apiMiddleware(
     toRequest(req, new URL(`${origin}${target}`))
       .then((request) =>
         // The Worker's own 413, so the two hosts answer an oversized body alike.
-        request === undefined ? tooLarge() : handler(request, readKeys(), defaultDeps()),
+        request === undefined ? tooLarge() : handler(request, readKeys(), defaultDeps("node-dev")),
       )
       .then(answered)
       .catch(failed);

@@ -4,9 +4,11 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { PROVIDERS } from "../providers/catalog.ts";
 import { toProviderSummary } from "../providers/contract.ts";
+import type { Protection } from "../providers/contract.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
-import { DEPLOYMENT_GUIDE_URL, setupProviderSelect } from "./provider-select.ts";
+import { DEPLOYMENT_GUIDE_URL } from "./protection-notice.ts";
+import { setupProviderSelect } from "./provider-select.ts";
 
 const page = readFileSync(resolve(import.meta.dirname, "../../index.html"), "utf8");
 // The page's own module script is left out: the tests call the setup functions themselves.
@@ -51,8 +53,13 @@ function answerProviders(...answers: Response[]) {
   return fetchMock;
 }
 
+/** A success for a local instance; `listedWith` sets another protection state. */
 function listed(...providers: (typeof typesafe)[]): Response {
-  return Response.json({ ok: true, providers });
+  return listedWith({ mode: "local" }, ...providers);
+}
+
+function listedWith(protection: Protection, ...providers: (typeof typesafe)[]): Response {
+  return Response.json({ ok: true, providers, protection });
 }
 
 const missingKeys = () =>
@@ -414,5 +421,60 @@ describe("Run follows the select", () => {
     );
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/decide/subq");
+  });
+});
+
+describe("the protection notice on a deployed instance", () => {
+  it("fills #protection-notice from the list's protection state and links the guide", async () => {
+    answerProviders(
+      listedWith(
+        { mode: "unconfigured", detail: "Neither Cloudflare Access nor the opt-out is set." },
+        typesafe,
+      ),
+    );
+    await load();
+    const notice = get("#protection-notice");
+    expect(notice.hidden).toBe(false);
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.textContent).toContain("provider calls are refused");
+    expect(notice.textContent).toContain("Neither Cloudflare Access nor the opt-out is set.");
+    expect(notice.querySelector("a")?.getAttribute("href")).toBe(DEPLOYMENT_GUIDE_URL);
+    // The select still works: the gate refuses runs, it does not hide them.
+    expect(providerSelect().disabled).toBe(false);
+    expect(runButtons().every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("says an opted-out instance runs for anyone", async () => {
+    answerProviders(listedWith({ mode: "opted_out" }, typesafe));
+    await load();
+    expect(get("#protection-notice").textContent).toContain("run up the provider bill");
+  });
+
+  it("stays hidden for a local instance and for a validated Access request", async () => {
+    answerProviders(listed(typesafe));
+    await load();
+    expect(get("#protection-notice").hidden).toBe(true);
+
+    document.body.innerHTML = body;
+    answerProviders(listedWith({ mode: "access", validated: true }, typesafe));
+    await load();
+    expect(get("#protection-notice").hidden).toBe(true);
+    expect(get("#protection-notice").textContent).toBe("");
+  });
+
+  it("is cleared when a reload ends without a list", async () => {
+    const fetchMock = answerProviders(
+      listedWith({ mode: "opted_out" }, typesafe),
+      Response.json({ ok: false, error: "No." }, { status: 500 }),
+    );
+    await load();
+    expect(get("#protection-notice").hidden).toBe(false);
+
+    // The second load fails, so the notice no longer describes a list that is not there.
+    document.body.innerHTML = body;
+    await load();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(get("#protection-notice").hidden).toBe(true);
+    expect(get("#protection-notice").textContent).toBe("");
   });
 });

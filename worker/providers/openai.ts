@@ -136,6 +136,7 @@ function toWireInput(request: WireInput): string | UserMessage[] {
   ];
 }
 
+/** One image as an `input_image` part, its bytes carried in a `data:` URL. */
 function toImagePart(image: WireImage): ImagePart {
   return { type: "input_image", image_url: `data:${image.mediaType};base64,${image.base64}` };
 }
@@ -191,6 +192,7 @@ function hasText(meaning: Content | undefined): meaning is Content {
   return meaning !== undefined && !isBlank(meaning);
 }
 
+/** Whether a value is a string with nothing but whitespace in it. */
 function isBlank(value: unknown): boolean {
   return typeof value === "string" && value.trim() === "";
 }

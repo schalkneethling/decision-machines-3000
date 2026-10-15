@@ -570,13 +570,13 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     const deps = stubDeps();
 
     const { response, body } = await decideWith(
-      postJson("/api/decide/subq", yesNo),
-      { SUBQ_API_KEY: "sk-subq" },
+      postJson("/api/decide/openai", yesNo),
+      { OPENAI_API_KEY: "sk-openai" },
       deps,
     );
 
     expect(response.status).toBe(501);
-    expect(body.error).toBe("SubQ Snap is not available in this version yet.");
+    expect(body.error).toBe("OpenAI Decisions is not available in this version yet.");
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 

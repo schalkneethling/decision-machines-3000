@@ -150,6 +150,29 @@ describe("tree structure", () => {
     );
   });
 
+  it("keeps numbering from 0 when a level is added", () => {
+    const harness = mount(scoreExample);
+    harness.get<HTMLButtonElement>(control("shared", "add")).click();
+    const labels = harness
+      .all(".level-row .field-description label")
+      .map((label) => label.textContent);
+    expect(labels.at(-1)).toBe("Level 4");
+  });
+
+  it("gives a question's own levels a hint of its own, next to the shared one", () => {
+    const harness = mount(scoreExample);
+    const [question] = questionKeys(harness);
+    harness.get<HTMLButtonElement>(control(question!, "override")).click();
+
+    const hints = harness.all(".level-group > .tree-hint");
+    const ids = hints.map((hint) => hint.id);
+    expect(ids).toEqual(["test-shared-levels-hint", `test-${question}-levels-hint`]);
+    for (const id of ids) {
+      expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
+      expect(document.querySelector(`[aria-describedby="${id}"]`)?.tagName).toBe("UL");
+    }
+  });
+
   it("leaves option numbering from 1 and shows no levels hint on a choice request", () => {
     const harness = mount(choiceExample);
     expect(document.querySelector("#test-shared-levels-hint")).toBeNull();

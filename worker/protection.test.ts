@@ -12,7 +12,7 @@ import {
   toBase64Url,
 } from "./fixtures/access-tokens.ts";
 import type { Signer } from "./fixtures/access-tokens.ts";
-import { handle } from "./handler.ts";
+import { UNGATED_ROUTES, handle, handleRoutes } from "./handler.ts";
 import type { HandlerDeps, HandlerEnv } from "./handler.ts";
 import {
   OPT_OUT_VALUE,
@@ -253,7 +253,52 @@ describe("configuredProtection", () => {
   });
 });
 
+describe("the gate applies to every spending route", () => {
+  /** A table with one route of each kind, as a future change might add. */
+  const routes = {
+    "/api/example": {
+      GET: () => Promise.resolve(Response.json({ ok: true, free: true })),
+      POST: () => Promise.resolve(Response.json({ ok: true, spent: true })),
+    },
+  };
+
+  function example(method: string): Request {
+    return new Request(`${ORIGIN}/api/example`, { method });
+  }
+
+  it("gates a POST route in the table on an unconfigured instance, with no per-route wrapping", async () => {
+    const deps = stubDeps();
+
+    const response = await handleRoutes(routes, example("POST"), keyOnly, deps);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ ok: false, error: UNCONFIGURED_MESSAGE });
+  });
+
+  it("lets the same POST route answer for the local host", async () => {
+    const response = await handleRoutes(routes, example("POST"), keyOnly, stubDeps("node-dev"));
+
+    expect(await response.json()).toEqual({ ok: true, spent: true });
+  });
+
+  it.each(["GET", "HEAD"])("does not gate %s, which spends nothing", async (method) => {
+    const response = await handleRoutes(routes, example(method), keyOnly, stubDeps());
+
+    expect(response.status).toBe(200);
+  });
+
+  it("exempts no route today", () => {
+    expect(UNGATED_ROUTES.size).toBe(0);
+  });
+});
+
 describe("POST /api/decide/{provider} on a deployed instance", () => {
+  it("is unconfigured when the team is set and the audience is an empty string", () => {
+    expect(
+      configuredProtection({ ACCESS_TEAM_DOMAIN: "myteam", ACCESS_AUD: "" }, "worker"),
+    ).toEqual({ mode: "unconfigured", detail: `${teamDomain} is set, but ${audience} is not.` });
+  });
+
   it("refuses an unconfigured instance with a 503 that says how to fix it, calling no provider", async () => {
     const deps = stubDeps();
 
@@ -517,6 +562,7 @@ describe("GET /api/providers reports the protection state", () => {
     expect(answer.body.protection).toEqual({
       mode: "access",
       validated: false,
+      reason: "token",
       problem: TOKEN_PROBLEM_SENTENCES.missing,
     });
     expect(deps.fetch).not.toHaveBeenCalled();
@@ -530,9 +576,24 @@ describe("GET /api/providers reports the protection state", () => {
     expect(answer.body.protection).toEqual({
       mode: "access",
       validated: false,
+      reason: "token",
       problem: TOKEN_PROBLEM_SENTENCES.expired,
     });
     expectNoSecret(answer, token);
+  });
+
+  it("reports keys that could not be fetched apart from a token problem", async () => {
+    const deps = stubDeps("worker", () => Promise.resolve(new Response("busy", { status: 503 })));
+
+    const answer = await run(providersRequest(await validToken()), withAccess, deps);
+
+    expect(answer.response.status).toBe(200);
+    expect(answer.body.protection).toEqual({
+      mode: "access",
+      validated: false,
+      reason: "keys",
+      problem: expect.stringContaining("signing keys could not be fetched") as string,
+    });
   });
 
   it("answers HEAD with the GET headers and no body, gate included", async () => {

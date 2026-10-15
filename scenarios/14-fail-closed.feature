@@ -64,8 +64,37 @@ Feature: A deployed instance refuses provider calls until it is protected or the
     And the certs endpoint is stubbed with the test key pair's public key
     And the request carries a token signed by that key for the configured audience and issuer, unexpired
     When POST /api/decide/typesafe is called
-    Then the certs endpoint is fetched through deps.fetch with redirect "error" and a timeout signal
+    Then the certs endpoint is fetched through deps.fetch with redirect "manual" (workerd rejects "error") and a timeout signal
     And the provider is called once and the response is the DecisionSuccess
+
+  Scenario: A redirect from the certs endpoint is refused without being followed
+    Given the certs endpoint answers 302 with a Location header
+    When a well-formed token is verified
+    Then the result is keys_unavailable with detail "status 302", the fetch happens once, and the body is cancelled unread
+
+  Scenario: Claims that already fail cost no key fetch
+    Given a well-formed token for another audience, from another team, expired, or not yet valid
+    When it is verified
+    Then it is refused with that problem and the certs endpoint is never fetched
+    But the same claims are checked again after the signature, because unverified claims prove nothing
+
+  Scenario: A key of another type in the set does not hide the RSA key
+    Given the certs endpoint publishes an EC key before the team's RSA key
+    When a token signed by the RSA key is verified
+    Then it is accepted
+
+  Scenario: The issuer and the audience are compared whole
+    Given a correctly signed token whose iss is "https://myteam.cloudflareaccess.com.evil.com" or "https://myteam.cloudflareaccess.com/"
+    Then it is refused with "issuer"
+    Given a correctly signed token whose aud is the tag with a suffix, with a prefix, or a prefix of the tag, as a string or in a list
+    Then it is refused with "audience"
+
+  Scenario: Every non-GET route is gated by default
+    Given a route table with a GET and a POST route at /api/example, and no per-route wrapping
+    When POST /api/example is called on an unconfigured worker instance
+    Then the answer is the gate's 503
+    And GET and HEAD are answered without the gate
+    And UNGATED_ROUTES, the commented allow-list of exemptions, is empty
 
   Scenario: Keys that cannot be fetched fail closed with a 503
     Given deps.host is "worker", ACCESS_TEAM_DOMAIN and ACCESS_AUD are set
@@ -124,10 +153,13 @@ Feature: A deployed instance refuses provider calls until it is protected or the
     And it links the deployment guide
     Given GET /api/providers answers { "mode": "opted_out" }
     Then the notice says the instance is unprotected and anyone who reaches it can run up the bill
-    Given GET /api/providers answers { "mode": "access", "validated": false, "problem": "..." }
+    Given GET /api/providers answers { "mode": "access", "validated": false, "reason": "token", "problem": "..." }
     Then the notice says Access is configured but this request carried no valid token, and repeats the problem
+    Given GET /api/providers answers { "mode": "access", "validated": false, "reason": "keys", "problem": "..." }
+    Then the notice says the signing keys could not be fetched and to try again, and does not blame the token
     Given GET /api/providers answers { "mode": "local" } or { "mode": "access", "validated": true }
-    Then the notice is hidden and empty
+    Then the notice is empty
+    And the role="status" element is in the page, empty and never hidden, from the first paint, so filling it is announced; CSS collapses it with :empty
 
   Scenario: wrangler.jsonc decides the public hostnames explicitly
     Given the spike found that Wrangler enables workers_dev and preview_urls when neither is set

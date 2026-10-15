@@ -435,6 +435,7 @@ describe("the protection notice on a deployed instance", () => {
     await load();
     const notice = get("#protection-notice");
     expect(notice.hidden).toBe(false);
+    expect(notice.hasAttribute("hidden")).toBe(false);
     expect(notice.getAttribute("role")).toBe("status");
     expect(notice.textContent).toContain("provider calls are refused");
     expect(notice.textContent).toContain("Neither Cloudflare Access nor the opt-out is set.");
@@ -450,16 +451,26 @@ describe("the protection notice on a deployed instance", () => {
     expect(get("#protection-notice").textContent).toContain("run up the provider bill");
   });
 
-  it("stays hidden for a local instance and for a validated Access request", async () => {
+  it("stays empty, and in the accessibility tree, for a local instance and for a validated Access request", async () => {
     answerProviders(listed(typesafe));
     await load();
-    expect(get("#protection-notice").hidden).toBe(true);
+    expect(get("#protection-notice").textContent).toBe("");
+    expect(get("#protection-notice").hidden).toBe(false);
 
     document.body.innerHTML = body;
     answerProviders(listedWith({ mode: "access", validated: true }, typesafe));
     await load();
-    expect(get("#protection-notice").hidden).toBe(true);
     expect(get("#protection-notice").textContent).toBe("");
+    expect(get("#protection-notice").hidden).toBe(false);
+  });
+
+  it("is in the page, empty and not hidden, from the first paint, so filling it is announced", () => {
+    answerProviders(listed(typesafe));
+    setupProviderSelect(document);
+    const notice = get("#protection-notice");
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.hasAttribute("hidden")).toBe(false);
+    expect(notice.textContent).toBe("");
   });
 
   it("is cleared when a reload ends without a list", async () => {
@@ -468,13 +479,13 @@ describe("the protection notice on a deployed instance", () => {
       Response.json({ ok: false, error: "No." }, { status: 500 }),
     );
     await load();
-    expect(get("#protection-notice").hidden).toBe(false);
+    expect(get("#protection-notice").textContent).not.toBe("");
 
     // The second load fails, so the notice no longer describes a list that is not there.
     document.body.innerHTML = body;
     await load();
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(get("#protection-notice").hidden).toBe(true);
     expect(get("#protection-notice").textContent).toBe("");
+    expect(get("#protection-notice").hidden).toBe(false);
   });
 });

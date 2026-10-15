@@ -52,7 +52,9 @@ const providerSummarySchema = z.object({
  * How the instance protects the owner's provider credit (issue #14, ADR-0003):
  * - `local`: the Node dev host inside `vp dev`, which only the developer can reach.
  * - `access`: Cloudflare Access is configured; `validated` says whether this
- *   very request carried a valid Access token, and `problem` says why not.
+ *   very request carried a valid Access token. When it did not, `reason` says
+ *   whether the token was at fault or the team's signing keys could not be
+ *   fetched, and `problem` says it in a sentence.
  * - `opted_out`: the owner set the opt-out variable and accepts an open instance.
  * - `unconfigured`: a deployed instance with neither, so every decision is
  *   refused; `detail` names the variables that are not set, never their values.
@@ -62,6 +64,7 @@ export const protectionSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("access"),
     validated: z.boolean(),
+    reason: z.exactOptional(z.literal(["token", "keys"])),
     problem: z.exactOptional(z.string()),
   }),
   z.object({ mode: z.literal("opted_out") }),

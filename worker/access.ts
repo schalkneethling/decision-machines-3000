@@ -11,17 +11,21 @@
  * 1. The token has three base64url parts, and the header's `alg` is `RS256`,
  *    the only algorithm Access signs with. Anything else, `none` included, is
  *    refused before any key is looked at.
- * 2. The team's current public keys are fetched from
- *    `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` and the key whose
- *    `kid` matches the header's is used. The page says to match `kid` against
- *    the published keys rather than cache one key, because Access rotates the
- *    pair every six weeks and keeps the previous one valid for seven days.
- * 3. The RSASSA-PKCS1-v1_5 / SHA-256 signature is checked with Web Crypto, which
- *    both workerd and Node provide, so no JWT library is needed.
- * 4. The claims: `iss` must be the team domain, `aud` must include the
- *    application's audience tag, `exp` must be in the future, and `nbf`, when
- *    present, must not be. There is no clock leeway: a token Access just issued
- *    is valid at once, and refusing a stale one is the point.
+ * 2. The claims are checked once before any fetch, unverified, so a token that
+ *    is plainly for another application or long expired costs no network call.
+ *    That early check proves nothing on its own, which is why step 4 repeats it.
+ * 3. The team's current public keys are fetched from
+ *    `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` and the RSA key
+ *    whose `kid` matches the header's is used. The page says to match `kid`
+ *    against the published keys rather than cache one key, because Access
+ *    rotates the pair every six weeks and keeps the previous one valid for seven
+ *    days. The RSASSA-PKCS1-v1_5 / SHA-256 signature is then checked with Web
+ *    Crypto, which both workerd and Node provide, so no JWT library is needed.
+ * 4. The claims, now signed: `iss` must equal the team domain, `aud` must
+ *    contain the application's audience tag as a whole value, `exp` must be in
+ *    the future, and `nbf`, when present, must not be. There is no clock leeway:
+ *    a token Access just issued is valid at once, and refusing a stale one is
+ *    the point.
  *
  * The keys are fetched for every verification and cached nowhere. A cache that
  * outlives a request would be the Worker's first mutable global, and one extra
@@ -142,17 +146,28 @@ const claimsSchema = z.object({
   nbf: z.exactOptional(z.number()),
 });
 
-/** The key set at `/cdn-cgi/access/certs`: the `keys` array of RSA public keys. */
+/**
+ * The key set at `/cdn-cgi/access/certs`: the `keys` array. `n` and `e` are
+ * optional here because a key of another type, published alongside the RSA
+ * ones, has neither, and must not make the whole set unreadable.
+ */
 const keySetSchema = z.object({
   keys: z.array(
     z.object({
       kid: z.string(),
       kty: z.string(),
-      n: z.string(),
-      e: z.string(),
+      n: z.exactOptional(z.string()),
+      e: z.exactOptional(z.string()),
     }),
   ),
 });
+
+/** A published key that can verify an RS256 signature: RSA, with both parameters. */
+type RsaKey = { kid: string; kty: "RSA"; n: string; e: string };
+
+function isRsaKey(key: z.output<typeof keySetSchema>["keys"][number]): key is RsaKey {
+  return key.kty === "RSA" && key.n !== undefined && key.e !== undefined;
+}
 
 type Parsed = {
   header: z.output<typeof headerSchema>;
@@ -199,8 +214,12 @@ export function certsUrl(issuer: string): string {
 }
 
 /**
- * Fetches the team's key set through `deps.fetch`, with one timeout and no
- * redirects, so a misconfigured team domain cannot send the request elsewhere.
+ * Fetches the team's key set through `deps.fetch`, with one timeout and
+ * without following redirects, so a misconfigured team domain cannot send the
+ * request elsewhere. `redirect` is `"manual"` rather than `"error"`, because
+ * workerd implements only `"follow"` and `"manual"` and throws on `"error"`;
+ * a redirect therefore comes back as its own 3xx, which the status check
+ * refuses, with its body cancelled unread and its `Location` never looked at.
  * Failures carry a status or an error class name, never the body.
  */
 async function fetchKeySet(
@@ -212,13 +231,16 @@ async function fetchKeySet(
     response = await deps.fetch(certsUrl(issuer), {
       method: "GET",
       headers: { accept: "application/json" },
-      redirect: "error",
+      redirect: "manual",
       signal: deps.timeoutSignal(ACCESS_CERTS_TIMEOUT_MS),
     });
   } catch (thrown) {
     return { ok: false, detail: thrown instanceof Error ? thrown.name : typeof thrown };
   }
-  if (response.status !== 200) return { ok: false, detail: `status ${response.status}` };
+  if (response.status !== 200) {
+    await discardBody(response);
+    return { ok: false, detail: `status ${response.status}` };
+  }
 
   let body: unknown;
   try {
@@ -232,11 +254,19 @@ async function fetchKeySet(
     : { ok: false, detail: "body is not a key set" };
 }
 
+/** Cancels a body that will not be read, so the connection is released. A body that cannot be cancelled is left alone. */
+async function discardBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Already closed or locked; nothing to release.
+  }
+}
+
 const RSA_SHA256 = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" };
 
 /** Imports one published RSA public key for verification only, or undefined when it is not usable. */
-async function importKey(key: KeySet["keys"][number]): Promise<CryptoKey | undefined> {
-  if (key.kty !== "RSA") return undefined;
+async function importKey(key: RsaKey): Promise<CryptoKey | undefined> {
   try {
     // Only `kty`, `n`, and `e` are passed, so a stray `alg` or `use` on the
     // published key cannot make the import fail or change the algorithm.
@@ -256,9 +286,27 @@ async function importKey(key: KeySet["keys"][number]): Promise<CryptoKey | undef
 // Verification
 // ---------------------------------------------------------------------------
 
-/** Whether `aud` (a string or a list) includes the application's audience. */
+/** Whether `aud` (a string or a list) holds the application's audience as a whole value. */
 function hasAudience(aud: string | string[], audience: string): boolean {
-  return typeof aud === "string" ? aud === audience : aud.includes(audience);
+  return typeof aud === "string" ? aud === audience : aud.some((value) => value === audience);
+}
+
+/**
+ * The first claim that fails for `application` at `nowSeconds`, or undefined
+ * when all pass. Called twice: on the unverified claims, to skip the key fetch
+ * for a token that cannot pass, and again once the signature has been checked,
+ * because only then do the claims mean anything.
+ */
+function claimProblem(
+  claims: z.output<typeof claimsSchema>,
+  application: AccessApplication,
+  nowSeconds: number,
+): TokenProblem | undefined {
+  if (claims.exp <= nowSeconds) return "expired";
+  if (claims.nbf !== undefined && claims.nbf > nowSeconds) return "not_yet_valid";
+  if (claims.iss !== application.issuer) return "issuer";
+  if (!hasAudience(claims.aud, application.audience)) return "audience";
+  return undefined;
 }
 
 /**
@@ -277,10 +325,12 @@ export async function verifyAccessToken(
   if (!parsed.ok) return parsed;
   const { header, claims, signed, signature } = parsed.parsed;
   if (header.alg !== "RS256") return { ok: false, problem: "algorithm" };
+  const early = claimProblem(claims, application, Date.now() / 1000);
+  if (early !== undefined) return { ok: false, problem: early };
 
   const keySet = await fetchKeySet(application.issuer, deps);
   if (!keySet.ok) return { ok: false, problem: "keys_unavailable", detail: keySet.detail };
-  const published = keySet.keys.keys.find((key) => key.kid === header.kid);
+  const published = keySet.keys.keys.filter(isRsaKey).find((key) => key.kid === header.kid);
   const key = published === undefined ? undefined : await importKey(published);
   if (key === undefined) return { ok: false, problem: "unknown_key" };
 
@@ -292,12 +342,6 @@ export async function verifyAccessToken(
   }
   if (!valid) return { ok: false, problem: "signature" };
 
-  const nowSeconds = Date.now() / 1000;
-  if (claims.exp <= nowSeconds) return { ok: false, problem: "expired" };
-  if (claims.nbf !== undefined && claims.nbf > nowSeconds) {
-    return { ok: false, problem: "not_yet_valid" };
-  }
-  if (claims.iss !== application.issuer) return { ok: false, problem: "issuer" };
-  if (!hasAudience(claims.aud, application.audience)) return { ok: false, problem: "audience" };
-  return { ok: true };
+  const problem = claimProblem(claims, application, Date.now() / 1000);
+  return problem === undefined ? { ok: true } : { ok: false, problem };
 }

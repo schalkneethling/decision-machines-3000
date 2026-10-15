@@ -434,7 +434,9 @@ code {
 
 /*
  * The protection notice (ADR-0003): a deployed instance that refuses runs, or
- * runs them for anyone. Hidden and empty when there is nothing to say.
+ * runs them for anyone. Like the status line, it stays in the page while
+ * empty, so that filling it is announced; only its padding and border go, so
+ * that an empty notice takes no room.
  */
 .protection-notice {
   margin: 0;
@@ -443,6 +445,11 @@ code {
   color: var(--ink);
   font-size: var(--size-meta);
   line-height: var(--leading-meta);
+}
+
+.protection-notice:empty {
+  padding: 0;
+  border: 0;
 }
 
 .protection-notice a {

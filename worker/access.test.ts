@@ -72,7 +72,7 @@ describe("verifyAccessToken", () => {
     expect(await verify(token)).toEqual({ ok: true });
   });
 
-  it("fetches the team's keys from the certs URL, following no redirect, with the timeout signal", async () => {
+  it("fetches the team's keys from the certs URL, without following a redirect, with the timeout signal", async () => {
     const token = await signToken(current, accessClaims(APPLICATION));
     const verifier = deps(servingKeys(current));
 
@@ -83,9 +83,78 @@ describe("verifyAccessToken", () => {
     expect(url).toBe("https://myteam.cloudflareaccess.com/cdn-cgi/access/certs");
     expect(certsUrl(APPLICATION.issuer)).toBe(url);
     expect(init.method).toBe("GET");
-    expect(init.redirect).toBe("error");
+    // workerd implements only "follow" and "manual"; it throws on "error".
+    expect(init.redirect).toBe("manual");
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(verifier.timeoutSignal).toHaveBeenCalledExactlyOnceWith(ACCESS_CERTS_TIMEOUT_MS);
+  });
+
+  it("refuses a redirect from the certs endpoint without following it or reading it", async () => {
+    const token = await signToken(current, accessClaims(APPLICATION));
+    let pulled = false;
+    let cancelled = false;
+    // A zero high-water mark, so `pull` runs only when something reads the body.
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull() {
+          pulled = true;
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    // Behaves as workerd does: `redirect: "error"` is not a value it accepts.
+    const verifier = deps((_input, init) => {
+      if (init?.redirect === "error") {
+        return Promise.reject(
+          new TypeError('Invalid redirect value, must be one of "follow" or "manual"'),
+        );
+      }
+      return Promise.resolve(
+        new Response(body, { status: 302, headers: { location: "https://elsewhere.example/" } }),
+      );
+    });
+
+    const result = await verifyAccessToken(token, APPLICATION, verifier);
+
+    expect(result).toEqual({ ok: false, problem: "keys_unavailable", detail: "status 302" });
+    expect(verifier.fetch).toHaveBeenCalledOnce();
+    expect(pulled).toBe(false);
+    expect(cancelled).toBe(true);
+  });
+
+  it.each([
+    ["for another audience", { aud: ["b".repeat(64)] }, "audience"],
+    ["expired", { exp: nowSeconds() - 60 }, "expired"],
+    ["not valid yet", { nbf: nowSeconds() + 3600 }, "not_yet_valid"],
+    ["from another team", { iss: "https://otherteam.cloudflareaccess.com" }, "issuer"],
+  ])(
+    "refuses a well-formed token that is %s before fetching any key, because the claims already fail",
+    async (_name, overrides, problem) => {
+      const token = await signToken(current, accessClaims(APPLICATION, overrides));
+
+      expect(await verify(token, unexpectedFetch)).toEqual({ ok: false, problem });
+    },
+  );
+
+  it("accepts the right RSA key published alongside a key of another type", async () => {
+    const token = await signToken(current, accessClaims(APPLICATION));
+    const published = keySetBody(current) as { keys: unknown[] };
+    published.keys.unshift({
+      kid: "ec-key",
+      kty: "EC",
+      alg: "ES256",
+      use: "sig",
+      crv: "P-256",
+      x: "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+      y: "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+    });
+
+    expect(await verify(token, () => Promise.resolve(Response.json(published)))).toEqual({
+      ok: true,
+    });
   });
 
   it.each([null, "", "   "])("refuses %j as missing, without fetching keys", async (token) => {
@@ -176,6 +245,33 @@ describe("verifyAccessToken", () => {
     ["for no audience", { aud: [] }, "audience"],
     ["from another team", { iss: "https://otherteam.cloudflareaccess.com" }, "issuer"],
     ["from the team's domain over http", { iss: "http://myteam.cloudflareaccess.com" }, "issuer"],
+    // The issuer is compared whole, not as a prefix.
+    [
+      "from a domain that starts with the team's",
+      { iss: "https://myteam.cloudflareaccess.com.evil.com" },
+      "issuer",
+    ],
+    [
+      "from the team's domain with a trailing slash",
+      { iss: "https://myteam.cloudflareaccess.com/" },
+      "issuer",
+    ],
+    // The audience is compared whole, not as a substring: every Access
+    // application of an account is signed with the same key.
+    ["for the tag with a suffix, as a string", { aud: `${APPLICATION.audience}0` }, "audience"],
+    ["for the tag with a prefix, as a string", { aud: `0${APPLICATION.audience}` }, "audience"],
+    [
+      "for a prefix of the tag, as a string",
+      { aud: APPLICATION.audience.slice(0, -1) },
+      "audience",
+    ],
+    ["for the tag with a suffix, in a list", { aud: [`${APPLICATION.audience}0`] }, "audience"],
+    ["for the tag with a prefix, in a list", { aud: [`0${APPLICATION.audience}`] }, "audience"],
+    [
+      "for a prefix of the tag, in a list",
+      { aud: [APPLICATION.audience.slice(0, -1)] },
+      "audience",
+    ],
   ])("refuses a correctly signed token that is %s", async (_name, overrides, problem) => {
     const token = await signToken(current, accessClaims(APPLICATION, overrides));
 

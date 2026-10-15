@@ -11,9 +11,12 @@
  * The routes:
  * - `GET /api/providers` lists the providers whose key is set, and reports how
  *   the instance is protected.
- * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`),
- *   once the protection gate (`protection.ts`) lets the request through.
+ * - `POST /api/decide/{provider}` runs a decision on one provider (`decide.ts`).
  * - Any other `/api` path answers a JSON 404.
+ *
+ * Every non-GET request with a route goes through the protection gate
+ * (`protection.ts`) before the route runs, unless the route is in
+ * `UNGATED_ROUTES`, so a spending route added later is protected by default.
  */
 
 import { DECIDE_PATH_PREFIX } from "../src/decision/contract.ts";
@@ -72,7 +75,9 @@ type Route = (request: Request, env: HandlerEnv, deps: HandlerDeps) => Promise<R
 type Methods = Readonly<Record<string, Route>>;
 
 /** The routes with a fixed path, by path and then by method. */
-const ROUTES: Readonly<Record<string, Methods>> = {
+export type RouteTable = Readonly<Record<string, Methods>>;
+
+const ROUTES: RouteTable = {
   [PROVIDERS_ENDPOINT]: { GET: listProviders },
 };
 
@@ -111,15 +116,27 @@ async function listProviders(
 }
 
 /**
- * A route that calls a provider, behind the protection gate: the gate's
- * refusal, or the route's own answer. It runs before the route reads anything,
- * so a refused request is never parsed.
+ * Routes that may answer a non-GET method without the protection gate, as
+ * `"METHOD /api/path"`. Every non-GET route is gated by default, because any
+ * route that is not a read may spend the owner's credit; a route goes here only
+ * when it demonstrably spends nothing, with a comment saying why. There is
+ * none today. A route with a path parameter, such as the decide route, cannot
+ * be listed, and none should be.
  */
-function protectedRoute(route: Route): Route {
-  return async (request, env, deps) => {
-    const refusal = await refuseUnprotected(request, configuredProtection(env, deps.host), deps);
-    return refusal ?? route(request, env, deps);
-  };
+export const UNGATED_ROUTES: ReadonlySet<string> = new Set<string>();
+
+/** Whether a request with this method and path goes through the protection gate. */
+function isGated(method: string, pathname: string): boolean {
+  if (method === "GET" || method === "HEAD") return false;
+  return !UNGATED_ROUTES.has(`${method} ${pathname}`);
+}
+
+/**
+ * The gate's refusal for a request, or undefined when it may proceed. It runs
+ * before the route reads anything, so a refused request is never parsed.
+ */
+function gate(request: Request, env: HandlerEnv, deps: HandlerDeps): Promise<Response | undefined> {
+  return refuseUnprotected(request, configuredProtection(env, deps.host), deps);
 }
 
 /**
@@ -133,12 +150,13 @@ function decideTarget(pathname: string): string | undefined {
   return id === "" || id.includes("/") ? undefined : id;
 }
 
-function routesFor(pathname: string): Methods | undefined {
+/** The methods a path answers: the decide route for `/api/decide/{id}`, otherwise the table's entry. */
+function routesFor(routes: RouteTable, pathname: string): Methods | undefined {
   const providerId = decideTarget(pathname);
   if (providerId !== undefined) {
-    return { POST: protectedRoute((request, env, deps) => decide(providerId, request, env, deps)) };
+    return { POST: (request, env, deps) => decide(providerId, request, env, deps) };
   }
-  return Object.hasOwn(ROUTES, pathname) ? ROUTES[pathname] : undefined;
+  return Object.hasOwn(routes, pathname) ? routes[pathname] : undefined;
 }
 
 /*
@@ -179,14 +197,23 @@ function methodNotAllowed(method: string, methods: Methods): Response {
  * The Node dev host uses it for TRACE and TRACK, which the Fetch API forbids.
  */
 export function rejectMethod(pathname: string, method: string): Response {
-  const methods = routesFor(pathname);
+  const methods = routesFor(ROUTES, pathname);
   return methods === undefined ? notFound() : methodNotAllowed(method, methods);
 }
 
-/** Routes one `/api` request to its answer. */
-async function dispatch(request: Request, env: HandlerEnv, deps: HandlerDeps): Promise<Response> {
+/**
+ * Routes one `/api` request to its answer. A non-GET request that has a route
+ * goes through the protection gate first (`isGated`), whatever the route is,
+ * so a route added later is protected without anyone remembering to wrap it.
+ */
+async function dispatch(
+  routes: RouteTable,
+  request: Request,
+  env: HandlerEnv,
+  deps: HandlerDeps,
+): Promise<Response> {
   const { pathname } = new URL(request.url);
-  const methods = routesFor(pathname);
+  const methods = routesFor(routes, pathname);
   if (methods === undefined) {
     return notFound();
   }
@@ -194,7 +221,8 @@ async function dispatch(request: Request, env: HandlerEnv, deps: HandlerDeps): P
   const { method } = request;
   const answer = Object.hasOwn(methods, method) ? methods[method] : undefined;
   if (answer !== undefined) {
-    return answer(request, env, deps);
+    const refusal = isGated(method, pathname) ? await gate(request, env, deps) : undefined;
+    return refusal ?? answer(request, env, deps);
   }
   if (method === "HEAD" && Object.hasOwn(methods, "GET")) {
     return headOf(methods.GET(request, env, deps));
@@ -203,21 +231,29 @@ async function dispatch(request: Request, env: HandlerEnv, deps: HandlerDeps): P
 }
 
 /**
- * Answers one `/api` request. Anything a route throws instead of answering,
- * such as a body stream that fails because the client went away, becomes a
- * JSON 500 rather than the host's own error page. Only the error's class name
- * is logged, never its message, which could quote the request.
+ * Answers one `/api` request with the given route table. Anything a route
+ * throws instead of answering, such as a body stream that fails because the
+ * client went away, becomes a JSON 500 rather than the host's own error page.
+ * Only the error's class name is logged, never its message, which could quote
+ * the request. Exported so a test can prove the gate on a table of its own;
+ * the hosts call `handle`.
  */
-export async function handle(
+export async function handleRoutes(
+  routes: RouteTable,
   request: Request,
   env: HandlerEnv,
   deps: HandlerDeps,
 ): Promise<Response> {
   try {
-    return await dispatch(request, env, deps);
+    return await dispatch(routes, request, env, deps);
   } catch (thrown) {
     const name = thrown instanceof Error ? thrown.name : typeof thrown;
     deps.log(`[api] status=500 unexpected=${JSON.stringify(name)}`);
     return failure(500, "Something went wrong on the server. Check the server log.");
   }
+}
+
+/** Answers one `/api` request with the Worker's own routes. */
+export function handle(request: Request, env: HandlerEnv, deps: HandlerDeps): Promise<Response> {
+  return handleRoutes(ROUTES, request, env, deps);
 }

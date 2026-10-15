@@ -182,7 +182,9 @@ export async function refuseUnprotected(
 /**
  * The state `GET /api/providers` reports. In Access mode it says whether this
  * request's own token verified, so the UI can warn when Access is configured
- * but the hostname the viewer used is not behind it.
+ * but the hostname the viewer used is not behind it, and when a failure is the
+ * keys' fault rather than the token's (`reason`), so the notice blames the
+ * right thing.
  */
 export async function reportProtection(
   request: Request,
@@ -199,11 +201,20 @@ export async function reportProtection(
     case "access": {
       const verified = await verify(request, configured.application, deps);
       if (verified.ok) return { mode: "access", validated: true };
-      const problem =
-        verified.problem === "keys_unavailable"
-          ? KEYS_UNAVAILABLE_MESSAGE
-          : TOKEN_PROBLEM_SENTENCES[verified.problem];
-      return { mode: "access", validated: false, problem };
+      if (verified.problem === "keys_unavailable") {
+        return {
+          mode: "access",
+          validated: false,
+          reason: "keys",
+          problem: KEYS_UNAVAILABLE_MESSAGE,
+        };
+      }
+      return {
+        mode: "access",
+        validated: false,
+        reason: "token",
+        problem: TOKEN_PROBLEM_SENTENCES[verified.problem],
+      };
     }
   }
 }

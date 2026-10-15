@@ -42,10 +42,26 @@ The value has to be exactly that sentence; `yes`, `true`, or `1` do not count, w
 
 **An unprotected public instance can run up a bill.** Every run spends tokens on your provider account, and nothing in this app limits who can press Run or how often. Set a spending cap or a billing alert with each provider you have a key for before you opt out. Turnstile and Cloudflare WAF rate limiting are the planned follow-ups for owners who want a public instance.
 
-## 3. Hostnames
+## 3. Hostnames and older versions
 
-`wrangler.jsonc` keeps the `workers.dev` hostname on (`workers_dev: true`), because a fork has no other, and turns Version URLs off (`preview_urls: false`), so no version of the Worker gets a second public hostname. The Worker's check does not depend on the hostname: a custom domain or a Version URL you add later is refused in the same way until the request carries a valid Access token or the opt-out is set.
+`wrangler.jsonc` keeps the `workers.dev` hostname on (`workers_dev: true`), because a fork has no other, and turns Version URLs off (`preview_urls: false`), so no version of the Worker gets a second public hostname. The gate lives in the Worker's code, not in the hostname, so for any version built from this change a custom domain or a Version URL you add later is refused in the same way until the request carries a valid Access token or the opt-out is set.
+
+**Versions from before the gate have no gate.** Only versions built from this change (issue #14) carry it. If your Worker had versions before that, they answer runs for anyone, and they may still hold the provider keys, because secrets survive deploys. So:
+
+- Do not roll back with `wrangler rollback` (or the dashboard's rollback) to a version from before #14 while the Worker holds a key. Delete those versions' keys first, or do not roll back.
+- Do not turn Version URLs back on while a version from before #14 exists, because each version would get its own public hostname again.
+
+What was verified on Cloudflare's pages (2026-10-15): `workers_dev` is on by default for a Worker without routes, and turning it off does not turn off Version, Preview, or Deployment URLs; `preview_urls` follows `workers_dev` when it is not set and is left unchanged by Wrangler when it is omitted; a Version URL has the shape `<version-prefix>-<worker-name>.<subdomain>.workers.dev`. What was not verified: whether a version that was never given a Version URL can still be reached by one after Version URLs are turned on, and whether rolling back re-exposes an old version at the production hostname with the current secrets. Treat both as yes until a live check says otherwise.
 
 ## Running the built Worker locally
 
-`vp dev` needs none of this: its Node host is local by construction and runs every request. `wrangler dev` and `vp preview` run the built Worker in workerd, which cannot tell a local run from Cloudflare, so they need the same variables a deployment does, for example `ALLOW_UNPROTECTED_INSTANCE` in a local `.dev.vars` for `wrangler dev`.
+`vp dev` needs none of this: its Node host is local by construction and runs every request. It counts as local whatever address it listens on, so starting it with `--host` on a shared network lets anyone on that network spend your credit; keep it on localhost.
+
+`wrangler dev` runs the built Worker in workerd, which cannot tell a local run from Cloudflare, so it needs the same variables a deployment does. The project keeps no `.dev.vars` file (Varlock refuses to start beside one), so pass them on the command line with `--var KEY:VALUE`, which Wrangler splits at the first colon:
+
+```sh
+vp run build
+vp exec wrangler dev --var 'ALLOW_UNPROTECTED_INSTANCE:I accept the bill'
+```
+
+`vp preview` is not set up for these variables yet: it takes its environment from Varlock's `.env.schema`, which does not declare them (issue #18 covers that), so the built Worker under `vp preview` refuses runs as an unconfigured instance.

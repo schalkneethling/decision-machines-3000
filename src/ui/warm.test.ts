@@ -337,6 +337,74 @@ describe("the warm button", () => {
     expect(output().value).toBe("");
   });
 
+  /** A fetch whose answers the test hands over one at a time, in the order the requests went out. */
+  function heldFetch() {
+    const pending: ((response: Response) => void)[] = [];
+    const fetchMock = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return {
+      fetchMock,
+      answerNext(response: Response) {
+        pending.shift()?.(response);
+      },
+    };
+  }
+
+  it("shows B as ready, not warming, while A's warm is still in flight", () => {
+    heldFetch();
+    const { selection, choose } = selectionOf(typesafe);
+    setupWarm(document, selection, manualRepeat().repeat);
+    submitWarm();
+
+    choose(subq);
+
+    expect(get(".warm-label").textContent).toBe("Warm the SubQ Snap connection");
+    expect(get<HTMLButtonElement>(".warm-button").disabled).toBe(false);
+  });
+
+  it("warms B while A's warm is still in flight", async () => {
+    const { fetchMock } = heldFetch();
+    const { selection, choose } = selectionOf(typesafe);
+    setupWarm(document, selection, manualRepeat().repeat);
+    submitWarm();
+
+    choose(subq);
+    submitWarm();
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/warm/typesafe",
+      "/api/warm/subq",
+    ]);
+    expect(get(".warm-label").textContent).toBe("Warming the SubQ Snap connection");
+  });
+
+  it("counts A's answer when the viewer is back on A by the time it arrives", async () => {
+    // The answer describes the connection the form shows again, so it is shown, not dropped.
+    const held = heldFetch();
+    const clock = manualRepeat();
+    const { selection, choose } = selectionOf(typesafe);
+    setupWarm(document, selection, clock.repeat);
+    submitWarm();
+
+    choose(subq);
+    choose(typesafe);
+    expect(get(".warm-label").textContent).toBe("Warming the TypeSafe Jev connection");
+    expect(get<HTMLButtonElement>(".warm-button").disabled).toBe(true);
+
+    held.answerNext(jsonResponse(warmed()));
+
+    await vi.waitFor(() => {
+      expect(output().value).toBe("Connection warmed in 950 ms. Warm for 30 s.");
+    });
+    expect(get<HTMLButtonElement>(".warm-button").disabled).toBe(false);
+  });
+
   it("drops an answer that arrives after the viewer chose another provider", async () => {
     let resolveFetch: (response: Response) => void = () => {};
     vi.stubGlobal(

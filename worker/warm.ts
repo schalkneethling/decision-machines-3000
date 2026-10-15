@@ -109,6 +109,8 @@ export async function warm(
   }
 
   // A new keep-alive replaces the pool's agent, so the call below opens a connection with it.
+  // That is also why a warm that fails still leaves the new keep-alive in place: it has to be
+  // set before the call, and the agent it replaced is already closing.
   connections.setKeepAlive(validation.value.keepAliveSeconds);
   const signal = deps.timeoutSignal(WARM_TIMEOUT_MS);
   const tracked = connections.track(provider.baseUrl);
@@ -151,7 +153,8 @@ export async function warm(
       provider: provider.id,
       latencyMs,
       connection,
-      keepAliveSeconds: connections.keepAliveSeconds,
+      // What this request set, so a warm racing it cannot change what this reply says.
+      keepAliveSeconds: validation.value.keepAliveSeconds,
     },
     200,
   );

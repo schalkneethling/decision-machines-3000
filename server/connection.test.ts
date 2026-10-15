@@ -1,7 +1,7 @@
 import { channel } from "node:diagnostics_channel";
 import { createServer } from "node:http";
-import type { Server, ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import type { AddressInfo, Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { CONNECTED_CHANNEL, ConnectionDetector, ConnectionPool } from "./connection.ts";
 
@@ -87,9 +87,11 @@ describe("ConnectionPool", () => {
   });
 
   /** A local HTTP server that answers every request with `answer`; returns its origin. */
-  async function serveLocally(answer: (res: ServerResponse) => void): Promise<string> {
-    const server = createServer((_req, res) => {
-      answer(res);
+  async function serveLocally(
+    answer: (res: ServerResponse, req: IncomingMessage) => void,
+  ): Promise<string> {
+    const server = createServer((req, res) => {
+      answer(res, req);
     });
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -126,20 +128,49 @@ describe("ConnectionPool", () => {
     expect(second.finish()).toBe("reused");
   });
 
-  it("passes redirect: error on, so a redirect never carries the key header elsewhere", async () => {
-    const origin = await serveLocally((res) => {
-      res.statusCode = 302;
-      res.setHeader("location", "http://127.0.0.1:1/elsewhere");
-      res.end();
-    });
-    pool = new ConnectionPool();
+  describe("on a redirect", () => {
+    /**
+     * A provider that redirects every request to a second local server, which
+     * records each request that reaches it and the authorization header it carried.
+     */
+    async function redirectingProvider() {
+      const reached: (string | undefined)[] = [];
+      const elsewhere = await serveLocally((res, req) => {
+        reached.push(req.headers.authorization);
+        res.end("{}");
+      });
+      const origin = await serveLocally((res) => {
+        res.statusCode = 302;
+        res.setHeader("location", `${elsewhere}/stolen`);
+        res.end();
+      });
+      return { origin, reached };
+    }
 
-    await expect(
-      pool.fetch(`${origin}/v1/models`, {
-        headers: { authorization: "Bearer pool-test-key" },
-        redirect: "error",
-      }),
-    ).rejects.toThrow(TypeError);
+    /** The rejection undici gives for a redirect it refuses to follow. */
+    const refusedRedirect = {
+      name: "TypeError",
+      message: "fetch failed",
+      cause: expect.objectContaining({ message: "unexpected redirect" }),
+    };
+
+    it.each<[string, RequestInit]>([
+      [
+        "redirect: error",
+        { redirect: "error", headers: { authorization: "Bearer pool-test-key" } },
+      ],
+      ["redirect left out", { headers: { authorization: "Bearer pool-test-key" } }],
+      [
+        "headers as a Headers instance",
+        { headers: new Headers({ authorization: "Bearer pool-test-key" }) },
+      ],
+    ])("refuses it with %s, so the key header never reaches another host", async (_name, init) => {
+      const { origin, reached } = await redirectingProvider();
+      pool = new ConnectionPool();
+
+      await expect(pool.fetch(`${origin}/v1/models`, init)).rejects.toMatchObject(refusedRedirect);
+      expect(reached).toEqual([]);
+    });
   });
 
   it("sends the method, headers, and string body it is given", async () => {
@@ -209,5 +240,28 @@ describe("ConnectionPool", () => {
     await (await pool.fetch(origin)).text();
 
     expect(after.finish()).toBe("new");
+  });
+
+  it("closes the replaced agent's idle connection when the keep-alive changes", async () => {
+    const sockets: Socket[] = [];
+    const origin = await serveLocally((res, req) => {
+      if (!sockets.includes(req.socket)) sockets.push(req.socket);
+      res.end("{}");
+    });
+    pool = new ConnectionPool(60);
+    await (await pool.fetch(origin)).text();
+    const [first] = sockets;
+    if (first === undefined) throw new Error("The server saw no connection.");
+    const closed = new Promise<void>((resolve) => first.once("close", () => resolve()));
+
+    pool.setKeepAlive(30);
+
+    // Without the close, the idle socket would stay open for the full 60 seconds.
+    await expect(
+      Promise.race([
+        closed.then(() => "closed"),
+        new Promise((resolve) => setTimeout(() => resolve("still open"), 1000)),
+      ]),
+    ).resolves.toBe("closed");
   });
 });

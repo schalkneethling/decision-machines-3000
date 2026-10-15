@@ -287,6 +287,39 @@ describe("validateWarmRequest", () => {
       detail: "primitive",
     });
   });
+
+  // Under Varlock, a key set to the placeholder is a sensitive value, and any response
+  // that contains it is replaced with a 500, so the field's name is never echoed.
+  it.each(["unset", " UNSET "])("names no unknown field called %j", (field) => {
+    const result = validateWarmRequest({ keepAliveSeconds: 30, [field]: 1 });
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'The request has an unknown field. It can only contain "keepAliveSeconds".',
+    });
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("unset");
+  });
+});
+
+describe("validateDecisionRequest with an unknown field named like the placeholder", () => {
+  it.each([
+    [
+      "the request",
+      { ...examples.noul, unset: 1 },
+      "The request has an unknown field. It can only",
+    ],
+    [
+      "a question",
+      { ...examples.noul, questions: { q: { instructions: "Is it?", Unset: 1 } } },
+      'Question "q" has an unknown field. It can only',
+    ],
+  ])("names no field in %s", (_where, request, start) => {
+    const result = validateDecisionRequest(request, DEFAULT_PROVIDER.capabilities);
+
+    const failure = expectFailure(result);
+    expect(failure.error.startsWith(start)).toBe(true);
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("unset");
+  });
 });
 
 describe("validateDecisionRequest limits taken from capabilities", () => {

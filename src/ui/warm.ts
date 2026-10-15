@@ -174,14 +174,17 @@ export function setupWarm(
 
   /** The provider the form warms, or undefined while the form is hidden. */
   let provider: ProviderSummary | undefined;
-  /** The provider a warm in flight was sent to, while one is in flight. */
-  let warmingFor: ProviderId | undefined;
+  /** The providers with a warm in flight. Only the one the form shows affects the button. */
+  const warming = new Set<ProviderId>();
 
-  function renderLabel(): void {
+  /** The label and the disabled state, for the provider the form shows. */
+  function renderButton(): void {
     const name = provider?.displayName ?? "";
-    label.textContent = warmLabel(name, warmingFor !== undefined);
+    const active = provider !== undefined && warming.has(provider.id);
+    label.textContent = warmLabel(name, active);
     // The sizer holds the longer text, so the button keeps its width while it warms.
     sizer.textContent = warmLabel(name, true);
+    button.disabled = active;
   }
 
   function follow(next: ProviderSummary | undefined): void {
@@ -197,7 +200,7 @@ export function setupWarm(
     }
     provider = warmable;
     form.hidden = warmable === undefined;
-    renderLabel();
+    renderButton();
   }
 
   function selectedKeepAlive(): KeepAliveSeconds {
@@ -206,12 +209,12 @@ export function setupWarm(
   }
 
   async function warm(target: ProviderSummary): Promise<void> {
-    warmingFor = target.id;
-    button.disabled = true;
-    renderLabel();
+    warming.add(target.id);
+    renderButton();
     try {
       const result = await warmConnection(target.id, selectedKeepAlive());
-      // The viewer chose another provider meanwhile, so the answer is about a connection the form no longer shows.
+      // The form shows another provider now, so the answer is about a connection it does not show.
+      // If the viewer came back to this provider, the answer is about the shown connection and counts.
       if (provider?.id !== target.id) return;
       if (result.kind === "response" && result.response.ok) {
         countdown.start(result.response.keepAliveSeconds, warmedText(result.response.latencyMs));
@@ -221,9 +224,8 @@ export function setupWarm(
       status.value = `Could not warm the connection. ${warmFailureText(result) ?? ""}`.trim();
       status.dataset.tone = "alert";
     } finally {
-      warmingFor = undefined;
-      button.disabled = false;
-      renderLabel();
+      warming.delete(target.id);
+      renderButton();
       // Disabling the focused button drops focus to the body; hand it back.
       if (!form.hidden && (root.activeElement === null || root.activeElement === root.body)) {
         button.focus({ preventScroll: true });
@@ -233,7 +235,7 @@ export function setupWarm(
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (warmingFor !== undefined || provider === undefined) return;
+    if (provider === undefined || warming.has(provider.id)) return;
     void warm(provider);
   });
 

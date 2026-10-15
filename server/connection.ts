@@ -139,9 +139,9 @@ export class ConnectionPool implements DevConnections {
    * The adapters' `fetchJson` sends a URL string, a string method, a plain
    * header record, a string body or none, a signal, and `redirect: "error"`.
    * Those fields are copied one by one, because the DOM `RequestInit` and
-   * undici's allow different types for the rest. `redirect` must be among
-   * them, because following a redirect would carry the key header to another
-   * host. A `Request` object or a body that is not a string is refused rather
+   * undici's allow different types for the rest. `redirect` is `"error"`
+   * unless the caller asks otherwise, because following a redirect would carry
+   * the key header to another host. A `Request` object or a body that is not a string is refused rather
    * than converted. undici's `Response` implements the same spec as the DOM's;
    * TypeScript rejects it as a DOM `Response` only because undici's header
    * iterators lack `[Symbol.dispose]`, hence the cast.
@@ -153,7 +153,8 @@ export class ConnectionPool implements DevConnections {
     const options: UndiciRequestInit = { dispatcher: this.#agent };
     if (init?.method !== undefined) options.method = init.method;
     if (init?.signal !== undefined) options.signal = init.signal;
-    if (init?.redirect !== undefined) options.redirect = init.redirect;
+    // Fail closed: a caller that leaves `redirect` out still never follows one.
+    options.redirect = init?.redirect ?? "error";
     if (init?.headers !== undefined) {
       options.headers = Object.fromEntries(new Headers(init.headers));
     }

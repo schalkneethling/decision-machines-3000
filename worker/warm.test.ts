@@ -188,6 +188,36 @@ describe("POST /api/warm/{provider}", () => {
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
+  it.each<[string, string, ProviderKeys]>([
+    ["an unknown provider", "/api/warm/nobody", KEYS],
+    ["a provider whose key is not set", "/api/warm/subq", { TYPESAFE_API_KEY: "t" }],
+  ])(
+    "answers 501 on the Worker host for %s, before looking the provider up",
+    async (_name, path, env) => {
+      const deps = stubDeps(upstreamReply(200, {}), undefined);
+
+      const { response, body } = await answer(post(path, warmBody), deps, env);
+
+      expect(response.status).toBe(501);
+      expect(body).toEqual({ ok: false, error: WARM_UNAVAILABLE_MESSAGE });
+    },
+  );
+
+  it("reports the keep-alive this request asked for, even if another request changed the pool's", async () => {
+    const pool = fakeConnections();
+    // A racing warm sets 60 while this one's call to the provider is in flight.
+    const racedTo: KeepAliveSeconds = 60;
+    const deps = stubDeps(() => {
+      pool.connections.setKeepAlive(racedTo);
+      return Promise.resolve(Response.json({}));
+    }, pool.connections);
+
+    const { body } = await answer(post("/api/warm/typesafe", warmBody), deps);
+
+    expect(pool.keepAlives).toEqual([30, 60]);
+    expect(body.keepAliveSeconds).toBe(30);
+  });
+
   // The warm paths spike #2 confirmed: no tokens spent, and never OpenAI's full model list.
   it.each<[ProviderDescriptor, string]>([
     [typesafe, "https://api.typesafe.ai/v1/models"],

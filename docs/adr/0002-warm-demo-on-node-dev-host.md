@@ -37,6 +37,7 @@ Keep the demo, and run it only on the Node dev host.
 
 - The warm form is hidden on a deployed instance and under `vp preview`, which serves `/api` from workerd. Only `vp dev` shows it.
 - One undici `Agent` serves all three providers, so one keep-alive applies to all of them. Changing it replaces the agent, so the next call to every provider opens a new connection.
+- A warm that fails still changes the keep-alive. The keep-alive has to be set before the warming call, because only a call through the new agent opens a connection that keeps it, and by then the old agent is already closing.
 - Connection attribution is exact for one call at a time, which is how the demo is used, and a best guess for overlapping calls to the same host (see `ConnectionDetector` in `server/connection.ts`).
 - The decide and warm routes share their checks and failure answers through `worker/provider-route.ts`.
 - Warming the SubQ Snap connection sends its key, although its models list needs none, because `fetchJson` is the only code that sends a provider request and it always sends the key. SubQ is the same host as the decision calls, so the key goes nowhere new.

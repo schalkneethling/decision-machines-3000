@@ -318,20 +318,29 @@ export function addOptionButton(
 
 /* Score levels */
 
+/** The level rows, introduced by a hint that says levels count from 0, the index the model reports. */
 export function levelList(
   ctx: RowContext,
   ownerKey: string,
   criteria: { levels: LevelRow[] },
   labelledBy: string,
-): HTMLUListElement {
+): HTMLDivElement {
+  const hintId = elementId(ctx.prefix, ownerKey, "levels-hint");
   const list = create("ul", {
     className: "tree-branch tree-rows",
-    attributes: { "aria-labelledby": labelledBy },
+    attributes: { "aria-labelledby": labelledBy, "aria-describedby": hintId },
   });
   criteria.levels.forEach((level, index) => {
     list.append(levelRow(ctx, ownerKey, criteria, level, index));
   });
-  return list;
+  return create("div", { className: "level-group" }, [
+    create("p", {
+      className: "tree-hint",
+      text: "Levels are numbered from 0, as the model reports them.",
+      attributes: { id: hintId },
+    }),
+    list,
+  ]);
 }
 
 function levelRow(

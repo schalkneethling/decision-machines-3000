@@ -462,7 +462,10 @@ describe("decide", () => {
     const signal = liveSignal();
     const decision = await decide(noulRequest, API_KEY, signal, fetch);
 
-    expect(decision).toStrictEqual(fromWire(noulRequest, threeTypesReplyWith("escalate")));
+    expect(decision).toStrictEqual({
+      ...fromWire(noulRequest, threeTypesReplyWith("escalate")),
+      wire: { response: threeTypesReplyWith("escalate") },
+    });
     expect(calls).toHaveLength(1);
     const [call] = calls;
     expect(call.url).toBe("https://api.subq.ai/v1/systemone");
@@ -475,6 +478,18 @@ describe("decide", () => {
       "content-type": "application/json",
     });
     expect(JSON.parse(sentBody(call.init))).toStrictEqual(toWire(noulRequest));
+  });
+
+  it("returns the key redacted in wire.response when the provider's reply quotes it", async () => {
+    const quoted = { ...threeTypesReplyWith("escalate"), note: `echoed ${API_KEY}` };
+    const { fetch } = jsonFetch(200, quoted);
+    const decision = await decide(noulRequest, API_KEY, liveSignal(), fetch);
+
+    expect(decision.wire.response).toStrictEqual({
+      ...threeTypesReplyWith("escalate"),
+      note: "echoed [redacted]",
+    });
+    expect(JSON.stringify(decision)).not.toContain(API_KEY);
   });
 
   it.each(["bad-key", "bad-key-sk-prefix", "missing-key"])(

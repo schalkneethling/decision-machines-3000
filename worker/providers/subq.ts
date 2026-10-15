@@ -41,7 +41,7 @@ import {
   parseReply,
   unreadableReply,
 } from "./adapter.ts";
-import type { Fetch, ProviderAdapter, ProviderDecision } from "./adapter.ts";
+import type { AdapterResult, Fetch, ProviderAdapter, ProviderDecision } from "./adapter.ts";
 import { decisionReplySchema, errorEnvelopeSchema } from "./subq-schema.ts";
 
 /** The decision endpoint, resolved against the catalog's base URL, so no host is written here. */
@@ -180,7 +180,7 @@ export async function decide(
   apiKey: string,
   signal: AbortSignal,
   fetch: Fetch,
-): Promise<ProviderDecision> {
+): Promise<AdapterResult> {
   const reply = await fetchJson(fetch, signal, subq, apiKey, DECISION_URL, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
@@ -189,7 +189,7 @@ export async function decide(
   if (!isSuccess(reply.status)) {
     throw failureFromStatus(subq, reply, describeEnvelope(reply.body));
   }
-  return fromWire(request, reply.body);
+  return { ...fromWire(request, reply.body), wire: { response: reply.body } };
 }
 
 export const subqAdapter = {

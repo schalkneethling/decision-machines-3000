@@ -4,6 +4,12 @@ A small demo of [TypeSafe's](https://typesafe.ai) Jev decision model and its thr
 
 Each primitive gets its own panel with a tree-based "branch composer" for building up questions and state, plus a JSON editor for editing the same request by hand. A readout renders the model's answers, including probabilities drawn as bars. A separate warm-connection demo, available under `vp dev`, shows the latency difference between a cold connection to a provider and one that has already been warmed up (see [The warm-connection demo](#the-warm-connection-demo)).
 
+## Deploy your own
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/jev-3000)
+
+The button needs at least one real provider key. It makes all three keys required inputs, so enter the word `unset` for each provider you do not have. A fresh instance then refuses every run until you put it behind Cloudflare Access, which is the first step after the deploy. [`docs/deploy.md`](./docs/deploy.md) walks through the button, the protection step, and deploying by hand with plain Wrangler.
+
 ## Requirements
 
 - Node 24
@@ -56,6 +62,7 @@ The Varlock Vite plugin is registered only for the dev and preview servers (see 
 - `vp check`: format, lint, and type check
 - `vp test`: run the test suite
 - `vp run build`: type check and build for production
+- `vp run deploy`: check that the Worker has a provider key, then run a plain `wrangler deploy` (see [`docs/deploy.md`](./docs/deploy.md)); run `vp run build` first
 
 ## How the key stays server-side
 

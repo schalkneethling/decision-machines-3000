@@ -47,6 +47,8 @@ Access puts a sign-in in front of the Worker. Only the people your policy allows
    vp exec wrangler secret put ACCESS_AUD           # the AUD tag you copied
    ```
 
+   If you deployed with `--name` (or `--env` or `--config`), add the same flags to both commands.
+
    Each `secret put` deploys a new version at once. You can also set both as `vars` in `wrangler.jsonc` if you prefer them in the repository; they are not secret.
 
 5. Open the page. Access asks you to sign in, and then the page loads without a notice. `GET /api/providers` reports `"protection": { "mode": "access", "validated": true }`.
@@ -144,7 +146,7 @@ Use this profile when your provider keys already live in 1Password. [Varlock](ht
    `deploy:varlock` in `package.json` is `varlock-wrangler deploy`. Arguments you give it go to Wrangler, so `vp run deploy:varlock --name my-worker` targets another Worker (give every later `wrangler secret` command the same flag).
    Varlock resolves the schema first. If that fails, which includes the case of no provider key, it prints `Failed to resolve environment variables` and exits with code 1 **before it starts Wrangler**, so nothing is uploaded. The script does not run the section 3 key check, because that check reads the secrets already on the Worker, and on a first Varlock deploy they do not exist yet. The schema's check item does the same job before the upload.
 
-4. **Protect the instance** (section 2). A Varlock deploy does not protect it. The three protection settings are not in the schema, so set them with `wrangler secret put` as section 2 shows; a Varlock deploy leaves them alone.
+4. **Protect the instance** (section 2). A Varlock deploy does not protect it. The three protection settings are not in the schema, so set them with `wrangler secret put` as section 2 shows, adding the same `--name` you gave `deploy:varlock`. A Varlock deploy leaves them alone.
 
 5. **Check the result.**
 

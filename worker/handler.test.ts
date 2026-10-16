@@ -533,6 +533,35 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["an unknown provider (404)", "nope", withTypeSafe, 404],
+    ["a provider with no key (409)", "openai", {}, 409],
+  ])("answers %s without pulling a single chunk of the body", async (_name, id, env, status) => {
+    let pulls = 0;
+    // A high-water mark of 0 keeps the stream from pulling ahead, so any pull is a read.
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new TextEncoder().encode("{}"));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const request = new Request(`${ORIGIN}/api/decide/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+
+    const { response } = await decideWith(request, env, stubDeps());
+
+    expect(response.status).toBe(status);
+    expect(pulls).toBe(0);
+  });
+
   it.each(["unset", "UNSET"])(
     "does not echo the id %s, which Varlock would treat as the placeholder key",
     async (id) => {
@@ -623,7 +652,7 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     expect(response.status).toBe(200);
   });
 
-  it("limits a body to 2 MiB of images plus 256 KiB of text plus framing, and says so in plain words", () => {
+  it("limits a multipart body to the text, the images, and the framing, and says so in plain words", () => {
     expect(IMAGE_ALLOWANCE_BYTES).toBe(2 * 1024 * 1024);
     expect(IMAGE_ALLOWANCE_BYTES).toBe(MAX_IMAGE_REQUEST_BYTES);
     expect(TEXT_ALLOWANCE_BYTES).toBe(256 * 1024);
@@ -631,7 +660,7 @@ describe("POST /api/decide/{provider} before any provider call", () => {
       IMAGE_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES,
     );
     expect(TOO_LARGE_MESSAGE).toBe(
-      'The request is too large. It may hold up to 256 KB of text and 2 MB of images, plus a little room for the multipart framing. Trim "state", ask fewer questions, or send smaller images.',
+      'The request is too large. The request text may hold up to 256 KB, and a multipart request may add up to 2 MB of images. Trim "state", ask fewer questions, or send smaller images.',
     );
   });
 
@@ -701,7 +730,7 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     const deps = stubDeps(upstreamReply(200, recordedNoulReply));
 
     const { response } = await decideWith(
-      build(requestOfSize(MAX_BODY_BYTES + offset)),
+      build(requestOfSize(TEXT_ALLOWANCE_BYTES + offset)),
       withTypeSafe,
       deps,
     );
@@ -759,7 +788,7 @@ describe("POST /api/decide/{provider} before any provider call", () => {
 
   it("stops reading a streamed body once it passes the limit, then answers 413", async () => {
     const chunk = new Uint8Array(64 * 1024);
-    const limitInChunks = MAX_BODY_BYTES / chunk.byteLength;
+    const limitInChunks = TEXT_ALLOWANCE_BYTES / chunk.byteLength;
     let pulled = 0;
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({

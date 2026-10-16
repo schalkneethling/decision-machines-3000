@@ -2,16 +2,23 @@
  * Reading a `multipart/form-data` decision request: one `request` part that
  * holds the JSON text, and one `image` part per picture, each a binary file.
  *
- * The work happens in three steps, so the cheap checks come first and the
+ * The work happens in these steps, so the cheap checks come first and the
  * expensive one last:
  *
+ * 0. Before the body is parsed, `readMultipart` counts the parts by their
+ *    delimiter lines and refuses a body with more than the provider can use,
+ *    because `formData()` builds every part before anything can be counted
+ *    and thousands of empty parts cost far more than the Free plan's 10 ms.
  * 1. `readMultipart` parses the body and checks its shape and its declared
  *    sizes against the provider's `capabilities.images` with one Zod Mini
  *    schema (ADR-0004). Nothing is read from a file yet.
  * 2. `encodeImages`, called after the JSON part has passed validation, reads
  *    each file's first bytes to find its real format, then reads the bytes and
  *    encodes them to base64 once. A format the file's bytes do not show is
- *    refused, whatever the part declared.
+ *    refused, whatever the part declared. The check is on the signature only,
+ *    to stop the declared type from being trusted. Bytes after a valid signature
+ *    are not examined, so a file that starts like a PNG and then holds anything
+ *    passes here; the provider is the one that decodes the picture.
  * 3. The route hands the result to the adapter, which places it on the wire.
  *
  * No message here names a part, a file name, or a declared type, because the
@@ -28,7 +35,7 @@
 
 import * as z from "zod/mini";
 import type { ImageCapabilities, ProviderDescriptor } from "../src/providers/catalog.ts";
-import { sizeInWords } from "./body-limit.ts";
+import { TEXT_ALLOWANCE_BYTES, sizeInWords, tooLarge } from "./body-limit.ts";
 import type { ImageAttachment } from "./decide.ts";
 import { failure } from "./respond.ts";
 
@@ -40,11 +47,19 @@ function refuse(error: string): Refusal {
   return { ok: false, response: failure(400, error) };
 }
 
-const BOUNDARY_PARAMETER = /;\s*boundary\s*=\s*[^;\s]/i;
-
 const MISSING_BOUNDARY =
   'The multipart Content-Type has no "boundary" parameter, so the body cannot be split into parts. ' +
   "Leave Content-Type for the client to set, because a hand-set header drops the boundary.";
+
+/**
+ * Parts beyond `1 + maxCount` that are counted before the refusal, so that a
+ * small mistake (a second "request" part, one image too many) still reaches the
+ * schema and gets its specific message. Only a body with a flood of parts meets
+ * the blunter one.
+ */
+export const EXTRA_PARTS_ALLOWANCE = 2;
+
+const BOUNDARY_VALUE = /;\s*boundary\s*=\s*(?:"([^"]*)"|([^;\s]+))/i;
 
 const UNREADABLE = "The multipart body could not be read. Check its boundary and parts.";
 
@@ -130,9 +145,47 @@ function multipartSchema(provider: ProviderDescriptor) {
 export type Multipart = { text: string; files: readonly File[] };
 
 /**
+ * How many parts the body has, counted from the delimiter lines `--boundary`
+ * at the start of a line, stopping once the count passes `limit`. The closing
+ * delimiter (`--boundary--`) is not a part. It scans for line feeds with the
+ * native `indexOf`, which is fast even in a binary body, and never parses a
+ * part. The count is a bound for refusing floods, not a parse: a body whose
+ * parts are really split another way is still checked by `formData()`.
+ */
+export function countParts(bytes: Uint8Array, boundary: string, limit: number): number {
+  const marker = new TextEncoder().encode(`--${boundary}`);
+  const isDelimiterAt = (offset: number): boolean =>
+    offset + marker.length <= bytes.length && marker.every((b, i) => bytes[offset + i] === b);
+  const isClosing = (offset: number): boolean =>
+    bytes[offset + marker.length] === 0x2d && bytes[offset + marker.length + 1] === 0x2d;
+
+  let parts = 0;
+  let offset = 0;
+  while (parts <= limit) {
+    if (isDelimiterAt(offset) && !isClosing(offset)) parts += 1;
+    const lineFeed = bytes.indexOf(0x0a, offset);
+    if (lineFeed === -1) break;
+    offset = lineFeed + 1;
+  }
+  return parts;
+}
+
+/** The refusal for a body with more parts than the provider can use. It does not say how many arrived. */
+function tooManyParts(provider: ProviderDescriptor): Refusal {
+  const { displayName } = provider;
+  const { images } = provider.capabilities;
+  return refuse(
+    images === false
+      ? `The multipart body has too many parts. Send one "request" part and no "image" parts, because ${displayName} evaluates text only.`
+      : `The multipart body has too many parts. Send one "request" part and up to ${images.maxCount} "image" parts.`,
+  );
+}
+
+/**
  * The `request` text and the image files of a multipart body, or the refusal
  * to answer instead. The checks, in order: the Content-Type names a boundary,
- * the body parses, no part has a name other than `request` and `image`, and
+ * the delimiter lines do not show more parts than the provider can use, the
+ * body parses, no part has a name other than `request` and `image`, and
  * the schema accepts the parts for this provider.
  */
 export async function readMultipart(
@@ -140,7 +193,18 @@ export async function readMultipart(
   contentType: string,
   provider: ProviderDescriptor,
 ): Promise<({ ok: true } & Multipart) | Refusal> {
-  if (!BOUNDARY_PARAMETER.test(contentType)) return refuse(MISSING_BOUNDARY);
+  const boundary = BOUNDARY_VALUE.exec(contentType);
+  const boundaryText = boundary?.[1] ?? boundary?.[2];
+  if (boundaryText === undefined || boundaryText === "") return refuse(MISSING_BOUNDARY);
+
+  const maxParts =
+    1 + (provider.capabilities.images === false ? 0 : provider.capabilities.images.maxCount);
+  if (
+    countParts(bytes, boundaryText, maxParts + EXTRA_PARTS_ALLOWANCE) >
+    maxParts + EXTRA_PARTS_ALLOWANCE
+  ) {
+    return tooManyParts(provider);
+  }
 
   let form: FormData;
   try {
@@ -160,7 +224,15 @@ export async function readMultipart(
   });
   if (!parsed.success) return refuse(parsed.error.issues[0].message);
   // The schema holds one text part and the files, so the casts only restate what it checked.
-  return { ok: true, text: parsed.data.request[0] as string, files: parsed.data.image };
+  const text = parsed.data.request[0] as string;
+  // A string is at least as many bytes as it has UTF-16 units, so the cheap test comes first.
+  if (
+    text.length > TEXT_ALLOWANCE_BYTES ||
+    new TextEncoder().encode(text).byteLength > TEXT_ALLOWANCE_BYTES
+  ) {
+    return { ok: false, response: tooLarge() };
+  }
+  return { ok: true, text, files: parsed.data.image };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +275,9 @@ export function detectMediaType(bytes: Uint8Array): string | undefined {
  * keeps each argument list short.
  */
 export function encodeBase64(bytes: Uint8Array): string {
-  if (typeof bytes.toBase64 === "function") return bytes.toBase64();
+  // Typed as optional on purpose: this file is compiled for Node too, and a browser may lack the method.
+  const native = (bytes as Uint8Array & { toBase64?: () => string }).toBase64;
+  if (typeof native === "function") return native.call(bytes);
   const slice = 0x8000;
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += slice) {

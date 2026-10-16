@@ -17,8 +17,9 @@ import { failure } from "./respond.ts";
  * Room for the images of one request: the largest `maxBytesPerRequest` any
  * provider in the catalog accepts, 2 MiB today (the project's own cap, issue
  * #15). Read from the catalog, so a provider with a larger cap widens the
- * limit without a second edit. Issue #15 confirms this budget by measuring
- * CPU time on a deployment.
+ * limit without a second edit. The budget still has to be confirmed by reading
+ * `cpuTime` from `wrangler tail` on a deployment; that measurement has not been
+ * run (see `scenarios/15-server-images.feature`).
  */
 export const IMAGE_ALLOWANCE_BYTES = Math.max(
   0,
@@ -42,7 +43,11 @@ export const TEXT_ALLOWANCE_BYTES = 256 * 1024;
  */
 export const FRAMING_ALLOWANCE_BYTES = 16 * 1024;
 
-/** The largest body read: the text, image, and framing allowances together. */
+/**
+ * The largest multipart body read: the text, image, and framing allowances
+ * together. A JSON body has no images or framing, so it is held to
+ * `TEXT_ALLOWANCE_BYTES` alone, and so is the `request` part of a multipart one.
+ */
 export const MAX_BODY_BYTES =
   TEXT_ALLOWANCE_BYTES + IMAGE_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES;
 
@@ -53,8 +58,8 @@ export function sizeInWords(bytes: number): string {
 }
 
 export const TOO_LARGE_MESSAGE =
-  `The request is too large. It may hold up to ${sizeInWords(TEXT_ALLOWANCE_BYTES)} of text ` +
-  `and ${sizeInWords(IMAGE_ALLOWANCE_BYTES)} of images, plus a little room for the multipart framing. ` +
+  `The request is too large. The request text may hold up to ${sizeInWords(TEXT_ALLOWANCE_BYTES)}, ` +
+  `and a multipart request may add up to ${sizeInWords(IMAGE_ALLOWANCE_BYTES)} of images. ` +
   'Trim "state", ask fewer questions, or send smaller images.';
 
 /**
@@ -67,7 +72,7 @@ export function declaredLength(header: string | null | undefined): number | unde
     : undefined;
 }
 
-/** The 413 for a body over `MAX_BODY_BYTES`. */
+/** The 413 for a body over its limit: `MAX_BODY_BYTES`, or `TEXT_ALLOWANCE_BYTES` for JSON text. */
 export function tooLarge(): Response {
   return failure(413, TOO_LARGE_MESSAGE);
 }

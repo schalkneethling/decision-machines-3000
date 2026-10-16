@@ -21,7 +21,7 @@ import type { DecisionSuccess } from "../src/decision/contract.ts";
 import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
 import type { ProviderDescriptor, ProviderId } from "../src/providers/catalog.ts";
-import { MAX_BODY_BYTES, tooLarge } from "./body-limit.ts";
+import { MAX_BODY_BYTES, TEXT_ALLOWANCE_BYTES, tooLarge } from "./body-limit.ts";
 import type { ProviderKeys } from "./env.ts";
 import type { HandlerDeps, TrackedCall } from "./handler.ts";
 import { ProviderError } from "./providers/adapter.ts";
@@ -198,7 +198,11 @@ async function readDecisionRequest(
     return { read: refuse(415, UNSUPPORTED_TYPE), files: [] };
   }
 
-  const bytes = await readWithin(request, MAX_BODY_BYTES);
+  // JSON carries no images and no framing, so it gets the text allowance alone.
+  const bytes = await readWithin(
+    request,
+    mediaType === JSON_TYPE ? TEXT_ALLOWANCE_BYTES : MAX_BODY_BYTES,
+  );
   if (bytes === undefined) return { read: { ok: false, response: tooLarge() }, files: [] };
 
   if (mediaType === JSON_TYPE) {

@@ -2,8 +2,7 @@
   "compilerOptions": {
     "target": "es2023",
     "module": "esnext",
-    /* ESNext.TypedArrays declares Uint8Array.prototype.toBase64: the Node dev host compiles worker/multipart.ts, which checks for it. */
-    "lib": ["ES2023", "DOM", "ESNext.TypedArrays"],
+    "lib": ["ES2023", "DOM"],
     "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,

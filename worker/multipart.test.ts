@@ -7,11 +7,18 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
 import { openai, subq } from "../src/providers/catalog.ts";
-import { MAX_BODY_BYTES, TEXT_ALLOWANCE_BYTES } from "./body-limit.ts";
+import type { ImageCapabilities } from "../src/providers/catalog.ts";
+import { MAX_BODY_BYTES, TEXT_ALLOWANCE_BYTES, TOO_LARGE_MESSAGE } from "./body-limit.ts";
 import type { ProviderKeys } from "./env.ts";
 import { handle } from "./handler.ts";
 import type { HandlerDeps } from "./handler.ts";
-import { detectMediaType, encodeBase64 } from "./multipart.ts";
+import {
+  EXTRA_PARTS_ALLOWANCE,
+  countParts,
+  detectMediaType,
+  encodeBase64,
+  encodeImages,
+} from "./multipart.ts";
 
 const ORIGIN = "https://decisionmachines3000.example";
 const SUBQ_KEY = "sk-test-subq-0123456789-never-logged";
@@ -540,5 +547,163 @@ describe("encodeBase64", () => {
       if (original === undefined) delete prototype.toBase64;
       else Object.defineProperty(prototype, "toBase64", original);
     }
+  });
+});
+
+/** A multipart body written out by hand: `request` once, then `images` empty `image` parts, and the closing line. */
+function rawMultipart(provider: string, images: number): Request {
+  const boundary = "XB-test-boundary";
+  const head = (name: string, filename?: string) =>
+    `--${boundary}\r\nContent-Disposition: form-data; name="${name}"` +
+    `${filename === undefined ? "" : `; filename="${filename}"`}\r\n\r\n`;
+  const body =
+    `${head("request")}${JSON.stringify(question)}\r\n` +
+    `${head("image", "a.png")}\r\n`.repeat(images) +
+    `--${boundary}--\r\n`;
+  return new Request(`${ORIGIN}/api/decide/${provider}`, {
+    method: "POST",
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    body,
+  });
+}
+
+describe("parts are counted before they are parsed", () => {
+  const tooMany =
+    'The multipart body has too many parts. Send one "request" part and up to 4 "image" parts.';
+
+  it("refuses 10,000 empty parts without ever calling formData()", async () => {
+    const parse = vi.spyOn(Response.prototype, "formData");
+    try {
+      const deps = stubDeps();
+      const { response, body, text } = await send(rawMultipart("subq", 10_000), deps);
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe(tooMany);
+      expect(text).not.toContain("10000");
+      expect(text).not.toContain("XB-test-boundary");
+      expect(parse).not.toHaveBeenCalled();
+      expect(deps.fetch).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("tells a text-only provider that it takes no image parts", async () => {
+    const { response, body } = await send(rawMultipart("typesafe", 10_000), stubDeps());
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe(
+      'The multipart body has too many parts. Send one "request" part and no "image" parts, because TypeSafe Jev evaluates text only.',
+    );
+  });
+
+  it("parses a body with one request part and the most image parts allowed", async () => {
+    const parse = vi.spyOn(Response.prototype, "formData");
+    try {
+      const parts: Part[] = Array.from({ length: 4 }, (): Part => ["image", file(image("png"))]);
+      const { response } = await send(
+        multipart("subq", [requestPart, ...parts]),
+        stubDeps(subqReply),
+      );
+
+      expect(response.status).toBe(200);
+      expect(parse).toHaveBeenCalledTimes(1);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("leaves a small excess to the schema's own message, up to the allowance and not past it", async () => {
+    const atAllowance = await send(rawMultipart("subq", 4 + EXTRA_PARTS_ALLOWANCE), stubDeps());
+    expect(atAllowance.body.error).toContain("This request has");
+
+    const past = await send(rawMultipart("subq", 4 + EXTRA_PARTS_ALLOWANCE + 1), stubDeps());
+    expect(past.body.error).toBe(tooMany);
+  });
+
+  it("does not count the closing delimiter, and counts only the boundary it is given", () => {
+    const text = new TextEncoder().encode("--abc\r\nx\r\n--abc\r\nx\r\n--abc--\r\n");
+    expect(countParts(text, "abc", 10)).toBe(2);
+    expect(countParts(text, "other", 10)).toBe(0);
+  });
+});
+
+describe("images are not read until the request has passed validation", () => {
+  it("reads no image bytes when the request JSON is invalid", async () => {
+    const read = vi.spyOn(Blob.prototype, "arrayBuffer");
+    try {
+      const { response } = await send(
+        multipart("subq", [
+          ["request", JSON.stringify({ ...question, primitive: "maybe" })],
+          ["image", file(image("png"))],
+        ]),
+        stubDeps(),
+      );
+
+      expect(response.status).toBe(400);
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
+  });
+});
+
+describe("encodeImages against a provider's own media types", () => {
+  const pngOnly: ImageCapabilities = {
+    maxCount: 1,
+    maxBytesPerImage: MIB,
+    maxBytesPerRequest: MIB,
+    mediaTypes: ["image/png"],
+  };
+
+  it("refuses a real JPEG for a provider that accepts only PNG, naming only PNG", async () => {
+    const result = await encodeImages([new File([image("jpeg")], "a.jpg")], pngOnly);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const { error } = (await result.response.json()) as { error: string };
+    expect(error).toBe(
+      "Image 1 is not image/png, judging by its first bytes. The type the upload declares is ignored.",
+    );
+  });
+
+  it("accepts a PNG for that provider", async () => {
+    const result = await encodeImages([new File([image("png")], "a.png")], pngOnly);
+
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("the text allowance", () => {
+  /** A valid request whose JSON text is exactly `size` bytes. */
+  function padded(size: number): string {
+    const bare = JSON.stringify({ ...question, state: "" });
+    return JSON.stringify({ ...question, state: "a".repeat(size - bare.length) });
+  }
+
+  it("takes a request part at the allowance and refuses one byte more with a 413", async () => {
+    const at = await send(
+      multipart("subq", [["request", padded(TEXT_ALLOWANCE_BYTES)]]),
+      stubDeps(subqReply),
+    );
+    const over = await send(
+      multipart("subq", [["request", padded(TEXT_ALLOWANCE_BYTES + 1)]]),
+      stubDeps(),
+    );
+
+    expect(at.response.status).toBe(200);
+    expect(over.response.status).toBe(413);
+    expect(over.body.error).toBe(TOO_LARGE_MESSAGE);
+  });
+
+  it("counts the request part in bytes, not characters", async () => {
+    // Each "é" is two bytes, so this text has fewer characters than the allowance has bytes.
+    const bare = JSON.stringify({ ...question, state: "" });
+    const characters = (TEXT_ALLOWANCE_BYTES - bare.length) / 2 + 1;
+    const text = JSON.stringify({ ...question, state: "é".repeat(characters) });
+
+    const { response } = await send(multipart("subq", [["request", text]]), stubDeps());
+
+    expect(response.status).toBe(413);
   });
 });

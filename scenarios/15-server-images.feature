@@ -69,6 +69,41 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
     And the error names "Image 1" and says it is not image/png, image/jpeg, or image/webp
     And no upstream call is made
 
+  Scenario: Bytes after a valid signature are not examined
+    Given an image part that starts with a PNG signature and then holds anything
+    When POST /api/decide/subq is handled
+    Then the image is accepted and forwarded
+    # The head check only stops the declared type from being trusted. It is not content validation; the provider decodes the picture.
+
+  Scenario: A flood of parts is refused before it is parsed
+    Given POST /api/decide/subq with 10,000 empty image parts, inside the body limit
+    When it is handled
+    Then the response is 400 saying the body has too many parts, without the count or the boundary
+    And Response.formData() is never called, because parsing builds every part before any count can be checked
+    And a body with one request part and the provider's most image parts is still parsed
+    And a few parts past that (a named allowance of 2) still reach the schema for its specific message
+
+  Scenario: A JSON body and a request part are held to the text allowance
+    Given a JSON body, or a multipart "request" part, of 256 KiB + 1 byte
+    When it is handled
+    Then the response is 413
+    And a body of exactly 256 KiB is accepted
+    And the part is measured in bytes, not characters
+
+  Scenario: Image bytes are not read before the request JSON is valid
+    Given a valid PNG part and a request part that fails validation
+    When it is handled
+    Then no image bytes are read
+
+  Scenario: The body is not read before the gate, the 404, or the 409
+    Given a body stream that records each pull
+    When the gate refuses (unconfigured Worker, or no Access token), or the provider is unknown, or its key is not set
+    Then the stream was pulled zero times
+
+  Scenario: A multipart "request" part with invalid UTF-8 (known, not changed)
+    # formData() decodes text parts leniently, so a bad byte becomes U+FFFD, while the JSON path refuses it.
+    # The parser gives no way to reach the part's raw bytes, so this is left as it was before #15.
+
   Scenario: A multipart body without a request part is refused
     Given a multipart body with image parts and no "request" part
     When it is handled
@@ -113,7 +148,7 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
     And the response is 413
     And the body stream was read once, by the counting reader and by nothing else
 
-  Scenario: The body limit is derived from the catalog, with room for the framing
+  Scenario: The multipart body limit is derived from the catalog, with room for the framing
     Then MAX_BODY_BYTES is the 256 KiB text allowance, plus the largest maxBytesPerRequest in the catalog, plus a 16 KiB framing allowance
     And a request with the most images and the most text the limits allow is not refused for its wrapping
 
@@ -158,6 +193,7 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
     And the encoder is the native Uint8Array.prototype.toBase64
 
   Scenario: Manual, confirming the 2 MiB cap by CPU time (acceptance criterion added on issue #15)
+    # This measurement has not been run. The 2 MiB cap is confirmed only once it is.
     Given the real decide path is deployed to a scratch Worker (not the production one)
     And "wrangler tail --format json" is running against it
     When the owner sends about 30 requests at the cap: SubQ with one 2 MiB image, SubQ with four 512 KiB images, and OpenAI with eight 256 KiB images

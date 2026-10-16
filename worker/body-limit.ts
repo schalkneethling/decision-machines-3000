@@ -15,11 +15,12 @@ import { failure } from "./respond.ts";
 
 /**
  * Room for the images of one request: the largest `maxBytesPerRequest` any
- * provider in the catalog accepts, 2 MiB today (the project's own cap, issue
- * #15). Read from the catalog, so a provider with a larger cap widens the
- * limit without a second edit. The budget still has to be confirmed by reading
- * `cpuTime` from `wrangler tail` on a deployment; that measurement has not been
- * run (see `scenarios/15-server-images.feature`).
+ * provider in the catalog accepts, 64 KiB today (the project's own cap, issue
+ * #15, lowered from 2 MiB after a CPU measurement on Cloudflare; the reason is
+ * in `src/providers/catalog.ts`). Read from the catalog, so a provider with a
+ * larger cap widens the limit without a second edit. The new cap still has to
+ * be confirmed by reading `cpuTime` from `wrangler tail` on a deployment (see
+ * `scenarios/15-server-images.feature`).
  */
 export const IMAGE_ALLOWANCE_BYTES = Math.max(
   0,

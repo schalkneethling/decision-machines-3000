@@ -5,10 +5,13 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
     And the limits come from each provider's capabilities.images in src/providers/catalog.ts, never from new constants:
       | provider | maxCount | maxBytesPerImage | maxBytesPerRequest | mediaTypes                       |
       | typesafe | (none: text only)                                                                            |
-      | subq     | 4        | 2 MiB            | 2 MiB              | image/png, image/jpeg, image/webp |
-      | openai   | 8        | 2 MiB            | 2 MiB              | image/png, image/jpeg, image/webp |
-    # The owner chose 2 MiB per image and 2 MiB per request on issue #15, instead of the Workers Paid plan.
-    # That overrides the 4 MiB and 8 MiB figures the issue body gave for these scenarios.
+      | subq     | 4        | 64 KiB           | 64 KiB             | image/png, image/jpeg, image/webp |
+      | openai   | 8        | 64 KiB           | 64 KiB             | image/png, image/jpeg, image/webp |
+    # The owner first chose 2 MiB per image and 2 MiB per request on issue #15, instead of the Workers Paid plan,
+    # which overrode the 4 MiB and 8 MiB figures the issue body gave for these scenarios.
+    # A CPU measurement on Cloudflare then showed 2 MiB costs 35 to 107 ms per request against the Free plan's 10 ms,
+    # so the owner lowered both caps to 96 KiB, and to 64 KiB (65,536 bytes) after 96 KiB measured a p95 of 11 ms. The browser is meant to shrink pictures to fit (issue #25).
+    # The two caps are equal, but they are separate constants and the scenarios below keep a case for each.
     And no message names a part, a file name, or a declared type, because the client controls them (Varlock's leak scanner)
     And the fail-closed gate from #14 runs before the body is read, so none of this happens for a refused request
 
@@ -33,18 +36,28 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
     And the error says OpenAI Decisions takes at most 8
 
   Scenario: One image over the per-image limit is refused before any provider call
-    Given POST /api/decide/subq with one image part of 2 MiB + 1 byte
+    Given POST /api/decide/subq with one image part of 64 KiB + 1 byte
     When it is handled
     Then the response is 400
-    And the error names "Image 1" and the limit of 2 MB per image
+    And the error names "Image 1" and the limit of 64 KB per image
     And no upstream call is made
 
   Scenario: Images that together pass the per-request limit are refused
-    Given POST /api/decide/openai with two image parts of 1 MiB + 1 byte each
+    # Because the per-image and per-request caps are both 64 KiB, any two images that pass the per-request cap
+    # can still each be under the per-image cap, so this case is real: the parts are 32 KiB and 32 KiB + 1 byte.
+    Given POST /api/decide/openai with two image parts of 32 KiB and 32 KiB + 1 byte
     When it is handled
     Then the response is 400
-    And the error names the limit of 2 MB per request
+    And the error names the limit of 64 KB per request
     And no upstream call is made
+
+  Scenario: The per-request limit still applies when it is below twice the per-image limit
+    # Not reachable through the catalog today, where the two caps are equal. The unit test gives a provider a
+    # 1 KiB per-image cap and a 1.5 KiB per-request cap, so that the per-request check keeps a test of its own.
+    Given a provider whose per-image cap is 1 KiB and whose per-request cap is 1.5 KiB
+    When a request carries images of 1 KiB and 513 bytes
+    Then each image is within the per-image cap
+    And the response is a 400 that names the limit of 1.5 KB per request
 
   Scenario: The media type comes from the bytes, not from the part
     Given an image part named "photo.png", declared as image/png, whose bytes are JPEG
@@ -192,11 +205,16 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
     Then the answer is the same as in the dev host
     And the encoder is the native Uint8Array.prototype.toBase64
 
-  Scenario: Manual, confirming the 2 MiB cap by CPU time (acceptance criterion added on issue #15)
-    # This measurement has not been run. The 2 MiB cap is confirmed only once it is.
+  Scenario: Manual, confirming the 64 KiB cap by CPU time (acceptance criterion added on issue #15)
+    # The 2 MiB cap was measured on 2026-10-16 on a scratch Worker and failed: a request at the cap used 35 to 107 ms of CPU
+    # (SubQ median 74 ms, OpenAI median 50 ms), a 2 MiB body refused before any encoding still used up to 59 ms,
+    # and a 128 KiB image peaked at 12 ms. Details: https://github.com/schalkneethling/jev-3000/pull/53#issuecomment-6221879089
+    # A 96 KiB cap was measured next, with 56 requests in the mix below at 96 KiB: median 5 ms, but p95 11 ms, with all three
+    # runs over 10 ms (19, 11, 11) right after the deploy. A private instance often runs on a fresh Worker, so the owner chose 64 KiB.
+    # The 64 KiB cap is confirmed only once its own measurement has run; until then it is a choice, not a result.
     Given the real decide path is deployed to a scratch Worker (not the production one)
     And "wrangler tail --format json" is running against it
-    When the owner sends about 30 requests at the cap: SubQ with one 2 MiB image, SubQ with four 512 KiB images, and OpenAI with eight 256 KiB images
+    When the owner sends about 30 requests at the cap: SubQ with one 64 KiB image, SubQ with four 16 KiB images, and OpenAI with eight 8 KiB images
     # Timers inside a Worker read 0 on Cloudflare, so only the tail's cpuTime (or the dashboard) is usable.
     Then the 95th percentile of the tail events' cpuTime is at most 10 ms
     # If it is not, lower MAX_IMAGE_BYTES and MAX_IMAGE_REQUEST_BYTES in src/providers/catalog.ts and record the measurement in the PR.

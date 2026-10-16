@@ -653,14 +653,14 @@ describe("POST /api/decide/{provider} before any provider call", () => {
   });
 
   it("limits a multipart body to the text, the images, and the framing, and says so in plain words", () => {
-    expect(IMAGE_ALLOWANCE_BYTES).toBe(2 * 1024 * 1024);
+    expect(IMAGE_ALLOWANCE_BYTES).toBe(64 * 1024);
     expect(IMAGE_ALLOWANCE_BYTES).toBe(MAX_IMAGE_REQUEST_BYTES);
     expect(TEXT_ALLOWANCE_BYTES).toBe(256 * 1024);
     expect(MAX_BODY_BYTES).toBe(
       IMAGE_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES,
     );
     expect(TOO_LARGE_MESSAGE).toBe(
-      'The request is too large. The request text may hold up to 256 KB, and a multipart request may add up to 2 MB of images. Trim "state", ask fewer questions, or send smaller images.',
+      'The request is too large. The request text may hold up to 256 KB, and a multipart request may add up to 64 KB of images. Trim "state", ask fewer questions, or send smaller images.',
     );
   });
 

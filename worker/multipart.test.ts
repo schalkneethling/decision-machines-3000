@@ -6,8 +6,8 @@
 
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
-import { openai, subq } from "../src/providers/catalog.ts";
-import type { ImageCapabilities } from "../src/providers/catalog.ts";
+import { MAX_IMAGE_BYTES, openai, subq } from "../src/providers/catalog.ts";
+import type { ImageCapabilities, ProviderDescriptor } from "../src/providers/catalog.ts";
 import { MAX_BODY_BYTES, TEXT_ALLOWANCE_BYTES, TOO_LARGE_MESSAGE } from "./body-limit.ts";
 import type { ProviderKeys } from "./env.ts";
 import { handle } from "./handler.ts";
@@ -18,6 +18,7 @@ import {
   detectMediaType,
   encodeBase64,
   encodeImages,
+  readMultipart,
 } from "./multipart.ts";
 
 const ORIGIN = "https://decisionmachines3000.example";
@@ -28,8 +29,6 @@ const keys: ProviderKeys = {
   SUBQ_API_KEY: SUBQ_KEY,
   OPENAI_API_KEY: OPENAI_KEY,
 };
-
-const MIB = 1024 * 1024;
 
 const question = {
   primitive: "noul",
@@ -172,7 +171,7 @@ describe("the limits from the catalog", () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toBe(
-      "Image 2 is over this project's limit of 2 MB per image. Use a smaller picture.",
+      "Image 2 is over this project's limit of 64 KB per image. Use a smaller picture.",
     );
     expect(deps.fetch).not.toHaveBeenCalled();
   });
@@ -187,6 +186,39 @@ describe("the limits from the catalog", () => {
     expect(response.status).toBe(200);
   });
 
+  it("holds a provider to its per-request limit when that is below twice its per-image limit", async () => {
+    // The catalog's two caps are equal today. This provider has different ones, so
+    // the per-request check stays tested for the day the catalog's caps diverge:
+    // each image fits on its own, and the pair does not.
+    const apart: ProviderDescriptor = {
+      ...subq,
+      capabilities: {
+        ...subq.capabilities,
+        images: { ...subqImages, maxBytesPerImage: 1024, maxBytesPerRequest: 1536 },
+      },
+    };
+    const request = multipart("subq", [
+      requestPart,
+      ["image", file(image("png", 1024))],
+      ["image", file(image("png", 513))],
+    ]);
+
+    const result = await readMultipart(
+      new Uint8Array(await request.arrayBuffer()),
+      request.headers.get("content-type") ?? "",
+      apart,
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const { error } = (await result.response.json()) as { error: string };
+    expect(error).toBe(
+      "The images add up to more than this project's limit of 1.5 KB per request. Send fewer or smaller pictures.",
+    );
+  });
+
+  // With equal caps, each image below is within the per-image limit, so only the
+  // per-request check can refuse this request.
   it("refuses images that add up to one byte over the per-request limit", async () => {
     const half = openaiImages.maxBytesPerRequest / 2;
     const deps = stubDeps();
@@ -201,7 +233,7 @@ describe("the limits from the catalog", () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toBe(
-      "The images add up to more than this project's limit of 2 MB per request. Send fewer or smaller pictures.",
+      "The images add up to more than this project's limit of 64 KB per request. Send fewer or smaller pictures.",
     );
     expect(deps.fetch).not.toHaveBeenCalled();
   });
@@ -402,13 +434,13 @@ describe("what reaches the provider and what comes back", () => {
   it("keeps the response small and free of base64 for the largest image", async () => {
     const deps = stubDeps(subqReply);
     const { response, text } = await send(
-      multipart("subq", [requestPart, ["image", file(image("png", 2 * MIB))]]),
+      multipart("subq", [requestPart, ["image", file(image("png", MAX_IMAGE_BYTES))]]),
       deps,
     );
 
     expect(response.status).toBe(200);
     expect(text.length).toBeLessThan(64 * 1024);
-    expect(text).toContain("<image 1: image/png, 2.0 MB>");
+    expect(text).toContain("<image 1: image/png, 64 KB>");
   });
 
   it("sends three images to OpenAI as data URLs in order", async () => {
@@ -568,18 +600,21 @@ function rawMultipart(provider: string, images: number): Request {
 }
 
 describe("parts are counted before they are parsed", () => {
+  /** Far more parts than any provider takes, yet a body under the size limit, which is checked first. */
+  const MANY_PARTS = 2_000;
+
   const tooMany =
     'The multipart body has too many parts. Send one "request" part and up to 4 "image" parts.';
 
-  it("refuses 10,000 empty parts without ever calling formData()", async () => {
+  it("refuses a flood of empty parts without ever calling formData()", async () => {
     const parse = vi.spyOn(Response.prototype, "formData");
     try {
       const deps = stubDeps();
-      const { response, body, text } = await send(rawMultipart("subq", 10_000), deps);
+      const { response, body, text } = await send(rawMultipart("subq", MANY_PARTS), deps);
 
       expect(response.status).toBe(400);
       expect(body.error).toBe(tooMany);
-      expect(text).not.toContain("10000");
+      expect(text).not.toContain(String(MANY_PARTS));
       expect(text).not.toContain("XB-test-boundary");
       expect(parse).not.toHaveBeenCalled();
       expect(deps.fetch).not.toHaveBeenCalled();
@@ -589,7 +624,7 @@ describe("parts are counted before they are parsed", () => {
   });
 
   it("tells a text-only provider that it takes no image parts", async () => {
-    const { response, body } = await send(rawMultipart("typesafe", 10_000), stubDeps());
+    const { response, body } = await send(rawMultipart("typesafe", MANY_PARTS), stubDeps());
 
     expect(response.status).toBe(400);
     expect(body.error).toBe(
@@ -664,8 +699,8 @@ describe("images are not read until the request has passed validation", () => {
 describe("encodeImages against a provider's own media types", () => {
   const pngOnly: ImageCapabilities = {
     maxCount: 1,
-    maxBytesPerImage: MIB,
-    maxBytesPerRequest: MIB,
+    maxBytesPerImage: 1024,
+    maxBytesPerRequest: 1024,
     mediaTypes: ["image/png"],
   };
 

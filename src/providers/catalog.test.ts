@@ -37,10 +37,10 @@ describe("provider catalog", () => {
     expect(openai.capabilities.questionNameMaxLength).toBeUndefined();
   });
 
-  it("accepts no images on TypeSafe and caps them at 2 MiB on SubQ and OpenAI", () => {
+  it("accepts no images on TypeSafe and caps them at 64 KiB on SubQ and OpenAI", () => {
     expect(typesafe.capabilities.images).toBe(false);
-    expect(MAX_IMAGE_BYTES).toBe(2 * 1024 * 1024);
-    expect(MAX_IMAGE_REQUEST_BYTES).toBe(2 * 1024 * 1024);
+    expect(MAX_IMAGE_BYTES).toBe(64 * 1024);
+    expect(MAX_IMAGE_REQUEST_BYTES).toBe(64 * 1024);
     expect(subq.capabilities.images).toEqual({
       maxCount: 4,
       maxBytesPerImage: MAX_IMAGE_BYTES,

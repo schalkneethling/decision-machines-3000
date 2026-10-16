@@ -72,10 +72,10 @@ Feature: POST /api/decide/{provider} runs a provider end to end through its adap
     Then the response is 504
     And exactly one upstream call was made
 
-  # Review of #8: the limit is what one request needs, 2 MiB of images plus 256 KiB of
+  # Review of #8: the limit is what one request needs, 64 KiB of images plus 256 KiB of
   # text, not the 100 MB Cloudflare accepts, which a 128 MB isolate cannot hold.
   Scenario: A body over the limit is refused before any upstream call
-    Given a body larger than 2 MiB of images plus 256 KiB of text
+    Given a body larger than 64 KiB of images plus 256 KiB of text
     When POST /api/decide/typesafe is handled
     Then the response is 413 with a message that states the limit in plain words
     And reading stopped once the limit was passed

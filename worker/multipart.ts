@@ -146,23 +146,36 @@ export type Multipart = { text: string; files: readonly File[] };
 
 /**
  * How many parts the body has, counted from the delimiter lines `--boundary`
- * at the start of a line, stopping once the count passes `limit`. The closing
- * delimiter (`--boundary--`) is not a part. It scans for line feeds with the
- * native `indexOf`, which is fast even in a binary body, and never parses a
- * part. The count is a bound for refusing floods, not a parse: a body whose
- * parts are really split another way is still checked by `formData()`.
+ * at the start of a line, stopping once the count passes `limit`. A delimiter
+ * counts only when the line ends after it, allowing the spaces and tabs RFC
+ * 2046 5.1.1 calls transport padding, so a line of file content that merely
+ * starts with the boundary (`--boundaryX`) is not a part. The closing
+ * delimiter (`--boundary--`) is not a part either. A delimiter on the body's
+ * last line, with no line break after it, still counts: over-counting a
+ * malformed body only refuses it sooner.
+ *
+ * It scans for line feeds with the native `indexOf`, which is fast even in a
+ * binary body, and never parses a part. The count is a bound for refusing
+ * floods, not a parse: a body whose parts are really split another way is
+ * still checked by `formData()`.
  */
 export function countParts(bytes: Uint8Array, boundary: string, limit: number): number {
   const marker = new TextEncoder().encode(`--${boundary}`);
-  const isDelimiterAt = (offset: number): boolean =>
+  const startsWithMarker = (offset: number): boolean =>
     offset + marker.length <= bytes.length && marker.every((b, i) => bytes[offset + i] === b);
-  const isClosing = (offset: number): boolean =>
-    bytes[offset + marker.length] === 0x2d && bytes[offset + marker.length + 1] === 0x2d;
+  const endsLineAt = (start: number): boolean => {
+    let at = start;
+    while (bytes[at] === 0x20 || bytes[at] === 0x09) at += 1;
+    if (at >= bytes.length) return true;
+    return bytes[at] === 0x0a || (bytes[at] === 0x0d && bytes[at + 1] === 0x0a);
+  };
+  const opensPartAt = (offset: number): boolean =>
+    startsWithMarker(offset) && endsLineAt(offset + marker.length);
 
   let parts = 0;
   let offset = 0;
   while (parts <= limit) {
-    if (isDelimiterAt(offset) && !isClosing(offset)) parts += 1;
+    if (opensPartAt(offset)) parts += 1;
     const lineFeed = bytes.indexOf(0x0a, offset);
     if (lineFeed === -1) break;
     offset = lineFeed + 1;

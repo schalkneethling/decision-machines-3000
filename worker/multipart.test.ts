@@ -626,6 +626,19 @@ describe("parts are counted before they are parsed", () => {
     expect(countParts(text, "abc", 10)).toBe(2);
     expect(countParts(text, "other", 10)).toBe(0);
   });
+
+  it("counts a delimiter only when the line ends after it, so a longer line that starts with it is content", () => {
+    // A file's bytes can hold a line such as "--abcdef"; only "--abc" followed
+    // by optional spaces or tabs and a line break opens a part (RFC 2046 5.1.1).
+    const text = new TextEncoder().encode(
+      "--abc\r\nx\r\n--abcdef\r\n--abcX\n--abc-\r\n--abc \t\r\ny\r\n--abc\nz\n--abc--\r\n",
+    );
+    expect(countParts(text, "abc", 10)).toBe(3);
+  });
+
+  it("counts a delimiter on the body's last line when no line break follows it", () => {
+    expect(countParts(new TextEncoder().encode("--abc\r\nx\r\n--abc"), "abc", 10)).toBe(2);
+  });
 });
 
 describe("images are not read until the request has passed validation", () => {

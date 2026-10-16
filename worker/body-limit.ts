@@ -10,6 +10,7 @@
  * it costs far more CPU than the Free plan's 10 ms.
  */
 
+import { sizeInWords } from "../src/providers/byte-size.ts";
 import { PROVIDERS } from "../src/providers/catalog.ts";
 import { failure } from "./respond.ts";
 
@@ -51,12 +52,6 @@ export const FRAMING_ALLOWANCE_BYTES = 16 * 1024;
  */
 export const MAX_BODY_BYTES =
   TEXT_ALLOWANCE_BYTES + IMAGE_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES;
-
-/** A size in binary units, written KB and MB, as the wire record's image placeholders are. */
-export function sizeInWords(bytes: number): string {
-  const mebibytes = bytes / (1024 * 1024);
-  return mebibytes >= 1 ? `${mebibytes} MB` : `${bytes / 1024} KB`;
-}
 
 export const TOO_LARGE_MESSAGE =
   `The request is too large. The request text may hold up to ${sizeInWords(TEXT_ALLOWANCE_BYTES)}, ` +

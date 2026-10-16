@@ -34,8 +34,10 @@
  */
 
 import * as z from "zod/mini";
+import { sizeInWords } from "../src/providers/byte-size.ts";
 import type { ImageCapabilities, ProviderDescriptor } from "../src/providers/catalog.ts";
-import { TEXT_ALLOWANCE_BYTES, sizeInWords, tooLarge } from "./body-limit.ts";
+import { SIGNATURE_BYTES, detectMediaType } from "../src/providers/image-bytes.ts";
+import { TEXT_ALLOWANCE_BYTES, tooLarge } from "./body-limit.ts";
 import type { ImageAttachment } from "./decide.ts";
 import { failure } from "./respond.ts";
 
@@ -252,32 +254,8 @@ export async function readMultipart(
 // The real format, from the first bytes
 // ---------------------------------------------------------------------------
 
-/** The most bytes any signature below needs: `RIFF`, four size bytes, then `WEBP`. */
-const SIGNATURE_BYTES = 12;
-
-/** True when `bytes` holds `expected` starting at `offset`. */
-function hasBytesAt(bytes: Uint8Array, offset: number, expected: readonly number[]): boolean {
-  return expected.every((value, index) => bytes[offset + index] === value);
-}
-
-/** `RIFF` and `WEBP` as bytes. */
-const RIFF = [0x52, 0x49, 0x46, 0x46];
-const WEBP = [0x57, 0x45, 0x42, 0x50];
-
-/**
- * The media type the first bytes of an image show, or undefined when they
- * match none of PNG, JPEG, or WebP. The declared type is never consulted.
- * PNG is checked against its whole eight-byte signature, which is stricter
- * than the four bytes issue #15 names and just as cheap.
- */
-export function detectMediaType(bytes: Uint8Array): string | undefined {
-  if (hasBytesAt(bytes, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
-  if (hasBytesAt(bytes, 0, [0xff, 0xd8, 0xff])) return "image/jpeg";
-  if (hasBytesAt(bytes, 0, RIFF) && hasBytesAt(bytes, 8, WEBP)) {
-    return "image/webp";
-  }
-  return undefined;
-}
+// `detectMediaType` lives in `src/providers/image-bytes.ts`, because the browser
+// runs the same check for early feedback (issue #16). This check is the one that counts.
 
 /**
  * The base64 text of `bytes` on one line. Workers has the native

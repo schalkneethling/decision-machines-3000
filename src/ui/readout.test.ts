@@ -58,6 +58,18 @@ describe("renderResponse for Noul", () => {
   it("renders no JSON, which the wire view carries outside the live region", () => {
     expect(readout.querySelector("details, pre")).toBeNull();
   });
+
+  it("says when attached images were left out, and says nothing about images otherwise", () => {
+    expect(
+      renderResponse(noulExample, noulResponse, 2).querySelector(".reading-meta")?.textContent,
+    ).toBe(
+      "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens. Sent without the 2 attached images.",
+    );
+    expect(
+      renderResponse(noulExample, noulResponse, 1).querySelector(".reading-meta")?.textContent,
+    ).toMatch(/Sent without the 1 attached image\.$/);
+    expect(readout.querySelector(".reading-meta")?.textContent).not.toContain("Sent without");
+  });
 });
 
 describe("renderResponse for Choice", () => {

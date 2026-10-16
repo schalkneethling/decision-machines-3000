@@ -222,7 +222,7 @@ describe("the status line", () => {
     await load();
     change("subq");
     expect(get("#provider-status").textContent).toBe(
-      "Provider set to SubQ Snap. Images allowed, up to 4.",
+      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
     );
     change("typesafe");
     expect(get("#provider-status").textContent).toBe(
@@ -230,7 +230,7 @@ describe("the status line", () => {
     );
     change("openai");
     expect(get("#provider-status").textContent).toBe(
-      "Provider set to OpenAI Decisions. Images allowed, up to 8.",
+      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
     );
   });
 });

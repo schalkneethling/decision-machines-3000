@@ -2,7 +2,7 @@
 
 A small demo of [TypeSafe's](https://typesafe.ai) Jev decision model and its three primitives: Noul, Choice, and Score.
 
-Each primitive gets its own panel with a tree-based "branch composer" for building up questions and state, plus a JSON editor for editing the same request by hand. A readout renders the model's answers, including probabilities drawn as bars. A separate warm-connection demo, available under `vp dev`, shows the latency difference between a cold connection to a provider and one that has already been warmed up (see [The warm-connection demo](#the-warm-connection-demo)).
+Each primitive gets its own panel with a tree-based "branch composer" for building up questions and state, plus a JSON editor for editing the same request by hand. When the selected provider takes images, each panel also shows an Images control: choose files, drop them on it, or paste one, and the browser checks each file's real format and the provider's limits (read from `GET /api/providers`) before sending the files as multipart parts beside the request JSON. A readout renders the model's answers, including probabilities drawn as bars. A separate warm-connection demo, available under `vp dev`, shows the latency difference between a cold connection to a provider and one that has already been warmed up (see [The warm-connection demo](#the-warm-connection-demo)).
 
 ## Requirements
 

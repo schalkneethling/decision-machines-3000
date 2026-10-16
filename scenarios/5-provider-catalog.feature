@@ -48,5 +48,5 @@ Feature: A provider catalog drives validation limits, and refusals render
     When their capabilities are read
     Then every provider allows 255 choice options and score levels from 2 to 10
     And TypeSafe accepts no images
-    And SubQ and OpenAI cap an image and a request at 2 MiB each
+    And SubQ and OpenAI cap an image and a request at 64 KiB each
     And the pinned models are jev-1.13.0, subq-snap-preview, and gpt-6-luna

@@ -105,6 +105,26 @@ function fetched(deps: StubDeps): { certs: number; provider: number } {
   return { certs, provider: urls.length - certs };
 }
 
+/**
+ * A request body that counts how often the reader asked it for a chunk. Its
+ * high-water mark is 0, so the stream does not pull ahead on its own: any pull
+ * means some code read the body.
+ */
+function countingBody(): { stream: ReadableStream<Uint8Array>; pulls: () => number } {
+  let pulls = 0;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new TextEncoder().encode("{}"));
+        controller.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  return { stream, pulls: () => pulls };
+}
+
 function decideRequest(token?: string, body: BodyInit = JSON.stringify(yesNo)): Request {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (token !== undefined) headers[ACCESS_JWT_HEADER] = token;
@@ -351,6 +371,44 @@ describe("POST /api/decide/{provider} on a deployed instance", () => {
 
     expect(answer.response.status).toBe(503);
     expect(answer.body.error).toBe(UNCONFIGURED_MESSAGE);
+  });
+
+  it("refuses without pulling a single chunk of the body, on an unconfigured Worker", async () => {
+    const deps = stubDeps();
+    const body = countingBody();
+
+    const answer = await run(
+      new Request(`${ORIGIN}/api/decide/typesafe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body.stream,
+        duplex: "half",
+      } as RequestInit),
+      keyOnly,
+      deps,
+    );
+
+    expect(answer.response.status).toBe(503);
+    expect(body.pulls()).toBe(0);
+  });
+
+  it("refuses a request with no token without pulling a single chunk of the body", async () => {
+    const deps = stubDeps();
+    const body = countingBody();
+
+    const answer = await run(
+      new Request(`${ORIGIN}/api/decide/typesafe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: body.stream,
+        duplex: "half",
+      } as RequestInit),
+      withAccess,
+      deps,
+    );
+
+    expect(answer.response.status).toBe(403);
+    expect(body.pulls()).toBe(0);
   });
 
   it("refuses a request with no Access token with a 403, fetching neither keys nor provider", async () => {

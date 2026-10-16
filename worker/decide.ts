@@ -20,6 +20,7 @@
 import type { DecisionSuccess } from "../src/decision/contract.ts";
 import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
+import { formatBytes } from "../src/providers/byte-size.ts";
 import type { ProviderDescriptor, ProviderId } from "../src/providers/catalog.ts";
 import { MAX_BODY_BYTES, TEXT_ALLOWANCE_BYTES, tooLarge } from "./body-limit.ts";
 import type { ProviderKeys } from "./env.ts";
@@ -90,13 +91,6 @@ type MayCarryImages = { state: unknown; images?: readonly ImageAttachment[] };
 
 /** A validated request with the images the route read and encoded, if there were any. */
 export type RequestWithImages = ValidDecisionRequest & { images?: readonly ImageAttachment[] };
-
-/** A size in binary units, written KB and MB as the plan's placeholders are: `230 KB`. */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /**
  * A copy of `request` whose every image `base64` value is a placeholder such

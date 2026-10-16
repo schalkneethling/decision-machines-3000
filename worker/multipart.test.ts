@@ -15,7 +15,6 @@ import type { HandlerDeps } from "./handler.ts";
 import {
   EXTRA_PARTS_ALLOWANCE,
   countParts,
-  detectMediaType,
   encodeBase64,
   encodeImages,
   readMultipart,
@@ -532,19 +531,7 @@ describe("the body limit with a streamed multipart body", () => {
   });
 });
 
-describe("detectMediaType", () => {
-  it("needs the whole PNG signature and both WebP markers", () => {
-    expect(detectMediaType(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBeUndefined();
-    const riffOnly = image("webp");
-    riffOnly.set([0, 0, 0, 0], 8);
-    expect(detectMediaType(riffOnly)).toBeUndefined();
-    expect(detectMediaType(image("webp"))).toBe("image/webp");
-  });
-
-  it("does not read past a short input", () => {
-    expect(detectMediaType(new Uint8Array([0xff, 0xd8]))).toBeUndefined();
-  });
-});
+// `detectMediaType` is tested in `src/providers/image-bytes.test.ts`, where it now lives.
 
 describe("encodeBase64", () => {
   const bytes = Uint8Array.from({ length: 70_000 }, (_, index) => index % 256);

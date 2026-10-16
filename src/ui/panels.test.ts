@@ -6,6 +6,7 @@ import { choiceExample, noulExample, scoreExample } from "../decision/examples.t
 import { PROVIDERS } from "../providers/catalog.ts";
 import { toProviderSummary } from "../providers/contract.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
+import { fileOf, pngBytes } from "./fixtures/images.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 import type { ProviderSelection } from "./provider-select.ts";
@@ -19,6 +20,7 @@ const body = (/<body>([\s\S]*)<\/body>/.exec(page)?.[1] ?? "").replace(
 
 const typesafe = toProviderSummary(PROVIDERS.typesafe);
 const subq = toProviderSummary(PROVIDERS.subq);
+const openai = toProviderSummary(PROVIDERS.openai);
 
 /** A provider selection the test drives by hand: `choose(undefined)` is "no provider". */
 function selectionOf(initial: ProviderSummary | undefined) {
@@ -482,5 +484,229 @@ describe("provider selection", () => {
     expect(status("score").dataset.tone).toBe("alert");
     expect(status("score").textContent).toContain("at most 6");
     expect(status("score").textContent).not.toContain("at most 10");
+  });
+});
+
+describe("images", () => {
+  const KIB = 1024;
+
+  function png(name: string, size = 4 * KIB): File {
+    return fileOf(pngBytes({ size }), name, "image/png");
+  }
+
+  /** Chooses `files` through the panel's file input. */
+  function attach(primitive: string, ...files: File[]): void {
+    const input = get<HTMLInputElement>(`#${primitive}-images-input`);
+    const transfer = new DataTransfer();
+    for (const file of files) transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function attachments(primitive: string): HTMLElement[] {
+    return [...form(primitive).querySelectorAll<HTMLElement>(".attachment")];
+  }
+
+  function runButton(primitive: string): HTMLButtonElement {
+    return get<HTMLButtonElement>(`form[data-primitive="${primitive}"] .run`);
+  }
+
+  beforeEach(() => {
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:test/preview");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("builds an image control in every panel that follows the selected provider", () => {
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    for (const primitive of ["noul", "choice", "score"]) {
+      expect(get(`form[data-primitive="${primitive}"] .attachments-zone`).hidden).toBe(true);
+    }
+    choose(subq);
+    for (const primitive of ["noul", "choice", "score"]) {
+      const zone = get<HTMLFieldSetElement>(
+        `form[data-primitive="${primitive}"] .attachments-zone`,
+      );
+      expect(zone.hidden).toBe(false);
+      expect(zone.querySelector("legend")?.textContent).toBe("Images");
+      expect(get(`#${primitive}-images-input`).getAttribute("accept")).toBe(
+        "image/png,image/jpeg,image/webp",
+      );
+    }
+  });
+
+  it("posts a multipart form with the JSON text as the request part and each file as an image part", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    viewButton("noul", "json").click();
+    const text = JSON.stringify(noulExample);
+    textarea("noul").value = text;
+    attach("noul", png("a.png"), png("b.png"));
+    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(2));
+    expect(get("#noul-hint").textContent).toContain(
+      "2 images attached. They are sent as image parts beside this JSON, not inside it.",
+    );
+
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = init?.body;
+    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
+    expect(init?.headers).toBeUndefined();
+    expect(body.get("request")).toBe(text);
+    const parts = body.getAll("image");
+    expect(parts).toHaveLength(2);
+    expect(parts.map((part) => (part instanceof File ? part.name : typeof part))).toEqual([
+      "a.png",
+      "b.png",
+    ]);
+    const first = parts[0];
+    if (!(first instanceof File)) throw new Error("Expected a file part.");
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(pngBytes({ size: 4 * KIB }));
+    for (const part of [body.get("request"), ...parts]) {
+      if (typeof part === "string") expect(part).not.toMatch(/^data:|[A-Za-z0-9+/]{200,}/);
+    }
+    // The textarea is untouched.
+    expect(textarea("noul").value).toBe(text);
+  });
+
+  it("posts the tree's request as the request part when the tree view is open", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    attach("score", png("a.png"));
+    await vi.waitFor(() => expect(attachments("score")).toHaveLength(1));
+    submit("score");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = fetchMock.mock.calls[0]?.[1].body;
+    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
+    expect(JSON.parse(body.get("request") as string)).toStrictEqual(scoreExample);
+    expect(body.getAll("image")).toHaveLength(1);
+  });
+
+  it("posts JSON as before when no image is attached", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(typeof init?.body).toBe("string");
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    expect(get("#noul-hint").textContent).not.toContain("attached");
+  });
+
+  it("keeps the images on a text-only provider, sends JSON without them, and says so in the result", async () => {
+    const fetchMock = mockFetch();
+    const { selection, choose } = selectionOf(subq);
+    setupPanels(document, selection);
+    attach("noul", png("a.png"), png("b.png"));
+    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(2));
+
+    choose(typesafe);
+    expect(get('form[data-primitive="noul"] .attachments-zone').hidden).toBe(true);
+    expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toBe(
+      "TypeSafe Jev is text only. Your 2 images are kept and will not be sent.",
+    );
+    expect(get('form[data-primitive="noul"] .attachments-status').textContent).toBe(
+      "TypeSafe Jev is text only; your 2 images are kept and will not be sent",
+    );
+    // The other panels hold no images, so they say nothing.
+    expect(get('form[data-primitive="choice"] .attachments-status').textContent).toBe("");
+    expect(runButton("noul").disabled).toBe(false);
+
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(typeof init?.body).toBe("string");
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    await vi.waitFor(() =>
+      expect(document.querySelector(".reading-meta")?.textContent).toBe(
+        "Answered by TypeSafe Jev (jev-1.13.0) in 474 ms using 452 input tokens. Sent without the 2 attached images.",
+      ),
+    );
+
+    choose(subq);
+    expect(get('form[data-primitive="noul"] .attachments-zone').hidden).toBe(false);
+    expect(attachments("noul")).toHaveLength(2);
+  });
+
+  it("blocks Run while a lower limit leaves images marked, and frees it when they are removed", async () => {
+    const fetchMock = mockFetch();
+    const { selection, choose } = selectionOf(openai);
+    setupPanels(document, selection);
+    attach("noul", ...Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`)));
+    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(8));
+    expect(runButton("noul").disabled).toBe(false);
+
+    choose(subq);
+    expect(runButton("noul").disabled).toBe(true);
+    expect(runButton("choice").disabled).toBe(false);
+    expect(attachments("noul").filter((item) => item.hasAttribute("data-over-limit"))).toHaveLength(
+      4,
+    );
+    expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toContain(
+      "Remove the 4 marked images to run.",
+    );
+    submit("noul");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(status("noul").textContent).toContain("Remove the 4 marked images to run.");
+    expect(status("noul").dataset.tone).toBe("alert");
+
+    for (let index = 0; index < 4; index += 1) {
+      attachments("noul").at(-1)?.querySelector<HTMLButtonElement>(".attachment-remove")?.click();
+    }
+    expect(attachments("noul")).toHaveLength(4);
+    expect(runButton("noul").disabled).toBe(false);
+    expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toBe("");
+  });
+
+  function labels(): string[] {
+    // The panels' labels only; the warm form has a `.run-label` of its own.
+    return [...document.querySelectorAll("form[data-primitive] .run-label")].map(
+      (label) => label.textContent ?? "",
+    );
+  }
+
+  it("leaves every Run label reading Run after an image is added or removed", async () => {
+    setupPanels(document, selectionOf(subq).selection);
+    attach("noul", png("a.png"));
+    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(1));
+    expect(labels()).toEqual(["Run", "Run", "Run"]);
+    form("noul").querySelector<HTMLButtonElement>(".attachment-remove")?.click();
+    expect(labels()).toEqual(["Run", "Run", "Run"]);
+    // The panel's own status line is untouched by image events; the image control has its own.
+    expect(status("noul").textContent).toBe("");
+    expect(get('form[data-primitive="noul"] .attachments-status').textContent).toContain(
+      "Image removed",
+    );
+  });
+
+  it("keeps the running panel labelled Running while another panel gains an image", async () => {
+    let answer: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+      ),
+    );
+    setupPanels(document, selectionOf(subq).selection);
+    submit("noul");
+    expect(labels()).toEqual(["Running", "Run", "Run"]);
+    attach("choice", png("a.png"));
+    await vi.waitFor(() => expect(attachments("choice")).toHaveLength(1));
+    expect(labels()).toEqual(["Running", "Run", "Run"]);
+    for (const button of document.querySelectorAll<HTMLButtonElement>(
+      "form[data-primitive] .run",
+    )) {
+      expect(button.disabled).toBe(true);
+    }
+    answer(new Response(JSON.stringify(noulResponse), { status: 200 }));
+    await vi.waitFor(() => expect(labels()).toEqual(["Run", "Run", "Run"]));
   });
 });

@@ -212,6 +212,14 @@ export function metadataSentence(response: DecisionSuccess): string {
   return `Answered by ${provider} (${response.model}) in ${latency} ms using ${tokens} input tokens${over}.`;
 }
 
+/**
+ * "Sent without the 2 attached images.": what the readout adds when the panel
+ * held images that the provider does not take, so nothing is dropped silently.
+ */
+export function omittedImagesSentence(count: number): string {
+  return `Sent without the ${count} attached ${count === 1 ? "image" : "images"}.`;
+}
+
 /** The line shown while a run waits, naming the provider it was sent to. */
 export function renderLoading(providerName: string): HTMLElement {
   return create("p", { className: "readout-status", text: `Asking ${providerName}…` });
@@ -246,12 +254,21 @@ export function renderNonJson(status: number): HTMLElement {
 /**
  * The readout for a finished run: a failure, or metadata and answers. It is what a
  * screen reader announces, so the JSON of the wire view is rendered apart from it
- * by `renderWire`.
+ * by `renderWire`. `omittedImages` is how many attached images were left out
+ * because the provider is text only; the metadata sentence says so when it is not 0.
  */
-export function renderResponse(sent: unknown, response: DecisionResponse): HTMLElement {
+export function renderResponse(
+  sent: unknown,
+  response: DecisionResponse,
+  omittedImages = 0,
+): HTMLElement {
   if (!response.ok) {
     return create("div", { className: "reading" }, [renderError(response.error, response.detail)]);
   }
+  const meta =
+    omittedImages > 0
+      ? `${metadataSentence(response)} ${omittedImagesSentence(omittedImages)}`
+      : metadataSentence(response);
 
   const answers = create(
     "ul",
@@ -263,7 +280,7 @@ export function renderResponse(sent: unknown, response: DecisionResponse): HTMLE
   answers.setAttribute("role", "list");
 
   return create("div", { className: "reading" }, [
-    create("p", { className: "reading-meta", text: metadataSentence(response) }),
+    create("p", { className: "reading-meta", text: meta }),
     answers,
   ]);
 }

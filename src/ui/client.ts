@@ -89,6 +89,28 @@ async function requestJson<T>(
   }
 }
 
+/**
+ * What a POST carries: JSON text, sent unchanged and declared as such, or a
+ * `FormData`, for which no Content-Type is set here. MDN (Using FormData
+ * Objects) warns that a hand-set header would stop the browser from writing
+ * `multipart/form-data` with the boundary it needs, so the browser sets it.
+ */
+export type PostBody = string | FormData;
+
+/** POSTs `body` to `endpoint` and checks the JSON answer with `isExpected`. Never rejects. */
+export function post<T>(
+  endpoint: string,
+  body: PostBody,
+  isExpected: (value: unknown) => value is T,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<ApiResult<T>> {
+  const init: Omit<RequestInit, "signal"> =
+    typeof body === "string"
+      ? { method: "POST", headers: { "content-type": "application/json" }, body }
+      : { method: "POST", body };
+  return requestJson(endpoint, init, isExpected, timeoutMs);
+}
+
 /** POSTs JSON text, unchanged, to `endpoint` and checks the body with `isExpected`. Never rejects. */
 export function postJson<T>(
   endpoint: string,
@@ -96,12 +118,7 @@ export function postJson<T>(
   isExpected: (value: unknown) => value is T,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<ApiResult<T>> {
-  return requestJson(
-    endpoint,
-    { method: "POST", headers: { "content-type": "application/json" }, body },
-    isExpected,
-    timeoutMs,
-  );
+  return post(endpoint, body, isExpected, timeoutMs);
 }
 
 /** Asks the server which providers this instance has a key for. Never rejects. */
@@ -109,13 +126,16 @@ export function getProviders(timeoutMs = REQUEST_TIMEOUT_MS): Promise<ProvidersR
   return requestJson(PROVIDERS_ENDPOINT, { method: "GET" }, isProvidersResponse, timeoutMs);
 }
 
-/** POSTs a panel's JSON text, unchanged, to the decide route of `providerId`. Never rejects. */
+/**
+ * POSTs a panel's request to the decide route of `providerId`: its JSON text,
+ * unchanged, or the multipart form that carries that text and the images. Never rejects.
+ */
 export function askProvider(
   providerId: ProviderId,
-  body: string,
+  body: PostBody,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<AskResult> {
-  return postJson(decideEndpoint(providerId), body, isDecisionResponse, timeoutMs);
+  return post(decideEndpoint(providerId), body, isDecisionResponse, timeoutMs);
 }
 
 export function isKeepAliveSeconds(value: unknown): value is KeepAliveSeconds {

@@ -4,13 +4,17 @@ import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../decision/validate.ts";
+import type { ProviderSummary } from "../providers/contract.ts";
+import { createAttachments, toFormData } from "./attachments.ts";
+import type { Attachments } from "./attachments.ts";
+import { imagesCount } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
-import type { AskResult } from "./client.ts";
+import type { AskResult, PostBody } from "./client.ts";
 import { toRequest, toViewModel } from "./composer/model.ts";
 import type { DraftRequest } from "./composer/model.ts";
 import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
-import { required } from "./dom.ts";
+import { create, required } from "./dom.ts";
 import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
 import {
@@ -34,6 +38,10 @@ type Panel = {
   field: HTMLTextAreaElement;
   error: HTMLElement;
   hintId: string;
+  /** The sentence in the JSON view's hint that says how attached images travel. Empty without images. */
+  imagesHint: HTMLElement;
+  /** The panel's images, which follow the selected provider. */
+  attachments: Attachments;
   button: HTMLButtonElement;
   label: HTMLElement;
   status: HTMLElement;
@@ -85,7 +93,25 @@ function setStatus(panel: Panel, message: string, tone: "note" | "alert" = "note
   panel.status.dataset.tone = tone;
 }
 
-function setupPanel(form: HTMLFormElement, capabilities: ProviderCapabilities): Panel {
+/** What the JSON view's hint says about the images, or nothing when there are none. */
+function imagesHintText(count: number): string {
+  if (count === 0) return "";
+  return `${imagesCount(count)} attached. ${count === 1 ? "It is" : "They are"} sent as image parts beside this JSON, not inside it.`;
+}
+
+type PanelSetup = {
+  /** The limits this panel validates against until a provider is selected. */
+  capabilities: ProviderCapabilities;
+  /** The provider selected while the panel is built, for the image control's first, silent render. */
+  provider: ProviderSummary | undefined;
+  /** Called after every change to the panel's images, so the Run buttons follow the block state. */
+  onAttachmentsChange: () => void;
+};
+
+function setupPanel(
+  form: HTMLFormElement,
+  { capabilities, provider, onAttachmentsChange }: PanelSetup,
+): Panel {
   const primitive = form.dataset.primitive;
   if (!isPrimitive(primitive)) {
     throw new Error(`Unknown primitive "${primitive ?? ""}" on a panel form.`);
@@ -94,9 +120,21 @@ function setupPanel(form: HTMLFormElement, capabilities: ProviderCapabilities): 
   const example = examples[primitive];
   const status = required(form, ".panel-status", HTMLElement);
   const treeBody = required(form, '[data-view-body="tree"]', HTMLElement);
+  const hint = required(form, ".hint", HTMLElement);
+  const imagesHint = create("span", { className: "hint-images" });
+  hint.append(" ", imagesHint);
 
-  // The composer's callbacks need the finished panel, which needs the composer.
+  // The composer's and the image control's callbacks need the finished panel, which needs them.
   let panel: Panel | undefined;
+  const attachments = createAttachments(form, {
+    prefix: `${primitive}-images`,
+    provider,
+    onChange: () => {
+      if (!panel) return;
+      panel.imagesHint.textContent = imagesHintText(attachments.count());
+      onAttachmentsChange();
+    },
+  });
   const composer = createComposer({
     prefix: `${primitive}-tree`,
     model: toViewModel(example),
@@ -118,7 +156,9 @@ function setupPanel(form: HTMLFormElement, capabilities: ProviderCapabilities): 
     form,
     field: required(form, "textarea.request-field", HTMLTextAreaElement),
     error: required(form, ".field-error", HTMLElement),
-    hintId: required(form, ".hint", HTMLElement).id,
+    hintId: hint.id,
+    imagesHint,
+    attachments,
     button: required(form, ".run", HTMLButtonElement),
     label: required(form, ".run-label", HTMLElement),
     status,
@@ -286,10 +326,11 @@ function revalidate(panel: Panel): void {
   }
 }
 
-function renderResult(sent: unknown, result: AskResult): HTMLElement {
+/** `omittedImages` is how many attached images the run left out because the provider is text only. */
+function renderResult(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
   switch (result.kind) {
     case "response":
-      return renderResponse(sent, result.response);
+      return renderResponse(sent, result.response, omittedImages);
     case "unreachable":
       return renderUnreachable(result.detail);
     case "non_json":
@@ -333,54 +374,88 @@ export function setupPanels(
   // Outside the live region, so the JSON is never announced.
   const wire = required(root, "#wire-body", HTMLElement);
   // Until a provider is selected, requests are checked against the default provider's limits.
-  const capabilities = selection.current()?.capabilities ?? DEFAULT_PROVIDER.capabilities;
+  const provider = selection.current();
+  const capabilities = provider?.capabilities ?? DEFAULT_PROVIDER.capabilities;
   const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
-    setupPanel(form, capabilities),
+    setupPanel(form, { capabilities, provider, onAttachmentsChange: updateButtons }),
   );
-  let running = false;
+  /** The panel whose run is in flight, or undefined between runs. */
+  let running: Panel | undefined;
 
-  function updateButtons(active?: Panel): void {
+  /**
+   * Run is disabled while a run is in flight, while there is no provider, and
+   * on a panel whose images the selected provider cannot take, until the
+   * excess is removed. The running panel reads "Running". The state is read
+   * here rather than passed in, so a provider or image change during a run
+   * cannot relabel the buttons.
+   */
+  function updateButtons(): void {
     const unavailable = selection.current() === undefined;
     for (const panel of panels) {
-      panel.button.disabled = running || unavailable;
-      panel.label.textContent = panel === active ? "Running" : "Run";
+      panel.button.disabled =
+        running !== undefined || unavailable || panel.attachments.blocked() !== undefined;
+      panel.label.textContent = panel === running ? "Running" : "Run";
     }
   }
 
   function setRunning(active: Panel | undefined): void {
-    running = active !== undefined;
-    readout.setAttribute("aria-busy", String(running));
-    updateButtons(active);
+    running = active;
+    readout.setAttribute("aria-busy", String(running !== undefined));
+    updateButtons();
   }
 
-  selection.subscribe((provider) => {
-    if (provider !== undefined) {
+  selection.subscribe((next) => {
+    if (next !== undefined) {
       for (const panel of panels) {
-        panel.capabilities = provider.capabilities;
+        panel.capabilities = next.capabilities;
         revalidate(panel);
       }
     }
+    // Each control re-marks its images for the new provider and tells updateButtons through onChange.
+    for (const panel of panels) panel.attachments.setProvider(next);
     updateButtons();
   });
   updateButtons();
 
+  /**
+   * What Run posts: the request text alone as JSON, or, when the panel holds
+   * images the provider takes, a multipart form of that text and the files.
+   * Returns the body and how many images were left out because the provider is text only.
+   */
+  function bodyFor(
+    panel: Panel,
+    text: string,
+    chosen: ProviderSummary,
+  ): { body: PostBody; omittedImages: number } {
+    const files = panel.attachments.files();
+    if (files.length === 0) return { body: text, omittedImages: 0 };
+    if (chosen.capabilities.images === false) return { body: text, omittedImages: files.length };
+    return { body: toFormData(text, files), omittedImages: 0 };
+  }
+
   async function run(panel: Panel): Promise<void> {
-    const provider = selection.current();
-    if (provider === undefined) {
+    const chosen = selection.current();
+    if (chosen === undefined) {
+      return;
+    }
+    const blocked = panel.attachments.blocked();
+    if (blocked !== undefined) {
+      setStatus(panel, blocked, "alert");
       return;
     }
     const prepared = prepareRun(panel);
     if (prepared === undefined) {
       return;
     }
+    const { body, omittedImages } = bodyFor(panel, prepared.body, chosen);
 
     setStatus(panel, "");
     setRunning(panel);
-    readout.replaceChildren(renderLoading(provider.displayName));
+    readout.replaceChildren(renderLoading(chosen.displayName));
     wire.replaceChildren();
     try {
-      const result = await askProvider(provider.id, prepared.body);
-      readout.replaceChildren(renderResult(prepared.sent, result));
+      const result = await askProvider(chosen.id, body);
+      readout.replaceChildren(renderResult(prepared.sent, result, omittedImages));
       if (result.kind === "response") wire.replaceChildren(renderWire(result.response));
       if (result.kind === "response" && result.response.ok) onAnswered?.(result.response);
     } finally {
@@ -426,7 +501,7 @@ export function setupPanels(
 
     panel.form.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (running) {
+      if (running !== undefined) {
         return;
       }
       run(panel).catch((error: unknown) => {

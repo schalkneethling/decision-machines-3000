@@ -1,8 +1,8 @@
 import { PROVIDER_ORDER, PROVIDERS } from "../providers/catalog.ts";
-import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { HostSummary, Protection, ProviderSummary } from "../providers/contract.ts";
 import { getProviders } from "./client.ts";
 import { appendWithInlineCode, create, required } from "./dom.ts";
+import { imageInputSentence } from "./image-sentences.ts";
 import { DEPLOYMENT_GUIDE_URL, renderProtectionNotice } from "./protection-notice.ts";
 import { VOCABULARY } from "./vocabulary.ts";
 
@@ -49,12 +49,6 @@ function storeProvider(id: string): void {
   } catch {
     // Storage is blocked or full; the select just opens on the first provider next time.
   }
-}
-
-/** The part of the announcement about images, from the provider's capabilities. */
-function imageSentence(capabilities: ProviderCapabilities): string {
-  const { images } = capabilities;
-  return images === false ? "Text only, no images." : `Images allowed, up to ${images.maxCount}.`;
 }
 
 function optionFor(provider: ProviderSummary): HTMLOptionElement {
@@ -229,7 +223,8 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     const next = providers.find((provider) => provider.id === select.value);
     if (next === undefined) return;
     storeProvider(next.id);
-    status.textContent = `Provider set to ${next.displayName}. ${imageSentence(next.capabilities)}`;
+    // The one announcement of the new image capability; each panel's image control says only what concerns its own images.
+    status.textContent = `Provider set to ${next.displayName}. ${imageInputSentence(next.capabilities.images)}`;
     renderLegend(next);
     choose(next);
   });

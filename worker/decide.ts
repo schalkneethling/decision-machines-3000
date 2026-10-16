@@ -3,7 +3,9 @@
  *
  * The route checks, in order: that the provider exists (404), that its key is
  * set (409, naming the variable), the content type (415), the body size (413),
- * and the request itself (400, with the validator's own message and path).
+ * the multipart parts and their declared sizes (400, `multipart.ts`), the
+ * request itself (400, with the validator's own message and path), and the
+ * images' real formats (400).
  * Only then does it call the provider, once, through the adapter, with one
  * 25-second budget and no retry, and map a failure to one status per
  * `ProviderError` kind (`STATUS_FOR_KIND` in `provider-route.ts`). On a host
@@ -39,6 +41,7 @@ import {
   resolveProvider,
 } from "./provider-route.ts";
 import type { Read } from "./provider-route.ts";
+import { encodeImages, readMultipart } from "./multipart.ts";
 import { failure, json } from "./respond.ts";
 
 /**
@@ -73,8 +76,8 @@ export type DecisionSuccessBody = Omit<DecisionSuccess, "wire"> & {
 // ---------------------------------------------------------------------------
 
 /**
- * One image as the neutral request will carry it once images arrive (#15):
- * its media type, its data as base64, and its decoded size.
+ * One image as the neutral request carries it: its media type as the bytes
+ * show it, its data as base64, and its decoded size.
  */
 export type ImageAttachment = { mediaType: string; base64: string; byteLength: number };
 
@@ -84,6 +87,9 @@ export type ImageAttachment = { mediaType: string; base64: string; byteLength: n
  * check for all-optional types requires.
  */
 type MayCarryImages = { state: unknown; images?: readonly ImageAttachment[] };
+
+/** A validated request with the images the route read and encoded, if there were any. */
+export type RequestWithImages = ValidDecisionRequest & { images?: readonly ImageAttachment[] };
 
 /** A size in binary units, written KB and MB as the plan's placeholders are: `230 KB`. */
 function formatBytes(bytes: number): string {
@@ -117,7 +123,7 @@ export function withImagePlaceholders<T extends MayCarryImages>(request: T): T {
  */
 export function wireRecord(
   adapter: ProviderAdapter,
-  request: ValidDecisionRequest,
+  request: RequestWithImages,
 ): { request: object } {
   return { request: adapter.toWire(withImagePlaceholders(request)) };
 }
@@ -176,70 +182,32 @@ export function displayableResponse(response: unknown): unknown {
 
 const UNSUPPORTED_TYPE = `Send the request as ${JSON_TYPE}, or as ${MULTIPART_TYPE} with a "request" part and one "image" part per image.`;
 
-/**
- * The text of the `request` part of a multipart body, or a refusal. Image parts
- * are checked against the provider's capabilities; reading them arrives with
- * image input (#15).
- */
-async function requestPart(
-  bytes: Uint8Array<ArrayBuffer>,
-  contentType: string,
-  provider: ProviderDescriptor,
-): Promise<{ ok: true; text: string } | { ok: false; read: Read }> {
-  let form: FormData;
-  try {
-    form = await new Response(bytes, { headers: { "content-type": contentType } }).formData();
-  } catch {
-    return {
-      ok: false,
-      read: refuse(400, "The multipart body could not be read. Check its boundary and parts."),
-    };
-  }
-
-  const names = new Set(form.keys());
-  if ([...names].some((name) => name !== "request" && name !== "image")) {
-    return {
-      ok: false,
-      read: refuse(400, 'A multipart request may hold only a "request" part and "image" parts.'),
-    };
-  }
-  const parts = form.getAll("request");
-  const [part] = parts;
-  if (parts.length !== 1 || typeof part !== "string") {
-    return {
-      ok: false,
-      read: refuse(400, 'Send exactly one "request" part, holding the request as JSON text.'),
-    };
-  }
-  if (names.has("image")) {
-    const reason =
-      provider.capabilities.images === false
-        ? `${provider.displayName} does not accept images. Remove them and run again.`
-        : "This version cannot send images yet. Remove them and run again.";
-    return { ok: false, read: refuse(400, reason) };
-  }
-  return { ok: true, text: part };
-}
+/** What the route reads from a body: the parsed request, or the refusal, and the image files that came with it. */
+type Incoming = { read: Read; files: readonly File[] };
 
 const NOT_UTF8 = "The request body is not valid UTF-8. Send the panel's JSON as UTF-8 text.";
 
-/** The parsed request from a JSON or multipart body, or the refusal to send instead. */
-async function readDecisionRequest(request: Request, provider: ProviderDescriptor): Promise<Read> {
+/** The parsed request from a JSON or multipart body, with any image files, or the refusal to send instead. */
+async function readDecisionRequest(
+  request: Request,
+  provider: ProviderDescriptor,
+): Promise<Incoming> {
   const contentType = request.headers.get("content-type");
   const mediaType = mediaTypeOf(contentType);
   if (mediaType !== JSON_TYPE && mediaType !== MULTIPART_TYPE) {
-    return refuse(415, UNSUPPORTED_TYPE);
+    return { read: refuse(415, UNSUPPORTED_TYPE), files: [] };
   }
 
   const bytes = await readWithin(request, MAX_BODY_BYTES);
-  if (bytes === undefined) return { ok: false, response: tooLarge() };
+  if (bytes === undefined) return { read: { ok: false, response: tooLarge() }, files: [] };
 
   if (mediaType === JSON_TYPE) {
     const text = decodeUtf8(bytes);
-    return text === undefined ? refuse(400, NOT_UTF8) : parseJson(text);
+    return { read: text === undefined ? refuse(400, NOT_UTF8) : parseJson(text), files: [] };
   }
-  const part = await requestPart(bytes, contentType ?? MULTIPART_TYPE, provider);
-  return part.ok ? parseJson(part.text) : part.read;
+  const multipart = await readMultipart(bytes, contentType ?? MULTIPART_TYPE, provider);
+  if (!multipart.ok) return { read: multipart, files: [] };
+  return { read: parseJson(multipart.text), files: multipart.files };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,18 +239,26 @@ export async function decide(
   const { provider, apiKey } = resolved;
   const adapter = ADAPTERS[provider.id];
 
-  const read = await readDecisionRequest(request, provider);
+  const { read, files } = await readDecisionRequest(request, provider);
   if (!read.ok) return read.response;
   const validation = validateDecisionRequest(read.value, provider.capabilities);
   if (!validation.ok) {
     return failure(400, validation.error, { detail: validation.detail });
   }
 
-  const valid = validation.value;
+  // The images are read and encoded only now, after the request has passed every cheaper check.
+  let valid: RequestWithImages = validation.value;
+  const { images } = provider.capabilities;
+  if (images !== false && files.length > 0) {
+    const encoded = await encodeImages(files, images);
+    if (!encoded.ok) return encoded.response;
+    valid = { ...validation.value, images: encoded.images };
+  }
   const fields = {
     provider: provider.id,
     primitive: valid.primitive,
     questions: Object.keys(valid.questions).length,
+    images: valid.images?.length,
   };
   const signal = deps.timeoutSignal(PROVIDER_TIMEOUT_MS);
   const tracked = deps.connections?.track(provider.baseUrl);

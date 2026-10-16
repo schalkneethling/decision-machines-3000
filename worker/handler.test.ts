@@ -10,9 +10,10 @@ import { decisionResponseSchema } from "../src/decision/contract.ts";
 import type { DecisionRequest } from "../src/decision/contract.ts";
 import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
-import { openai, subq, typesafe } from "../src/providers/catalog.ts";
+import { MAX_IMAGE_REQUEST_BYTES, openai, subq, typesafe } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor } from "../src/providers/catalog.ts";
 import {
+  FRAMING_ALLOWANCE_BYTES,
   IMAGE_ALLOWANCE_BYTES,
   MAX_BODY_BYTES,
   TEXT_ALLOWANCE_BYTES,
@@ -622,12 +623,15 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     expect(response.status).toBe(200);
   });
 
-  it("limits a body to 2 MiB of images plus 256 KiB of text, and says so in plain words", () => {
+  it("limits a body to 2 MiB of images plus 256 KiB of text plus framing, and says so in plain words", () => {
     expect(IMAGE_ALLOWANCE_BYTES).toBe(2 * 1024 * 1024);
+    expect(IMAGE_ALLOWANCE_BYTES).toBe(MAX_IMAGE_REQUEST_BYTES);
     expect(TEXT_ALLOWANCE_BYTES).toBe(256 * 1024);
-    expect(MAX_BODY_BYTES).toBe(IMAGE_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES);
+    expect(MAX_BODY_BYTES).toBe(
+      IMAGE_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES,
+    );
     expect(TOO_LARGE_MESSAGE).toBe(
-      'The request is too large. It may hold up to 256 KB of text and 2 MB of images, 2.25 MB in all. Trim "state" or ask fewer questions.',
+      'The request is too large. It may hold up to 256 KB of text and 2 MB of images, plus a little room for the multipart framing. Trim "state", ask fewer questions, or send smaller images.',
     );
   });
 
@@ -900,7 +904,9 @@ describe("POST /api/decide/{provider} as multipart/form-data", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(body.error).toBe("TypeSafe Jev does not accept images. Remove them and run again.");
+    expect(body.error).toBe(
+      "TypeSafe Jev evaluates text only, so it does not accept images. Remove them and run again.",
+    );
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 

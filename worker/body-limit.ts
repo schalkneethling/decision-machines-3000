@@ -10,16 +10,22 @@
  * it costs far more CPU than the Free plan's 10 ms.
  */
 
-import { MAX_IMAGE_REQUEST_BYTES } from "../src/providers/catalog.ts";
+import { PROVIDERS } from "../src/providers/catalog.ts";
 import { failure } from "./respond.ts";
 
 /**
- * Room for the images of one request: the project's own cap of 2 MiB of
- * images per request, recorded on issue #15 and held in the catalog as
- * `MAX_IMAGE_REQUEST_BYTES`. Issue #15 confirms this budget by measurement
- * once images are sent.
+ * Room for the images of one request: the largest `maxBytesPerRequest` any
+ * provider in the catalog accepts, 2 MiB today (the project's own cap, issue
+ * #15). Read from the catalog, so a provider with a larger cap widens the
+ * limit without a second edit. Issue #15 confirms this budget by measuring
+ * CPU time on a deployment.
  */
-export const IMAGE_ALLOWANCE_BYTES = MAX_IMAGE_REQUEST_BYTES;
+export const IMAGE_ALLOWANCE_BYTES = Math.max(
+  0,
+  ...Object.values(PROVIDERS).map(({ capabilities }) =>
+    capabilities.images === false ? 0 : capabilities.images.maxBytesPerRequest,
+  ),
+);
 
 /**
  * Room for the request's JSON text: 256 KiB, the cap the old `/api/jev`
@@ -27,19 +33,29 @@ export const IMAGE_ALLOWANCE_BYTES = MAX_IMAGE_REQUEST_BYTES;
  */
 export const TEXT_ALLOWANCE_BYTES = 256 * 1024;
 
-/** The largest body read: the text allowance plus the image allowance, 2.25 MiB. */
-export const MAX_BODY_BYTES = TEXT_ALLOWANCE_BYTES + IMAGE_ALLOWANCE_BYTES;
+/**
+ * Room for the multipart framing around those parts: the boundary lines and
+ * each part's headers, which include a file name the client chooses. Without
+ * it, a request that holds exactly the images and text the limits allow would
+ * be refused for its wrapping alone. 16 KiB covers eight image parts with
+ * file names of several hundred characters.
+ */
+export const FRAMING_ALLOWANCE_BYTES = 16 * 1024;
+
+/** The largest body read: the text, image, and framing allowances together. */
+export const MAX_BODY_BYTES =
+  TEXT_ALLOWANCE_BYTES + IMAGE_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES;
 
 /** A size in binary units, written KB and MB, as the wire record's image placeholders are. */
-function sizeInWords(bytes: number): string {
+export function sizeInWords(bytes: number): string {
   const mebibytes = bytes / (1024 * 1024);
   return mebibytes >= 1 ? `${mebibytes} MB` : `${bytes / 1024} KB`;
 }
 
 export const TOO_LARGE_MESSAGE =
   `The request is too large. It may hold up to ${sizeInWords(TEXT_ALLOWANCE_BYTES)} of text ` +
-  `and ${sizeInWords(IMAGE_ALLOWANCE_BYTES)} of images, ${sizeInWords(MAX_BODY_BYTES)} in all. ` +
-  'Trim "state" or ask fewer questions.';
+  `and ${sizeInWords(IMAGE_ALLOWANCE_BYTES)} of images, plus a little room for the multipart framing. ` +
+  'Trim "state", ask fewer questions, or send smaller images.';
 
 /**
  * The length a Content-Length header declares, or undefined when there is no

@@ -9,7 +9,7 @@ Read this before running any command below. **One tool writes a Worker's secrets
 - Do not run `varlock-wrangler deploy` against a Worker whose secrets you set with this guide. It uploads every `@sensitive` item in `.env.schema` that has a value, so it overwrites a key you set here with whatever the vault holds, and it adds secrets of its own.
 - Once a Varlock profile exists (issue #18), do not run `wrangler secret put` or `wrangler secret bulk` against a Worker it manages, because the next `varlock-wrangler deploy` writes the vault's value over yours.
 
-Going the other way is the safer mistake. A plain `wrangler deploy` never deletes secrets (`wrangler deploy --help` says so under `--keep-vars`), so running it by accident against a Varlock-managed Worker leaves its secrets alone.
+Going the other way is the safer mistake. A plain `wrangler deploy` never deletes secrets (Wrangler 4.150.0 passes `keepSecrets: true` when it uploads a Worker, in `node_modules/wrangler/wrangler-dist/cli.js`; `--keep-vars` covers plain variables only), so running it by accident against a Varlock-managed Worker leaves its secrets alone.
 
 ## 1. Deploy with the button
 
@@ -116,9 +116,11 @@ What was verified on Cloudflare's pages (2026-10-15): `workers_dev` is on by def
 
 `vp dev` needs none of this: its Node host is local by construction and runs every request. It counts as local whatever address it listens on, so starting it with `--host` on a shared network lets anyone on that network spend your credit; keep it on localhost.
 
-`wrangler dev` runs the built Worker in workerd, which cannot tell a local run from Cloudflare, so it needs the same variables a deployment does, provider keys included. The project keeps no `.dev.vars` file (Varlock refuses to start beside one, so `vp dev` fails while one exists). There are two ways to pass the variables.
+`wrangler dev` runs the built Worker in workerd, which cannot tell a local run from Cloudflare, so it needs the same variables a deployment does, provider keys included. The project keeps no `.dev.vars` file (Varlock refuses to start beside one, so `vp dev` and `vp preview` both fail while one exists). There are two ways to pass the variables.
 
-Without Varlock, copy [`.dev.vars.example`](../.dev.vars.example) to `.dev.vars`, fill in the keys you have, delete the lines you do not, and add the opt-out line. Git ignores `.dev.vars`. Delete it again before you run `vp dev`:
+Without Varlock, copy [`.dev.vars.example`](../.dev.vars.example) to `.dev.vars`, fill in the keys you have, delete the lines you do not, and add the opt-out line. Git ignores `.dev.vars`. Delete it again before you run `vp dev` or `vp preview`.
+
+Create or edit `.dev.vars` before `vp run build`, or rebuild after you change it: the build copies a root `.dev.vars` into `dist/decisionmachines3000/` and prints "Using secrets defined in .dev.vars". When you pass the built config yourself with `-c`, Wrangler reads the copy and ignores the root file. The copy sits inside `dist/`, which git ignores, and it is not uploaded: `wrangler deploy --dry-run` read the same 6 asset files and reported the same 182.23 KiB total with and without a `.dev.vars` present, because the assets directory is `dist/client`, a sibling of the copy. Still, delete `dist/decisionmachines3000/.dev.vars` (or `.dev.vars` and a rebuild) before you deploy by hand, so a stale local key never sits in a build you ship.
 
 ```sh
 cp .dev.vars.example .dev.vars   # then edit it; add: ALLOW_UNPROTECTED_INSTANCE=I accept the bill

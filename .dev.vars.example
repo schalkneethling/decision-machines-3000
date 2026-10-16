@@ -7,7 +7,8 @@
 #      provider you do not have. The Worker treats exactly that word as "no key".
 #   2. For `wrangler dev`, copy it to .dev.vars (which git ignores) and fill in the
 #      keys you have. Delete the lines for providers you do not use. Do not create
-#      .dev.vars while you use `vp dev`: the Varlock setup refuses to start beside it.
+#      .dev.vars while you use `vp dev` or `vp preview`: the Varlock setup refuses to
+#      start beside it.
 #
 # The protection variables (ACCESS_TEAM_DOMAIN, ACCESS_AUD, ALLOW_UNPROTECTED_INSTANCE)
 # are left out on purpose. The button would make each one a required input, and

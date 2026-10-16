@@ -32,10 +32,42 @@ export const NO_KEYS_MESSAGE =
   `None of the provider keys is set on this Worker. Set at least one of ${KEY_NAMES.join(", ")} ` +
   "before deploying, for example with `wrangler secret put` (see docs/deploy.md).";
 
-// Wrangler colors its errors even when its output is not a terminal, so the
-// escape codes are removed before the text is matched.
+// Wrangler colors its errors even when its output is not a terminal, and it ignores
+// NO_COLOR. A color code can therefore sit inside the text this module matches (for
+// example around the Worker name) or shows to the reader, so codes are removed
+// before either.
 // oxlint-disable-next-line no-control-regex -- matching the ESC character is the point
 const ANSI_ESCAPE = /\u001B\[[0-9;]*m/g;
+
+/**
+ * Environment variables whose values must never reach the output, even though
+ * `secret list` has no reason to print them.
+ */
+const CREDENTIAL_VARIABLES = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY"] as const;
+
+/**
+ * The first line of Wrangler's error output, for the failed-listing message, so a
+ * changed Wrangler wording or a wrong account shows up instead of generic advice.
+ * `secret list` prints names only, and its errors come from the Cloudflare API or
+ * from login, so no secret value should appear. As a second guard, any credential
+ * in `env` is replaced, and the line is cut at 200 characters.
+ */
+export function firstErrorLine(
+  stderr: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  let line =
+    stderr
+      .replace(ANSI_ESCAPE, "")
+      .split("\n")
+      .map((text) => text.trim())
+      .find((text) => text !== "") ?? "";
+  for (const name of CREDENTIAL_VARIABLES) {
+    const value = env[name];
+    if (value) line = line.replaceAll(value, "[redacted]");
+  }
+  return line.slice(0, 200);
+}
 
 /**
  * Whether a failed listing means "this Worker does not exist yet". Wrangler prints
@@ -77,12 +109,14 @@ export function evaluateListing(result: ListResult): CheckOutcome {
   }
   const names = result.status === 0 ? parseSecretNames(result.stdout) : undefined;
   if (names === undefined) {
+    const detail = firstErrorLine(result.stderr);
     return {
       ok: false,
       reason: "list-failed",
       message:
         "Could not read this Worker's secret names, so the key check cannot run " +
-        `(\`wrangler secret list\` exited with ${result.status ?? "no status"}). ` +
+        `(\`wrangler secret list\` exited with ${result.status ?? "no status"}` +
+        `${detail === "" ? "" : `: ${detail}`}). ` +
         "Log in with `wrangler login` or set CLOUDFLARE_API_TOKEN, then try again.",
     };
   }
@@ -96,7 +130,6 @@ export function evaluateListing(result: ListResult): CheckOutcome {
 function listSecrets(): ListResult {
   const run = spawnSync("wrangler", ["secret", "list", "--format", "json"], {
     encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1" },
   });
   if (run.error) {
     return { status: null, stdout: "", stderr: run.error.message };

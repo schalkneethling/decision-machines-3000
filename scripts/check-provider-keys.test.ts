@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   evaluateListing,
+  firstErrorLine,
   isWorkerNotFound,
   main,
   NO_KEYS_MESSAGE,
@@ -53,7 +54,39 @@ describe("evaluateListing", () => {
   });
 });
 
+describe("failed listings show Wrangler's first error line", () => {
+  it("includes the first non-empty line, without color codes", () => {
+    const outcome = evaluateListing({
+      status: 1,
+      stdout: "",
+      stderr: "\n\u001B[31m✘ [ERROR]\u001B[0m Authentication error [code: 10000]\nmore text",
+    });
+    expect(outcome.message).toContain("✘ [ERROR] Authentication error [code: 10000]");
+    expect(outcome.message).not.toContain("\u001B");
+    expect(outcome.message).not.toContain("more text");
+  });
+
+  it("replaces a credential from the environment and cuts long lines", () => {
+    const line = firstErrorLine(`bad token tok-123 ${"x".repeat(300)}`, {
+      CLOUDFLARE_API_TOKEN: "tok-123",
+    });
+    expect(line).not.toContain("tok-123");
+    expect(line).toContain("[redacted]");
+    expect(line.length).toBe(200);
+  });
+
+  it("leaves the exit code alone when stderr is empty", () => {
+    const outcome = evaluateListing({ status: 2, stdout: "", stderr: "" });
+    expect(outcome.message).toContain("exited with 2)");
+  });
+});
+
 describe("isWorkerNotFound", () => {
+  it("still matches when a color code sits inside the matched text", () => {
+    const stderr = 'Worker \u001B[1m"dm3000-x"\u001B[22m \u001B[0mnot found.';
+    expect(isWorkerNotFound({ status: 1, stdout: "", stderr })).toBe(true);
+  });
+
   it("needs exit code 1 and the not-found text together", () => {
     expect(isWorkerNotFound({ status: 1, stdout: "", stderr: NOT_FOUND })).toBe(true);
     expect(isWorkerNotFound({ status: 2, stdout: "", stderr: NOT_FOUND })).toBe(false);

@@ -45,7 +45,7 @@
         "description": "Your [TypeSafe](https://typesafe.ai) API key, for the Jev decision model. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"
       },
       "SUBQ_API_KEY": {
-        "description": "Your SubQ API key, for SubQ Snap. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"
+        "description": "Your [SubQ](https://subq.ai) API key, for SubQ Snap. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"
       },
       "OPENAI_API_KEY": {
         "description": "Your [OpenAI](https://platform.openai.com/api-keys) API key, for OpenAI Decisions. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"

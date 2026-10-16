@@ -11,7 +11,9 @@ import { viteHostPlugin } from "./server/vite-host.ts";
  *   `varlock load` at once, which can wait on a 1Password prompt, hence the
  *   dynamic import.
  * - `vp build` loads the plain Cloudflare plugin, which needs no secrets and
- *   writes what `wrangler deploy` needs.
+ *   writes what `wrangler deploy` needs. The Varlock deploy profile loads nothing
+ *   more here: `varlock-wrangler deploy` resolves `.env.schema` itself, after the
+ *   build, so a build never touches 1Password in either profile.
  * - Unit tests and metadata reads (check, lint, fmt) load neither.
  *
  * Order matters, because the plugin listed first sees each request first:

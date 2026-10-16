@@ -1,15 +1,17 @@
 # Deploying DecisionMachines3000
 
-This guide covers deploying the Worker with the Deploy to Cloudflare button or by hand with plain Wrangler, and protecting the instance afterwards. Whichever way you deploy, **the first step after the deploy is protecting the instance** (section 2), because a fresh instance refuses every run until you do.
+This guide covers deploying the Worker with the Deploy to Cloudflare button, by hand with plain Wrangler, or with Varlock and 1Password, and protecting the instance afterwards. Whichever way you deploy, **the first step after the deploy is protecting the instance** (section 2), because a fresh instance refuses every run until you do.
 
 ## The one-writer rule
 
-Read this before running any command below. **One tool writes a Worker's secrets, and the other must not touch them.** This guide is the plain-Wrangler profile: the secrets are written by `wrangler secret put`, `wrangler secret bulk`, and `wrangler versions secret put`, and nothing else.
+Read this before running any command below. **One tool writes a Worker's provider keys, and the other must not touch them.** This guide has two profiles, and a Worker uses one of them:
 
-- Do not run `varlock-wrangler deploy` against a Worker whose secrets you set with this guide. It uploads every `@sensitive` item in `.env.schema` that has a value, so it overwrites a key you set here with whatever the vault holds, and it adds secrets of its own.
-- Once a Varlock profile exists (issue #18), do not run `wrangler secret put` or `wrangler secret bulk` against a Worker it manages, because the next `varlock-wrangler deploy` writes the vault's value over yours.
+- **Plain Wrangler** (section 3, and section 1, where the button's form sets the keys): the keys are written by `wrangler secret put`, `wrangler secret bulk`, and `wrangler versions secret put`, and nothing else. Do not run `varlock-wrangler deploy` against such a Worker. It uploads every `@sensitive` item in `.env.schema` that has a value, so it overwrites a key you set by hand with whatever the vault holds, and it adds secrets of its own.
+- **Varlock** (section 4): the keys are written by `vp run deploy:varlock`, which reads them from 1Password. Do not run `wrangler secret put` or `wrangler secret bulk` for a provider key on such a Worker, because the next `vp run deploy:varlock` writes the vault's value over yours. `varlock-wrangler deploy` also never removes a secret: a key you delete from the vault stays on the Worker until you run `wrangler secret delete` (section 4 shows how).
 
-Going the other way is the safer mistake. A plain `wrangler deploy` never deletes secrets (Wrangler 4.150.0 passes `keepSecrets: true` when it uploads a Worker, in `node_modules/wrangler/wrangler-dist/cli.js`; `--keep-vars` covers plain variables only), so running it by accident against a Varlock-managed Worker leaves its secrets alone.
+Going from Varlock to plain Wrangler by accident is the safer mistake. A plain `wrangler deploy` never deletes secrets (Wrangler 4.150.0 passes `keepSecrets: true` when it uploads a Worker, in `node_modules/wrangler/wrangler-dist/cli.js`; `--keep-vars` covers plain variables only), so running it against a Varlock-managed Worker leaves its secrets alone.
+
+The protection settings from section 2 (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ALLOW_UNPROTECTED_INSTANCE`) are not in `.env.schema`, so Varlock does not manage them in either profile, and you set them with `wrangler secret put` as section 2 says.
 
 ## 1. Deploy with the button
 
@@ -101,7 +103,75 @@ The check sees names only. A key set to the word `unset` has a name, so it passe
 
 To preview what a deploy would upload without uploading anything, run `vp exec wrangler deploy --dry-run`.
 
-## 4. Hostnames and older versions
+## 4. Deploy with Varlock and 1Password
+
+Use this profile when your provider keys already live in 1Password. [Varlock](https://varlock.dev) reads them through the 1Password desktop app, `varlock-wrangler` (from `@varlock/cloudflare-integration`) uploads them to the Worker as secrets, and no key is ever written to disk or typed on a command line. It is an alternative to section 3, not an addition: pick one per Worker (see the one-writer rule above).
+
+### What you need
+
+- The [1Password desktop app](https://1password.com/downloads/) with its CLI integration turned on, and the [`op` CLI](https://developer.1password.com/docs/cli/). Run `op account list` to find your sign-in address.
+- A 1Password item whose fields are named exactly `TYPESAFE_API_KEY`, `SUBQ_API_KEY`, and `OPENAI_API_KEY`. You need at least one of them to hold a real key, and the other two fields may be missing or empty. Get a key from [TypeSafe](https://typesafe.ai), [SubQ](https://subq.ai), or [OpenAI](https://platform.openai.com/api-keys).
+- A Cloudflare login: `vp exec wrangler login`, or `CLOUDFLARE_API_TOKEN` in your environment.
+
+### Steps
+
+1. **Point `.env.schema` at your own item.** Change `account=my.1password.com` in the `@initOp(...)` line to your sign-in address, and replace `dev/nocajwa573emc6ko6sv5bkn6y4` in the three `op(op://...)` lines with your vault and item (each accepts a name or an id). Keep `allowMissing=true` on each of the three: `@optional` alone does not cover a field that is missing from the item, and without `allowMissing=true` the load fails on it. Each key is declared like this:
+
+   ```env-spec
+   # @optional @sensitive
+   TYPESAFE_API_KEY=op(op://dev/nocajwa573emc6ko6sv5bkn6y4/TYPESAFE_API_KEY, allowMissing=true)
+   ```
+
+   The schema's last item, `AT_LEAST_ONE_PROVIDER_KEY`, is a check and needs no edit. It resolves to the word `ok` when at least one key has a value, and to an empty string otherwise, and because it is `@required`, an empty value fails the load. After editing the schema, run `vp run codegen` to refresh `env.d.ts`.
+
+2. **Check what Varlock resolves.**
+
+   ```sh
+   vp exec varlock load
+   ```
+
+   It prints each key redacted, `undefined` for a key whose field is missing, and `"ok"` for `AT_LEAST_ONE_PROVIDER_KEY`. With no key at all it exits with code 1 and says `AT_LEAST_ONE_PROVIDER_KEY` is "required but is currently empty".
+
+3. **Build, then deploy.**
+
+   ```sh
+   vp run build
+   vp run deploy:varlock
+   ```
+
+   `deploy:varlock` in `package.json` is `varlock-wrangler deploy`. Arguments you give it go to Wrangler, so `vp run deploy:varlock --name my-worker` targets another Worker.
+   Varlock resolves the schema first. If that fails, which includes the case of no provider key, it prints `Failed to resolve environment variables` and exits with code 1 **before it starts Wrangler**, so nothing is uploaded. The script does not run the section 3 key check, because that check reads the secrets already on the Worker, and on a first Varlock deploy they do not exist yet. The schema's check item does the same job before the upload.
+
+4. **Protect the instance** (section 2). A Varlock deploy does not protect it. The three protection settings are not in the schema, so set them with `wrangler secret put` as section 2 shows; a Varlock deploy leaves them alone.
+
+5. **Check the result.**
+
+   ```sh
+   vp exec wrangler secret list
+   ```
+
+   The list shows `__VARLOCK_ENV`, plus one name for each key that had a value, and the type `secret_text` for each. `GET /api/providers` on the Worker's URL lists the providers whose key was uploaded. Add `--name <worker>` to `secret list` when you deployed with `--name`.
+
+### What the deploy uploads, and what to expect
+
+- **Each key with a value becomes a secret.** A key whose field is missing from the item is not uploaded, so its provider does not appear in `GET /api/providers`. Leave an unwanted field out of the item entirely: Varlock treats an empty value or the word `unset` as a value, so `varlock-wrangler` would upload it (an empty one may be refused by Wrangler, which was not tested), and the Worker would then ignore it at run time. To add a provider, put its key in the vault item and run `vp run build` and `vp run deploy:varlock` again.
+- **`AT_LEAST_ONE_PROVIDER_KEY` arrives as a plain variable holding `ok`.** `varlock-wrangler` uploads every non-sensitive item that has a value with `--var NAME:value`. This one holds no secret, so it is a harmless marker, and the Worker does not read it. It is the only value this profile puts on a command line.
+- **`__VARLOCK_ENV` is a secret holding the whole resolved environment as JSON, provider keys included.** The Worker does not read it: it reads `env.TYPESAFE_API_KEY` and the others directly, so it does not import `@varlock/cloudflare-integration/init`. Treat it like the keys themselves.
+- **Wrangler's bindings table calls the secrets "Environment Variable".** That is only its label for what Varlock uploaded. `wrangler secret list` shows the real type, `secret_text`, and that is the check to trust.
+- **Removing a key from the vault does not remove it from the Worker.** `varlock-wrangler deploy` passes the secrets to Wrangler in a file, and Wrangler only adds or replaces secrets from a file (reported upstream as [dmno-dev/varlock#1212](https://github.com/dmno-dev/varlock/issues/1212)). To take a provider off a deployed Worker, delete the secret by hand, and leave the field out of the vault as well, so the next deploy does not bring it back:
+
+  ```sh
+  vp exec wrangler secret delete OPENAI_API_KEY
+  ```
+
+- **Plain variables set only in the dashboard are removed at each deploy,** because `varlock-wrangler` adds `--keep-vars=false` to `wrangler deploy`. Keep any setting you need as a secret (as section 2 does) or in `wrangler.jsonc`.
+- **How the keys travel (privacy).** On macOS and Linux `varlock-wrangler` serves the secrets to Wrangler through a named pipe, a file-like handle that exists only in memory, so the keys never touch disk and never appear in the process list or your shell history. On Windows it falls back to a temporary file. The keys then sit in your Cloudflare account as Worker secrets, and each run sends your questions to the providers whose keys you added. This repository's code never logs a key.
+
+### `vp dev` in this profile
+
+`vp dev` and `vp preview` load Varlock's Vite plugin (`varlockCloudflareVitePlugin` in `vite.config.ts`), which resolves `.env.schema` once at start-up, asks 1Password for approval, and hands the keys to the Node dev host through `process.env`. So `vp dev` serves exactly the providers whose field holds a key. With no key it prints Varlock's "Configuration is currently invalid" error that names `AT_LEAST_ONE_PROVIDER_KEY` and serves Varlock's error page instead of the app. `vp run build`, `vp check`, and `vp test` never load the plugin, so they never ask 1Password for anything.
+
+## 5. Hostnames and older versions
 
 `wrangler.jsonc` keeps the `workers.dev` hostname on (`workers_dev: true`), because a fork has no other, and turns Version URLs off (`preview_urls: false`), so no version of the Worker gets a second public hostname. The gate lives in the Worker's code, not in the hostname, so for any version built from this change a custom domain or a Version URL you add later is refused in the same way until the request carries a valid Access token or the opt-out is set.
 
@@ -135,4 +205,4 @@ vp run build
 vp exec wrangler dev --var 'ALLOW_UNPROTECTED_INSTANCE:I accept the bill'
 ```
 
-`vp preview` is not set up for these variables yet: it takes its environment from Varlock's `.env.schema`, which does not declare them (issue #18 covers that), so the built Worker under `vp preview` refuses runs as an unconfigured instance.
+`vp preview` cannot receive these variables: it takes its environment from Varlock's `.env.schema`, which declares the provider keys and the check item but not the protection variables (the schema leaves them out on purpose, because they belong to section 2, not to a profile), so the built Worker under `vp preview` refuses runs as an unconfigured instance.

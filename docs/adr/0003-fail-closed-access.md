@@ -44,7 +44,7 @@ Two things the pages do not state, left for the live check in [`scenarios/14-fai
 - A fork deployed with the button answers every run with the 503 and shows the notice until its owner acts. That is the point.
 - The owner's instance runs behind Access. Each protected request costs one extra fetch of the team's keys.
 - `GET /api/providers` grows a required `protection` field; the browser schema requires it, so server and client ship together.
-- `wrangler dev` on the built Worker needs `ACCESS_*` or the opt-out, passed with `--var KEY:VALUE`; `vp preview` has no way to receive them until #18 declares them in `.env.schema`; `vp dev` needs nothing, and counts as local whatever address it listens on.
+- `wrangler dev` on the built Worker needs `ACCESS_*` or the opt-out, passed with `--var KEY:VALUE`; `vp preview` has no way to receive them, because `.env.schema` deliberately does not declare them (#18); `vp dev` needs nothing, and counts as local whatever address it listens on.
 - The key fetch uses `redirect: "manual"`, because workerd implements only `"follow"` and `"manual"` and throws on `"error"`; a 3xx from the certs endpoint is refused by status, its body cancelled unread.
 - The verification has no clock leeway and no JWT library. Both are deliberate: Access and the Worker run on Cloudflare's clocks, and Web Crypto covers RS256.
 - Turnstile, WAF rate limiting, and billing alerts remain follow-ups for owners who want a public instance.

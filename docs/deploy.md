@@ -63,7 +63,7 @@ The value has to be exactly that sentence; `yes`, `true`, or `1` do not count, w
 
 ## 3. Deploy by hand with plain Wrangler
 
-Set at least one key first, then deploy, then do section 2. Log in once with `vp exec wrangler login` (or set `CLOUDFLARE_API_TOKEN`). The commands below use the Worker name in `wrangler.jsonc`; add `--name <worker>` to any of them to target another Worker.
+Set at least one key first, then deploy, then do section 2. Log in once with `vp exec wrangler login` (or set `CLOUDFLARE_API_TOKEN`). The commands below use the Worker name in `wrangler.jsonc`; add `--name <worker>` to any of them to target another Worker. `vp run deploy` accepts the same flag (and `--env`/`-e` and `--config`/`-c`), and it passes the target to its key check as well as to the deploy, so the check always looks at the Worker that is about to change.
 
 ### Set the keys
 
@@ -76,7 +76,7 @@ vp exec wrangler secret delete OPENAI_API_KEY    # removes one
 - **`secret put` on a Worker that does not exist yet creates a placeholder Worker** (one whose handler does nothing) and then stores the secret. That is the supported way to set a key before the first deploy, and the next `wrangler deploy` replaces the placeholder with this app.
 - **`secret list` before the first deploy fails** with `Worker "<name>" not found` and exit code 1. Nothing is wrong: it means no keys exist yet.
 - **Several at once:** `secret bulk` takes a JSON file (`{"TYPESAFE_API_KEY": "...", "OPENAI_API_KEY": null}`, where `null` deletes) or a `.env` file (`KEY=VALUE`, no deletes), or reads the same from standard input. A file with real keys in it is a leak waiting to happen, so prefer standard input or delete the file at once.
-- **Without deploying a new version at once:** `vp exec wrangler versions secret put TYPESAFE_API_KEY` creates a new version carrying the secret but does not send it traffic. `vp exec wrangler versions deploy` then rolls it out. Plain `secret put` deploys at once.
+- **Without deploying a new version at once:** `vp exec wrangler versions secret put TYPESAFE_API_KEY` creates a new version carrying the secret but does not send it traffic. `vp exec wrangler versions deploy` then rolls it out. In a terminal, a bare `versions deploy` opens an interactive picker. Outside a terminal (in a script or CI) it exits with code 0 without deploying anything, which looks like success, so there you pass the version and the traffic share, for example `vp exec wrangler versions deploy <version-id>@100 -y` (`-y` accepts the prompts). Plain `secret put` deploys at once.
 
 ### Keys from 1Password without a file
 
@@ -95,7 +95,7 @@ vp run build
 vp run deploy
 ```
 
-`deploy` in `package.json` runs `node scripts/check-provider-keys.ts && wrangler deploy`. The first half lists the Worker's secret names with `wrangler secret list --format json` and stops, with a message that names `TYPESAFE_API_KEY`, `SUBQ_API_KEY`, and `OPENAI_API_KEY`, if none of them exists. A Worker that does not exist yet counts as having none. If the listing fails for any other reason (for example you are not logged in), the check stops and says it could not read the names. The second half is a plain `wrangler deploy`: it prints no secret value, and it keeps every secret that is already set, so running it again never deletes a key.
+`deploy` in `package.json` runs `node scripts/deploy.ts`, which runs the key check and then `wrangler deploy`. It passes every argument you give it to `wrangler deploy`, and it passes the ones that choose the Worker (`--name`, `--env`/`-e`, `--config`/`-c`, `--cwd`, `--profile`, `--env-file`) to the check too. That matters because a plain `check && wrangler deploy` chain would hand extra arguments only to the deploy, so the check could pass on one Worker while the deploy changed another that has no keys. The check lists the Worker's secret names with `wrangler secret list --format json` and stops, with a message that names `TYPESAFE_API_KEY`, `SUBQ_API_KEY`, and `OPENAI_API_KEY`, if none of them exists. A Worker that does not exist yet counts as having none. If the listing fails for any other reason (for example you are not logged in), the check stops and says it could not read the names. The deploy step is a plain `wrangler deploy`, run only if the check passed, and the script exits with Wrangler's exit code. It prints no secret value, and it keeps every secret that is already set, so running it again never deletes a key.
 
 The check sees names only. A key set to the word `unset` has a name, so it passes the check; the Worker's own rule treats it as absent at run time, and `GET /api/providers` answers 503 if every key is absent. On the button path the check runs in the deploy step, after the build.
 

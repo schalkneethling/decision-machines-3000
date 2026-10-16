@@ -7,7 +7,7 @@
     "dev": "vp dev",
     "build": "tsc && tsc -p worker/tsconfig.json && vp build",
     "preview": "vp preview",
-    "deploy": "node scripts/check-provider-keys.ts && wrangler deploy",
+    "deploy": "node scripts/deploy.ts",
     "prepare": "vp config",
     "codegen": "varlock codegen"
   },

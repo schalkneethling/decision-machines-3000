@@ -110,3 +110,17 @@ describe("main", () => {
     expect(main(() => listed("[]"))).toBe(1);
   });
 });
+
+describe("main with targeting arguments", () => {
+  it("passes only the targeting arguments to the listing", () => {
+    let seen: readonly string[] = [];
+    main(
+      (target) => {
+        seen = target;
+        return listed(names("SUBQ_API_KEY"));
+      },
+      ["--dry-run", "--name", "other", "--config=x.jsonc"],
+    );
+    expect(seen).toEqual(["--name", "other", "--config=x.jsonc"]);
+  });
+});

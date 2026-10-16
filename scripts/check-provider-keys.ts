@@ -1,5 +1,5 @@
 /**
- * The deploy-time key check: stops `npm run deploy` when the Worker holds none of
+ * The deploy-time key check: stops `vp run deploy` when the Worker holds none of
  * the three provider keys, so a deployment cannot go out that answers every
  * request with the setup notice.
  *
@@ -126,9 +126,51 @@ export function evaluateListing(result: ListResult): CheckOutcome {
   return { ok: true, message: "At least one provider key is set on this Worker." };
 }
 
-/** Runs `wrangler secret list --format json` and captures its output. */
-function listSecrets(): ListResult {
-  const run = spawnSync("wrangler", ["secret", "list", "--format", "json"], {
+/**
+ * The flags that decide which Worker, in which account, a Wrangler command acts
+ * on. Each exists on both `wrangler deploy` and `wrangler secret list`, checked in
+ * their `--help` output on wrangler 4.150.0: `--name` is a command option, and
+ * `--env`/`-e`, `--config`/`-c`, `--cwd` (which changes where the config file is
+ * found), `--profile` (which account's login is used), and `--env-file` (which
+ * can supply the account) are global flags. Every one takes a value.
+ */
+const TARGET_FLAGS: ReadonlySet<string> = new Set([
+  "--name",
+  "--env",
+  "-e",
+  "--config",
+  "-c",
+  "--cwd",
+  "--profile",
+  "--env-file",
+]);
+
+/**
+ * Picks out of a deploy command's arguments the ones that choose the target, so
+ * the key check can look at the same Worker the deploy will change. It accepts
+ * `--flag value` and `--flag=value`, and keeps them in the order given. Every
+ * other argument (for example `--dry-run`) is left out, because it does not
+ * change which Worker is meant.
+ */
+export function targetArguments(argv: readonly string[]): string[] {
+  const picked: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    const flag = argument.split("=", 1)[0];
+    if (!TARGET_FLAGS.has(flag)) continue;
+    picked.push(argument);
+    // The separate-value form: the next argument is this flag's value, whatever it looks like.
+    if (argument === flag && index + 1 < argv.length) {
+      index += 1;
+      picked.push(argv[index]);
+    }
+  }
+  return picked;
+}
+
+/** Runs `wrangler secret list --format json` for the given target and captures its output. */
+function listSecrets(target: readonly string[]): ListResult {
+  const run = spawnSync("wrangler", ["secret", "list", "--format", "json", ...target], {
     encoding: "utf8",
   });
   if (run.error) {
@@ -137,13 +179,20 @@ function listSecrets(): ListResult {
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
-/** Runs the check, prints one line, and returns the process exit code. */
-export function main(list: () => ListResult = listSecrets): number {
-  const outcome = evaluateListing(list());
+/**
+ * Runs the check, prints one line, and returns the process exit code. `argv` is
+ * the deploy command's arguments, of which only the targeting ones are used, and
+ * `list` receives those.
+ */
+export function main(
+  list: (target: readonly string[]) => ListResult = listSecrets,
+  argv: readonly string[] = [],
+): number {
+  const outcome = evaluateListing(list(targetArguments(argv)));
   (outcome.ok ? console.log : console.error)(outcome.message);
   return outcome.ok ? 0 : 1;
 }
 
 if (import.meta.main) {
-  process.exitCode = main();
+  process.exitCode = main(undefined, process.argv.slice(2));
 }

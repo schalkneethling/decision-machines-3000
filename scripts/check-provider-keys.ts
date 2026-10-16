@@ -15,6 +15,7 @@
 import { spawnSync } from "node:child_process";
 
 import { PROVIDER_KEY_NAMES } from "../worker/env.ts";
+import { wranglerCommand } from "./wrangler.ts";
 
 /** The three variable names, taken from the catalog through `PROVIDER_KEY_NAMES`. */
 const KEY_NAMES: readonly string[] = Object.values(PROVIDER_KEY_NAMES);
@@ -170,7 +171,8 @@ export function targetArguments(argv: readonly string[]): string[] {
 
 /** Runs `wrangler secret list --format json` for the given target and captures its output. */
 function listSecrets(target: readonly string[]): ListResult {
-  const run = spawnSync("wrangler", ["secret", "list", "--format", "json", ...target], {
+  const [command, args] = wranglerCommand(["secret", "list", "--format", "json", ...target]);
+  const run = spawnSync(command, args, {
     encoding: "utf8",
   });
   if (run.error) {

@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 
 import { main as checkKeys } from "./check-provider-keys.ts";
 import type { ListResult } from "./check-provider-keys.ts";
+import { wranglerCommand } from "./wrangler.ts";
 
 /** The two processes this script can start, replaceable in tests. */
 export type DeployRunners = {
@@ -26,7 +27,8 @@ export type DeployRunners = {
 
 /** Runs `wrangler deploy` with this process's terminal, so its output and prompts pass through. */
 function runWranglerDeploy(argv: readonly string[]): number {
-  const run = spawnSync("wrangler", ["deploy", ...argv], { stdio: "inherit" });
+  const [command, args] = wranglerCommand(["deploy", ...argv]);
+  const run = spawnSync(command, args, { stdio: "inherit" });
   if (run.error) {
     console.error(`Could not start wrangler: ${run.error.message}`);
     return 1;

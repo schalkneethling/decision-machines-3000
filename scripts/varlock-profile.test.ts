@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { PROVIDER_KEY_NAMES } from "../worker/env.ts";
+import { isKeySet, PROVIDER_KEY_NAMES } from "../worker/env.ts";
 
 /** Reads a file of the repository root as text. */
 function readRoot(path: string): string {
@@ -50,6 +50,19 @@ const items = parseItems(readRoot(".env.schema"));
 const decorators = (item: SchemaItem): string[] =>
   item.comments.flatMap((line) => line.replace(/^#\s*/, "").split(/\s+/));
 
+/**
+ * The regular expression in an item's `@type=string(matches=regex("pattern", "flags"))`
+ * line. Varlock hands the pattern to `new RegExp` as written, so a single backslash
+ * is right (checked against Varlock 1.22.0 with `varlock load`; `\\s` there matches a
+ * literal backslash and lets every value through).
+ */
+function keyTypeRule(item: SchemaItem): RegExp {
+  const line = item.comments.find((comment) => comment.includes("@type="));
+  const match = line?.match(/^#\s*@type=string\(matches=regex\("(.*)", "([a-z]*)"\)\)$/);
+  if (!match) throw new Error(`${item.name} has no @type=string(matches=regex(...)) line`);
+  return new RegExp(match[1], match[2]);
+}
+
 describe("the schema", () => {
   it("declares exactly the catalog's keys and the check item", () => {
     expect(items.map((item) => item.name).toSorted()).toEqual(
@@ -66,6 +79,39 @@ describe("the schema", () => {
     expect(item!.value).toMatch(
       new RegExp(`^op\\(op://dev/[a-z0-9]+/${name}, allowMissing=true\\)$`),
     );
+  });
+
+  it.each(keyNames)(
+    "gives %s a type that accepts exactly the values the Worker counts as a key",
+    (name) => {
+      const item = items.find((candidate) => candidate.name === name);
+      const rule = keyTypeRule(item!);
+      const samples = [
+        "dummy-not-a-key",
+        "unset-not",
+        "not-unset",
+        "x",
+        "unset",
+        "UNSET",
+        "Unset",
+        " unset ",
+        "\tUnSet\n",
+        "",
+        " ",
+        "   ",
+        "\t\n",
+        "\u00a0",
+        "\u2003unset\u2003",
+      ];
+      for (const sample of samples) {
+        expect(rule.test(sample), JSON.stringify(sample)).toBe(isKeySet(sample));
+      }
+    },
+  );
+
+  it("uses one type rule for all three keys", () => {
+    const sources = keyNames.map((name) => keyTypeRule(items.find((i) => i.name === name)!).source);
+    expect(new Set(sources).size).toBe(1);
   });
 
   it("makes the check item required, public, and dependent on every key", () => {

@@ -41,6 +41,32 @@ Feature: Varlock and 1Password profile: three optional keys and deploy:varlock
     Given the text of docs/deploy.md
     Then no command line in it carries a provider key value, whether as `--var KEY:value` or as `KEY=value`
 
+  Scenario Outline: A key value the Worker would ignore fails the load
+    Given each key has `@type=string(matches=regex("^(?!\s*(unset)?\s*$)", "i"))`, which mirrors isKeySet in worker/env.ts
+    # In the file the pattern has single backslashes; Gherkin text above is only a description.
+    When TYPESAFE_API_KEY is "<value>" in the process environment and the other two keys have no value
+    Then `vp exec varlock load` exits <exit>
+    # Checked on a temporary schema copy with the op() calls and plugin lines removed. Dummy values only.
+
+    Examples:
+      | value           | exit |
+      | unset           | 1    |
+      | UNSET           | 1    |
+      |  UnSet          | 1    |
+      | (three spaces)  | 1    |
+      | dummy-not-a-key | 0    |
+      | unset-not       | 0    |
+
+  Scenario: A missing key is not checked against the type
+    Given a key whose vault field is missing (allowMissing=true)
+    Then the load still succeeds for that key, because the item is `@optional` and has no value
+
+  Scenario: vp dev without 1Password, keys in .env.local
+    Given a gitignored .env.local with the keys you have and KEY="" for the others
+    When `vp exec varlock load` runs
+    Then it exits 0 and never calls 1Password, even with an unreachable account
+    But a bare `KEY=` for a missing key still asks 1Password
+
   # Read-only Varlock commands (they ask the 1Password app but change nothing)
 
   Scenario: Only TypeSafe is present in the vault

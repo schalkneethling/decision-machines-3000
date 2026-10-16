@@ -13,6 +13,8 @@ Going from Varlock to plain Wrangler by accident is the safer mistake. A plain `
 
 The protection settings from section 2 (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ALLOW_UNPROTECTED_INSTANCE`) are not in `.env.schema`, so Varlock does not manage them in either profile, and you set them with `wrangler secret put` as section 2 says.
 
+**Target the same Worker every time.** Each `wrangler secret` command in this guide acts on the Worker named in `wrangler.jsonc` unless you add the same `--name` (and the same `--env` or `--config`, if you used one) that you gave the deploy. Without it, a protection setting could go to the wrong Worker and leave the one you deployed unprotected, and a `secret delete` could remove the wrong Worker's key.
+
 ## 1. Deploy with the button
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/jev-3000)
@@ -38,7 +40,7 @@ Access puts a sign-in in front of the Worker. Only the people your policy allows
 1. In the Cloudflare dashboard, open **Workers & Pages**, select your Worker, and open the **Access** tab.
 2. Select **Protect this Worker behind Access**, choose **All traffic**, and under **Authentication policy** pick or create a policy that allows you (for example your Cloudflare account, or your email domain). Select **Apply Access**. Zero Trust has to be enabled on the account; the dashboard offers that if it is not.
 3. Open **Zero Trust** > **Access controls** > **Applications**, select the application Cloudflare just created for the Worker, and copy its **Application Audience (AUD) tag** (under Configure > Additional settings). Note your team domain too: it has the shape `<team>.cloudflareaccess.com`, and the team name is the one you chose when Zero Trust was set up.
-4. Give the Worker both values. Secrets are the safe place, because a later `wrangler deploy` overwrites variables set in the dashboard but never touches secrets:
+4. Give the Worker both values (add your deploy's `--name`, as the rule above says). Secrets are the safe place, because a later `wrangler deploy` overwrites variables set in the dashboard but never touches secrets:
 
    ```sh
    vp exec wrangler secret put ACCESS_TEAM_DOMAIN   # your team, as `team` or `team.cloudflareaccess.com`
@@ -56,7 +58,7 @@ If the page shows "Cloudflare Access is configured, but this request did not car
 If you want anyone to be able to use the instance, say so explicitly:
 
 ```sh
-printf '%s' 'I accept the bill' | vp exec wrangler secret put ALLOW_UNPROTECTED_INSTANCE
+printf '%s' 'I accept the bill' | vp exec wrangler secret put ALLOW_UNPROTECTED_INSTANCE   # add the deploy's --name
 ```
 
 The value has to be exactly that sentence; `yes`, `true`, or `1` do not count, which is what keeps this from being set by accident. The page then shows a notice that the instance is unprotected on purpose, and `GET /api/providers` reports `"mode": "opted_out"`. If you later set the Access variables as well, Access wins and the opt-out is ignored.
@@ -122,7 +124,7 @@ Use this profile when your provider keys already live in 1Password. [Varlock](ht
    TYPESAFE_API_KEY=op(op://dev/nocajwa573emc6ko6sv5bkn6y4/TYPESAFE_API_KEY, allowMissing=true)
    ```
 
-   The schema's last item, `AT_LEAST_ONE_PROVIDER_KEY`, is a check and needs no edit. It resolves to the word `ok` when at least one key has a value, and to an empty string otherwise, and because it is `@required`, an empty value fails the load. After editing the schema, run `vp run codegen` to refresh `env.d.ts`.
+   The schema's last item, `AT_LEAST_ONE_PROVIDER_KEY`, is a check and needs no edit. It resolves to the word `ok` when at least one key has a value, and to an empty string otherwise, and because it is `@required`, an empty value fails the load. Each key also carries a type that rejects a value the Worker treats as no key: `unset` in any case, or whitespace only. The rule mirrors `isKeySet` in `worker/env.ts`. After editing the schema, run `vp run codegen` to refresh `env.d.ts`.
 
 2. **Check what Varlock resolves.**
 
@@ -139,7 +141,7 @@ Use this profile when your provider keys already live in 1Password. [Varlock](ht
    vp run deploy:varlock
    ```
 
-   `deploy:varlock` in `package.json` is `varlock-wrangler deploy`. Arguments you give it go to Wrangler, so `vp run deploy:varlock --name my-worker` targets another Worker.
+   `deploy:varlock` in `package.json` is `varlock-wrangler deploy`. Arguments you give it go to Wrangler, so `vp run deploy:varlock --name my-worker` targets another Worker (give every later `wrangler secret` command the same flag).
    Varlock resolves the schema first. If that fails, which includes the case of no provider key, it prints `Failed to resolve environment variables` and exits with code 1 **before it starts Wrangler**, so nothing is uploaded. The script does not run the section 3 key check, because that check reads the secrets already on the Worker, and on a first Varlock deploy they do not exist yet. The schema's check item does the same job before the upload.
 
 4. **Protect the instance** (section 2). A Varlock deploy does not protect it. The three protection settings are not in the schema, so set them with `wrangler secret put` as section 2 shows; a Varlock deploy leaves them alone.
@@ -150,18 +152,18 @@ Use this profile when your provider keys already live in 1Password. [Varlock](ht
    vp exec wrangler secret list
    ```
 
-   The list shows `__VARLOCK_ENV`, plus one name for each key that had a value, and the type `secret_text` for each. `GET /api/providers` on the Worker's URL lists the providers whose key was uploaded. Add `--name <worker>` to `secret list` when you deployed with `--name`.
+   The list shows `__VARLOCK_ENV`, plus one name for each key that had a value, and the type `secret_text` for each. `GET /api/providers` on the Worker's URL lists the providers whose key was uploaded. Add the deploy's `--name <worker>` to `secret list` too.
 
 ### What the deploy uploads, and what to expect
 
-- **Each key with a value becomes a secret.** A key whose field is missing from the item is not uploaded, so its provider does not appear in `GET /api/providers`. Leave an unwanted field out of the item entirely: Varlock treats an empty value or the word `unset` as a value, so `varlock-wrangler` would upload it (an empty one may be refused by Wrangler, which was not tested), and the Worker would then ignore it at run time. To add a provider, put its key in the vault item and run `vp run build` and `vp run deploy:varlock` again.
+- **Each key with a value becomes a secret.** A key whose field is missing from the item is not uploaded, so its provider does not appear in `GET /api/providers`. Leave an unwanted field out of the item entirely. A field that holds the word `unset` (in any case, with or without spaces around it) or only whitespace fails the load with "Value must match regex" on that key, because the Worker would ignore such a value at run time; the schema's rule mirrors the Worker's. An empty field (`""`) passes the load as a value, so `varlock-wrangler` would upload it (Wrangler may refuse an empty one, which was not tested), and the Worker would ignore it. To add a provider, put its key in the vault item and run `vp run build` and `vp run deploy:varlock` again.
 - **`AT_LEAST_ONE_PROVIDER_KEY` arrives as a plain variable holding `ok`.** `varlock-wrangler` uploads every non-sensitive item that has a value with `--var NAME:value`. This one holds no secret, so it is a harmless marker, and the Worker does not read it. It is the only value this profile puts on a command line.
 - **`__VARLOCK_ENV` is a secret holding the whole resolved environment as JSON, provider keys included.** The Worker does not read it: it reads `env.TYPESAFE_API_KEY` and the others directly, so it does not import `@varlock/cloudflare-integration/init`. Treat it like the keys themselves.
 - **Wrangler's bindings table calls the secrets "Environment Variable".** That is only its label for what Varlock uploaded. `wrangler secret list` shows the real type, `secret_text`, and that is the check to trust.
 - **Removing a key from the vault does not remove it from the Worker.** `varlock-wrangler deploy` passes the secrets to Wrangler in a file, and Wrangler only adds or replaces secrets from a file (reported upstream as [dmno-dev/varlock#1212](https://github.com/dmno-dev/varlock/issues/1212)). To take a provider off a deployed Worker, delete the secret by hand, and leave the field out of the vault as well, so the next deploy does not bring it back:
 
   ```sh
-  vp exec wrangler secret delete OPENAI_API_KEY
+  vp exec wrangler secret delete OPENAI_API_KEY   # add the deploy's --name (and --env/--config)
   ```
 
 - **Plain variables set only in the dashboard are removed at each deploy,** because `varlock-wrangler` adds `--keep-vars=false` to `wrangler deploy`. Keep any setting you need as a secret (as section 2 does) or in `wrangler.jsonc`.
@@ -170,6 +172,18 @@ Use this profile when your provider keys already live in 1Password. [Varlock](ht
 ### `vp dev` in this profile
 
 `vp dev` and `vp preview` load Varlock's Vite plugin (`varlockCloudflareVitePlugin` in `vite.config.ts`), which resolves `.env.schema` once at start-up, asks 1Password for approval, and hands the keys to the Node dev host through `process.env`. So `vp dev` serves exactly the providers whose field holds a key. With no key it prints Varlock's "Configuration is currently invalid" error that names `AT_LEAST_ONE_PROVIDER_KEY` and serves Varlock's error page instead of the app. `vp run build`, `vp check`, and `vp test` never load the plugin, so they never ask 1Password for anything.
+
+**Without 1Password,** give Varlock a value for every key, so that it never calls 1Password. Create a `.env.local` in the repository root (Git ignores it: `.gitignore` lists `.env.*`). Put the keys you have in it, and set each key you do not have to an empty string, with the quotes:
+
+```env
+TYPESAFE_API_KEY=<your key>
+SUBQ_API_KEY=""
+OPENAI_API_KEY=""
+```
+
+The quotes matter: `KEY=""` overrides the schema with an empty value, but a bare `KEY=` sets nothing, and Varlock then still asks 1Password for that key. With Varlock 1.22.0, `vp exec varlock load` succeeded against an unreachable 1Password account when all three keys were set this way. At least one key must be real, and `unset` or whitespace is refused (see section 4, "What the deploy uploads"). This file is not `.dev.vars`: Varlock refuses to start while a `.dev.vars` exists, but it reads `.env.local`.
+
+Compared with 1Password, `.env.local` is weaker. The keys sit unencrypted on disk, so any process or person with access to your user account can read them, and they can end up in backups, synced folders, or a support bundle. There is no per-use approval prompt, and rotating a key means editing the file on every machine. A `git add -f` or a changed `.gitignore` could commit them. Use 1Password where you have it.
 
 ## 5. Hostnames and older versions
 

@@ -36,12 +36,12 @@ The app has three providers, and an instance needs at least one key: `TYPESAFE_A
 Varlock replaces `.env` files with a committed [`.env.schema`](./.env.schema) that declares every variable, validates it at start-up, redacts sensitive values in output, and loads secrets from external providers. This project uses its [1Password plugin](https://varlock.dev/plugins/1password/), so the keys live in a vault. Read `.env.schema` for the exact declarations: it is the one source, and this README does not copy it.
 
 - Each of the three keys is optional and sensitive. A key whose field is missing from the vault item is left unset, which is how an instance runs with only some providers.
-- `AT_LEAST_ONE_PROVIDER_KEY` is a check item: it fails the load when none of the three keys has a value, so a setup with no key fails with a clear error instead of starting an app with no provider.
+- `AT_LEAST_ONE_PROVIDER_KEY` is a check item: it fails the load when none of the three keys has a value. Each key also rejects `unset` and whitespace-only values, which the Worker treats as no key, so such a setup fails with a clear error instead of starting an app with no provider.
 - `vp exec varlock load` resolves the schema and prints every value redacted. `vp run codegen` regenerates [`env.d.ts`](./env.d.ts) after a schema change.
 
 To use your own vault, change the `account` and the three `op://` references in `.env.schema`; [`docs/deploy.md`](./docs/deploy.md#4-deploy-with-varlock-and-1password) lists the steps.
 
-Start the dev server with `vp dev`. Varlock's Vite plugin is registered only for the dev and preview servers (see [`vite.config.ts`](./vite.config.ts)): it resolves the schema once at start-up, asks 1Password for approval, and puts the keys into the dev server's environment, which [`server/vite-host.ts`](./server/vite-host.ts) reads. So `vp check`, `vp test`, and `vp run build` never wait on a 1Password prompt. To deploy with Varlock, follow [section 4 of the deploy guide](./docs/deploy.md#4-deploy-with-varlock-and-1password).
+Start the dev server with `vp dev`. Varlock's Vite plugin is registered only for the dev and preview servers (see [`vite.config.ts`](./vite.config.ts)): it resolves the schema once at start-up, asks 1Password for approval, and puts the keys into the dev server's environment, which [`server/vite-host.ts`](./server/vite-host.ts) reads. So `vp check`, `vp test`, and `vp run build` never wait on a 1Password prompt. Without 1Password, put the keys you have in a gitignored `.env.local` and set the others to `KEY=""` ([details and trade-offs](./docs/deploy.md#vp-dev-in-this-profile): the keys sit unencrypted on disk, so prefer 1Password where you have it). To deploy with Varlock, follow [section 4 of the deploy guide](./docs/deploy.md#4-deploy-with-varlock-and-1password).
 
 ## Commands
 

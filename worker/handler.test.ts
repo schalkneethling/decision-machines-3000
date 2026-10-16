@@ -28,6 +28,9 @@ import { useEnglishZodMessages } from "./zod-locale.ts";
 
 const ORIGIN = "https://decisionmachines3000.example";
 
+/** What the local host reports as its protection state. */
+const LOCAL = { mode: "local" };
+
 type StubDeps = HandlerDeps & {
   fetch: Mock<typeof fetch>;
   timeoutSignal: Mock<(ms: number) => AbortSignal>;
@@ -36,10 +39,13 @@ type StubDeps = HandlerDeps & {
 
 /**
  * Doubles for every dependency. By default `fetch` fails the test if a route
- * calls it unexpectedly, and the timeout signal never fires.
+ * calls it unexpectedly, the timeout signal never fires, and the host is the
+ * local one, so these tests exercise the routes themselves; the protection gate
+ * has its own file, `protection.test.ts`.
  */
 function stubDeps(fetch: typeof globalThis.fetch = unexpectedFetch): StubDeps {
   return {
+    host: "node-dev",
     fetch: vi.fn(fetch),
     timeoutSignal: vi.fn((_ms: number) => new AbortController().signal),
     log: vi.fn((_line: string) => {}),
@@ -86,7 +92,12 @@ describe("GET /api/providers", () => {
     const { response, body } = await run(get("/api/providers"), { OPENAI_API_KEY: "x" });
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ ok: true, providers: [summaryOf(openai)], host: WORKER_HOST });
+    expect(body).toEqual({
+      ok: true,
+      providers: [summaryOf(openai)],
+      host: WORKER_HOST,
+      protection: LOCAL,
+    });
   });
 
   it("never puts the key or its prefix in the body or the headers", async () => {
@@ -111,13 +122,19 @@ describe("GET /api/providers", () => {
       ok: true,
       providers: [summaryOf(typesafe), summaryOf(openai)],
       host: WORKER_HOST,
+      protection: LOCAL,
     });
   });
 
   it("treats a key that only contains the placeholder as a real key", async () => {
     const { body } = await run(get("/api/providers"), { SUBQ_API_KEY: "unset-but-real" });
 
-    expect(body).toEqual({ ok: true, providers: [summaryOf(subq)], host: WORKER_HOST });
+    expect(body).toEqual({
+      ok: true,
+      providers: [summaryOf(subq)],
+      host: WORKER_HOST,
+      protection: LOCAL,
+    });
   });
 
   it.each([

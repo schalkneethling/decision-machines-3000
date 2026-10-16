@@ -6,7 +6,9 @@ import { openai, subq, typesafe } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor } from "../src/providers/catalog.ts";
 import type { ProviderKeys } from "./env.ts";
 import { handle } from "./handler.ts";
-import type { ConnectionMetrics, HandlerDeps } from "./handler.ts";
+import type { ConnectionMetrics, HandlerDeps, HandlerEnv } from "./handler.ts";
+import { OPT_OUT_VALUE } from "./protection.ts";
+import type { Host } from "./protection.ts";
 import { MAX_WARM_BODY_BYTES, WARM_TIMEOUT_MS, WARM_UNAVAILABLE_MESSAGE, warmUrl } from "./warm.ts";
 
 /*
@@ -60,8 +62,10 @@ function upstreamReply(status: number, body: unknown): typeof fetch {
 function stubDeps(
   fetch: typeof globalThis.fetch,
   connections: ConnectionMetrics | undefined,
+  host: Host = "node-dev",
 ): StubDeps {
   return {
+    host,
     fetch: vi.fn(fetch),
     timeoutSignal: vi.fn((_ms: number) => new AbortController().signal),
     log: vi.fn((_line: string) => {}),
@@ -77,7 +81,7 @@ function post(path: string, body: string, contentType = "application/json"): Req
   });
 }
 
-async function answer(request: Request, deps: StubDeps, env: ProviderKeys = KEYS) {
+async function answer(request: Request, deps: StubDeps, env: HandlerEnv = KEYS) {
   const response = await handle(request, env, deps);
   const text = await response.text();
   return { response, text, body: JSON.parse(text) as Record<string, unknown> };
@@ -202,6 +206,44 @@ describe("POST /api/warm/{provider}", () => {
       expect(body).toEqual({ ok: false, error: WARM_UNAVAILABLE_MESSAGE });
     },
   );
+
+  // The tests above pass the local host, so the protection gate (ADR-0003) stays out of the way.
+  // The three below run as the Worker host, where the gate answers before the route does.
+  it("answers the gate's 503, not its own 501, on an unconfigured Worker host", async () => {
+    const deps = stubDeps(upstreamReply(200, {}), undefined, "worker");
+
+    const { response, body } = await answer(post("/api/warm/typesafe", warmBody), deps);
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ ok: false });
+    expect(body.error).toContain("ALLOW_UNPROTECTED_INSTANCE");
+    expect(body.error).not.toBe(WARM_UNAVAILABLE_MESSAGE);
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  it("reaches its own 501 on a Worker host that has opted out", async () => {
+    const deps = stubDeps(upstreamReply(200, {}), undefined, "worker");
+
+    const { response, body } = await answer(post("/api/warm/typesafe", warmBody), deps, {
+      ...KEYS,
+      ALLOW_UNPROTECTED_INSTANCE: OPT_OUT_VALUE,
+    });
+
+    expect(response.status).toBe(501);
+    expect(body).toEqual({ ok: false, error: WARM_UNAVAILABLE_MESSAGE });
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+
+  it("warms on the Node dev host with no protection variable set", async () => {
+    const pool = fakeConnections("new");
+    const deps = stubDeps(upstreamReply(200, {}), pool.connections, "node-dev");
+
+    const { response, body } = await answer(post("/api/warm/typesafe", warmBody), deps, KEYS);
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, provider: "typesafe", connection: "new" });
+    expect(deps.fetch).toHaveBeenCalledOnce();
+  });
 
   it("reports the keep-alive this request asked for, even if another request changed the pool's", async () => {
     const pool = fakeConnections();

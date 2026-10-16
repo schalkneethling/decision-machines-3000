@@ -598,6 +598,7 @@ describe("POST /api/decide/subq", () => {
 
   function deps(fetch: Fetch) {
     return {
+      host: "node-dev",
       fetch: vi.fn(fetch),
       timeoutSignal: () => new AbortController().signal,
       log: vi.fn<(line: string) => void>(),

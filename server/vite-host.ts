@@ -9,6 +9,12 @@
  * the global one, and the pool itself is passed as `connections`, so the routes
  * can report and warm connections (ADR-0002). Every `/api` path reaches
  * `handle`, including the old `/api/jev` paths, which now answer a JSON 404.
+ *
+ * It names itself the `"node-dev"` host, the only one the protection gate
+ * (ADR-0003) treats as local: this middleware runs only inside the Vite dev
+ * server on the developer's machine, so provider calls and warming proceed here
+ * without Cloudflare Access or the opt-out. That is a fact about this code, not
+ * about any request, which is why no header or hostname can claim it.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -157,9 +163,12 @@ const FORBIDDEN_METHODS: ReadonlySet<string> = new Set(["TRACE"]);
 /** What the dev host calls for each `/api` request: the Worker's `handle`, or a test double. */
 export type Handler = typeof handle;
 
-/** The Worker's dependencies, with every provider call going through `pool`. */
+/**
+ * The Node dev host's dependencies: the defaults for the `"node-dev"` host, with
+ * every provider call going through `pool` and the pool itself as `connections`.
+ */
 export function devHostDeps(pool: DevConnections): HandlerDeps {
-  return { ...defaultDeps(), fetch: pool.fetch, connections: pool };
+  return { ...defaultDeps("node-dev"), fetch: pool.fetch, connections: pool };
 }
 
 /**
@@ -171,7 +180,7 @@ export function devHostDeps(pool: DevConnections): HandlerDeps {
 export function apiMiddleware(
   readKeys: () => ProviderKeys,
   handler: Handler = handle,
-  deps: () => HandlerDeps = defaultDeps,
+  deps: () => HandlerDeps = () => defaultDeps("node-dev"),
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     const target = req.url ?? "/";

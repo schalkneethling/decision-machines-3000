@@ -8,6 +8,13 @@
   // The newest date the installed workerd (1.20261006.1) supports. Dates from
   // 2026-08-04 turn on nodejs_compat by default, so no compatibility_flags are needed.
   "compatibility_date": "2026-10-06",
+  // Both are set on purpose (ADR-0003). Left out, Wrangler turns them on at every
+  // deploy and warns. The workers.dev hostname stays on, because a fork deployed
+  // with the Deploy button has no other hostname. Version URLs (the key keeps its
+  // old name) stay off, so no version gets a second public hostname. The Worker
+  // itself refuses provider calls on any hostname until protection is configured.
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     // Where `vp run build` writes the client. @cloudflare/vite-plugin sets this itself
     // in the built config; plain `wrangler dev` reads it from here.

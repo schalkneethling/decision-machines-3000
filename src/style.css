@@ -432,6 +432,30 @@ code {
   cursor: pointer;
 }
 
+/*
+ * The protection notice (ADR-0003): a deployed instance that refuses runs, or
+ * runs them for anyone. Like the status line, it stays in the page while
+ * empty, so that filling it is announced; only its padding and border go, so
+ * that an empty notice takes no room.
+ */
+.protection-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 3px solid var(--alert);
+  color: var(--ink);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+}
+
+.protection-notice:empty {
+  padding: 0;
+  border: 0;
+}
+
+.protection-notice a {
+  color: inherit;
+}
+
 /* The announcement of a provider change. Empty until the viewer changes the provider. */
 .provider-status {
   margin: 0;

@@ -60,6 +60,29 @@ const hostSummarySchema = z.object({
   connectionMetrics: z.boolean(),
 });
 
+/**
+ * How the instance protects the owner's provider credit (issue #14, ADR-0003):
+ * - `local`: the Node dev host inside `vp dev`, which only the developer can reach.
+ * - `access`: Cloudflare Access is configured; `validated` says whether this
+ *   very request carried a valid Access token. When it did not, `reason` says
+ *   whether the token was at fault or the team's signing keys could not be
+ *   fetched, and `problem` says it in a sentence.
+ * - `opted_out`: the owner set the opt-out variable and accepts an open instance.
+ * - `unconfigured`: a deployed instance with neither, so every decision is
+ *   refused; `detail` names the variables that are not set, never their values.
+ */
+export const protectionSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("local") }),
+  z.object({
+    mode: z.literal("access"),
+    validated: z.boolean(),
+    reason: z.exactOptional(z.literal(["token", "keys"])),
+    problem: z.exactOptional(z.string()),
+  }),
+  z.object({ mode: z.literal("opted_out") }),
+  z.object({ mode: z.literal("unconfigured"), detail: z.string() }),
+]);
+
 const providersSuccessSchema = z.object({
   ok: z.literal(true),
   /**
@@ -68,6 +91,7 @@ const providersSuccessSchema = z.object({
    */
   providers: z.array(providerSummarySchema).check(z.minLength(1)),
   host: hostSummarySchema,
+  protection: protectionSchema,
 });
 
 /**
@@ -84,6 +108,9 @@ export type ProviderSummary = z.output<typeof providerSummarySchema>;
 
 /** What the host that answered can report about its connections. */
 export type HostSummary = z.output<typeof hostSummarySchema>;
+
+/** The instance's protection state, as `GET /api/providers` reports it. */
+export type Protection = z.output<typeof protectionSchema>;
 
 export type ProvidersSuccess = z.output<typeof providersSuccessSchema>;
 

@@ -243,7 +243,9 @@ describe("when the warm form shows", () => {
       document.body.innerHTML = body;
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => Response.json({ ok: true, providers: [typesafe], host })),
+        vi.fn(async () =>
+          Response.json({ ok: true, providers: [typesafe], host, protection: { mode: "local" } }),
+        ),
       );
       const selection = setupProviderSelect(document);
       setupWarm(document, selection, manualRepeat().repeat);

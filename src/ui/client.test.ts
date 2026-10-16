@@ -198,6 +198,7 @@ const listed = JSON.parse(
     ok: true,
     providers: [typesafe, subq, openai].map(toProviderSummary),
     host: { connectionMetrics: false },
+    protection: { mode: "local" },
   }),
 ) as unknown;
 
@@ -240,6 +241,22 @@ describe("isProvidersResponse", () => {
       name: "a provider without a model",
       body: replaced(listed, "providers.0.model", undefined),
       path: "providers.0.model",
+    },
+    {
+      // Every success says how the instance is protected (ADR-0003).
+      name: "a success without a protection state",
+      body: replaced(listed, "protection", undefined),
+      path: "protection",
+    },
+    {
+      name: "a protection state with an unknown mode",
+      body: replaced(listed, "protection", { mode: "open" }),
+      path: "protection.mode",
+    },
+    {
+      name: "an Access state that does not say whether the token validated",
+      body: replaced(listed, "protection", { mode: "access" }),
+      path: "protection.validated",
     },
     {
       name: "a fractional option count",

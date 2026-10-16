@@ -22,7 +22,7 @@ describe("defaultDeps", () => {
     });
 
     // Called as a method of the deps object, as the handler's routes will call it.
-    const deps = defaultDeps();
+    const deps = defaultDeps("worker");
     await deps.fetch("https://provider.example/v1/models");
 
     expect(calls).toHaveLength(1);
@@ -33,7 +33,7 @@ describe("defaultDeps", () => {
   it("builds the timeout signal with AbortSignal.timeout", () => {
     const timeout = vi.spyOn(AbortSignal, "timeout");
 
-    const signal = defaultDeps().timeoutSignal(25_000);
+    const signal = defaultDeps("worker").timeoutSignal(25_000);
 
     expect(timeout).toHaveBeenCalledExactlyOnceWith(25_000);
     expect(signal.aborted).toBe(false);

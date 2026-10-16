@@ -165,6 +165,7 @@ const keySetSchema = z.object({
 /** A published key that can verify an RS256 signature: RSA, with both parameters. */
 type RsaKey = { kid: string; kty: "RSA"; n: string; e: string };
 
+/** Whether a published key is one `RsaKey` describes, so a key of another type is skipped, not fatal. */
 function isRsaKey(key: z.output<typeof keySetSchema>["keys"][number]): key is RsaKey {
   return key.kty === "RSA" && key.n !== undefined && key.e !== undefined;
 }

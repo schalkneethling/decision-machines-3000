@@ -40,7 +40,7 @@ The files named below are on the spike branch `issue-1-worker-toolchain-spike`, 
 ## Consequences
 
 - `vp dev` and `vp preview` on this setup ask 1Password for the key, as they already do today. `vp check`, `vp test`, and `vp run build` do not.
-- `@varlock/vite-integration` is no longer loaded by `vite.config.ts`. Removing it from `package.json` is left to the issue that moves the app onto the Worker.
+- `@varlock/vite-integration` is no longer loaded by `vite.config.ts`. Issue #18 removed it from `package.json`, because nothing imports it and `@varlock/cloudflare-integration` bundles what it needs. Path B below would add it back.
 - `varlock` needs `^1.22.0`, which is the peer range of `@varlock/cloudflare-integration` 1.6.1.
 - `/api` without a trailing slash is not matched by `/api/*`, so `run_worker_first` lists it separately; the spike found it served by the single-page app before #6 added it.
 - After `vp run build`, plain `wrangler dev` and `wrangler deploy` use the redirected, already-bundled config. Pass `-c wrangler.jsonc` to run or deploy a different entry point.

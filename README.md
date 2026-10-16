@@ -14,7 +14,7 @@ The button needs at least one real provider key. It makes all three keys require
 
 - Node 24
 - [Vite+](https://viteplus.dev) (`vp`)
-- The [`op` 1Password CLI](https://developer.1password.com/docs/cli/) with desktop-app integration enabled
+- For `vp dev` and `vp preview`, and for the Varlock deploy profile: the [1Password desktop app](https://1password.com/downloads/) with its CLI integration turned on, and the [`op` CLI](https://developer.1password.com/docs/cli/). Building, checking, testing, and deploying with plain Wrangler need no 1Password.
 
 ## Setup
 
@@ -24,45 +24,34 @@ Install dependencies:
 vp install
 ```
 
-The TypeSafe API key is never stored in this repo. It's read from 1Password through [Varlock](https://varlock.dev), using the reference in [`.env.schema`](./.env.schema). See [Varlock](#varlock) below for how to point it at your own key.
+## Provider keys
 
-Start the dev server:
+The app has three providers, and an instance needs at least one key: `TYPESAFE_API_KEY` for TypeSafe Jev, `SUBQ_API_KEY` for SubQ Snap, and `OPENAI_API_KEY` for OpenAI Decisions. A provider whose key is not set does not appear in the app. No key is stored in this repository. How you supply them depends on where the app runs:
 
-```sh
-vp dev
-```
+- **A deployed Worker:** set the keys as Worker secrets with plain Wrangler, or let Varlock upload them from 1Password. [`docs/deploy.md`](./docs/deploy.md) covers both, with the commands.
+- **`vp dev` and `vp preview`:** the keys come from 1Password through [Varlock](https://varlock.dev), described below.
 
 ## Varlock
 
-[Varlock](https://varlock.dev) replaces `.env` files with a committed `.env.schema` that declares every variable, validates it at startup, redacts sensitive values in output, and can load secrets from external providers. This project uses its [1Password plugin](https://varlock.dev/plugins/1password/) so the key lives in a vault, not on disk.
+Varlock replaces `.env` files with a committed [`.env.schema`](./.env.schema) that declares every variable, validates it at start-up, redacts sensitive values in output, and loads secrets from external providers. This project uses its [1Password plugin](https://varlock.dev/plugins/1password/), so the keys live in a vault. Read `.env.schema` for the exact declarations: it is the one source, and this README does not copy it.
 
-The schema has one item:
+- Each of the three keys is optional and sensitive. A key whose field is missing from the vault item is left unset, which is how an instance runs with only some providers.
+- `AT_LEAST_ONE_PROVIDER_KEY` is a check item: it fails the load when none of the three keys has a value. Each key also rejects `unset` and whitespace-only values, which the Worker treats as no key, so such a setup fails with a clear error instead of starting an app with no provider.
+- `vp exec varlock load` resolves the schema and prints every value redacted. `vp run codegen` regenerates [`env.d.ts`](./env.d.ts) after a schema change.
 
-```env-spec
-# @plugin(@varlock/1password-plugin)
-# @initOp(allowAppAuth=true, account=my.1password.com)
-# @generateTsTypes(path=env.d.ts, importMetaEnv=none)
-# ---
+To use your own vault, change the `account` and the three `op://` references in `.env.schema`; [`docs/deploy.md`](./docs/deploy.md#4-deploy-with-varlock-and-1password) lists the steps.
 
-# @required @sensitive
-TYPESAFE_API_KEY=op(op://dev/nocajwa573emc6ko6sv5bkn6y4/TYPESAFE_API_KEY)
-```
-
-- `@initOp(allowAppAuth=true, ...)` authenticates through the 1Password desktop app, so no service account token is needed locally. Biometric unlock works.
-- `op(op://vault/item/field)` resolves the value at load time. The item can be a name or an id.
-- `@sensitive` keeps the value out of logs and out of the browser bundle. `@required` fails the load if it is missing.
-- `@generateTsTypes` writes `env.d.ts`, which types `import { ENV } from "varlock/env"` on the server.
-
-To use your own key, change `account` to your sign-in address and the `op://` reference to your vault and item, then run `vp exec varlock load` to confirm it resolves (the value is shown redacted). For CI or a server, add a `@type=opServiceAccountToken` item and pass it as `token=` to `@initOp`; the plugin docs show the pattern.
-
-The Varlock Vite plugin is registered only for the dev and preview servers (see [`vite.config.ts`](./vite.config.ts)), so `vp check`, `vp test`, and `vp run build` never wait on a 1Password prompt.
+Start the dev server with `vp dev`. Varlock's Vite plugin is registered only for the dev and preview servers (see [`vite.config.ts`](./vite.config.ts)): it resolves the schema once at start-up, asks 1Password for approval, and puts the keys into the dev server's environment, which [`server/vite-host.ts`](./server/vite-host.ts) reads. So `vp check`, `vp test`, and `vp run build` never wait on a 1Password prompt. Without 1Password, put the keys you have in a gitignored `.env.local` and set the others to `KEY=""` ([details and trade-offs](./docs/deploy.md#vp-dev-in-this-profile): the keys sit unencrypted on disk, so prefer 1Password where you have it). To deploy with Varlock, follow [section 4 of the deploy guide](./docs/deploy.md#4-deploy-with-varlock-and-1password).
 
 ## Commands
 
+- `vp dev`: start the dev server (asks 1Password for the keys)
 - `vp check`: format, lint, and type check
 - `vp test`: run the test suite
 - `vp run build`: type check and build for production
 - `vp run deploy`: check that the Worker has a provider key, then run a plain `wrangler deploy` (see [`docs/deploy.md`](./docs/deploy.md)); run `vp run build` first
+- `vp run deploy:varlock`: resolve `.env.schema` through 1Password and deploy with `varlock-wrangler deploy`, which uploads the keys as secrets (see [`docs/deploy.md`](./docs/deploy.md#4-deploy-with-varlock-and-1password)); run `vp run build` first
+- `vp run codegen`: regenerate `env.d.ts` from `.env.schema`
 
 ## How the key stays server-side
 

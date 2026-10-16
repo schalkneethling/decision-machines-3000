@@ -11,8 +11,18 @@
  * `toWire` applies these rules:
  * - The neutral `state` becomes `input`: the string itself, or the JSON text
  *   of an object or a list, because OpenAI takes `input` as text. With images,
- *   `input` is instead one user message holding an `input_text` part and one
- *   `input_image` part per image, each a `data:` URL.
+ *   `input` is instead one user message. Its content is the state as an
+ *   `input_text` part, then for each image an `input_text` part holding its
+ *   label (`Image 1: photo.jpg`, from `image-labels.ts`) followed by the
+ *   `input_image` part, a `data:` URL. The label sits directly before its
+ *   image so the model can tell which picture a question about "image 2"
+ *   means, and so the wire view shows each label beside the image it names. The
+ *   Decisions guide (https://developers.openai.com/api/docs/guides/decisions)
+ *   says to "combine `input_text` and `input_image` parts in a user message"
+ *   and sets no limit on how many text parts there are or in what order. Its
+ *   examples show one text part then one image, so the interleaved order is
+ *   the one shape not recorded in `fixtures/openai/`; the live check in
+ *   `scenarios/57-image-labels.feature` covers it.
  * - The `questions` map becomes a list, each question's id as its `name`.
  *   OpenAI echoes the name on every answer, which is how `fromWire` places them.
  * - **Yes/no meaning.** OpenAI's yes/no type is `predicate`, and it has no
@@ -71,6 +81,7 @@ import type {
   ProviderAdapter,
   ProviderDecision,
 } from "./adapter.ts";
+import { imageLabel } from "./image-labels.ts";
 import { decisionReplySchema, errorEnvelopeSchema } from "./openai-schema.ts";
 import type { ErrorEnvelope, WireAnswer } from "./openai-schema.ts";
 
@@ -83,19 +94,19 @@ const DECISION_URL = `${openai.baseUrl}/v1/decisions`;
 
 /**
  * What `toWire` needs of an attached image: its media type and its base64
- * data, treated as opaque text. The route's attachment type has these two
- * fields and a byte count; this structural type is all the adapter reads, and
- * it stays here so the adapter imports nothing from the route (#15 settles
- * where the neutral image type lives).
+ * data, treated as opaque text, and its cleaned file name for the label. The
+ * route's attachment type has these fields and a byte count; this structural
+ * type is all the adapter reads, and it stays here so the adapter imports
+ * nothing from the route (#15 settles where the neutral image type lives).
  */
-export type WireImage = { mediaType: string; base64: string };
+export type WireImage = { mediaType: string; base64: string; name: string };
 
 /** A validated neutral request, which may carry images once #15 lands. */
 export type WireInput = ValidDecisionRequest & { images?: readonly WireImage[] };
 
 type TextPart = { type: "input_text"; text: string };
 type ImagePart = { type: "input_image"; image_url: string };
-type UserMessage = { role: "user"; content: [TextPart, ...ImagePart[]] };
+type UserMessage = { role: "user"; content: (TextPart | ImagePart)[] };
 
 type WireChoice = { value: string; description?: string };
 type WireLevel = { label: string; description?: string };
@@ -131,7 +142,13 @@ function toWireInput(request: WireInput): string | UserMessage[] {
   return [
     {
       role: "user",
-      content: [{ type: "input_text", text }, ...request.images.map(toImagePart)],
+      content: [
+        { type: "input_text", text },
+        ...request.images.flatMap((image, index): (TextPart | ImagePart)[] => [
+          { type: "input_text", text: imageLabel(image, index) },
+          toImagePart(image),
+        ]),
+      ],
     },
   ];
 }

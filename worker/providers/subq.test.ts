@@ -222,6 +222,7 @@ describe("toWire", () => {
       base64:
         "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVR4nGP4z8DwnwGMgRQAH+4D/dJQfRoAAAAASUVORK5CYII=",
       byteLength: 77,
+      name: "red.png",
     };
 
     it("copies each image as { mediaType, base64 } with the data untouched and no data: prefix", () => {
@@ -237,7 +238,7 @@ describe("toWire", () => {
     });
 
     it("keeps several images in order and drops the byte count", () => {
-      const second = { mediaType: "image/jpeg", base64: "AAAA", byteLength: 3 };
+      const second = { mediaType: "image/jpeg", base64: "AAAA", byteLength: 3, name: "b.jpg" };
       const wire = toWire({ ...noulRequest, images: [image, second] });
       expect(wire.images?.map((entry) => entry.mediaType)).toEqual(["image/png", "image/jpeg"]);
       expect(JSON.stringify(wire)).not.toContain("byteLength");
@@ -245,6 +246,47 @@ describe("toWire", () => {
 
     it("has no images field when the list is empty", () => {
       expect("images" in toWire({ ...noulRequest, images: [] })).toBe(false);
+    });
+
+    describe("labels (issue #57)", () => {
+      const second = { mediaType: "image/jpeg", base64: "AAAA", byteLength: 3, name: "b.jpg" };
+      const first = { ...image, name: "a.png" };
+
+      it("appends one label per image, in the order of the images, after a blank line", () => {
+        const wire = toWire({ ...noulRequest, images: [first, second] });
+        expect(wire.state).toBe(`${STATE}\n\nImage 1: a.png\nImage 2: b.jpg`);
+        expect(wire.images?.map((entry) => entry.mediaType)).toEqual(["image/png", "image/jpeg"]);
+      });
+
+      it("labels an image with no name by its number alone", () => {
+        const wire = toWire({ ...noulRequest, images: [{ ...first, name: "" }] });
+        expect(wire.state).toBe(`${STATE}\n\nImage 1`);
+      });
+
+      it("sends only the labels when the text state is blank", () => {
+        const wire = toWire({ ...noulRequest, state: "  ", images: [first, second] });
+        expect(wire.state).toBe("Image 1: a.png\nImage 2: b.jpg");
+      });
+
+      it.each([
+        ["an object", { note: "x" }],
+        ["a list", ["x", "y"]],
+      ])("leaves %s state exactly as written, so SubQ is left without labels", (_name, state) => {
+        const wire = toWire({ ...noulRequest, state, images: [first, second] });
+        expect(wire.state).toStrictEqual(state);
+        expect(wire.images).toHaveLength(2);
+      });
+
+      it("leaves the state alone when there are no images", () => {
+        expect(toWire(noulRequest).state).toBe(STATE);
+        expect(toWire({ ...noulRequest, images: [] }).state).toBe(STATE);
+      });
+
+      it("adds no field to the image objects", () => {
+        const wire = toWire({ ...noulRequest, images: [first] });
+        expect(Object.keys(wire.images?.[0] ?? {}).sort()).toEqual(["base64", "mediaType"]);
+        expect(JSON.stringify(wire.images)).not.toContain("a.png");
+      });
     });
   });
 });

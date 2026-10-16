@@ -4,7 +4,13 @@ import { PROVIDERS } from "../providers/catalog.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import { toProviderSummary } from "../providers/contract.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
-import { PRIVACY_NOTE, createAttachments, fitsWithin, toFormData } from "./attachments.ts";
+import {
+  ASK_ABOUT_IMAGES,
+  PRIVACY_NOTE,
+  createAttachments,
+  fitsWithin,
+  toFormData,
+} from "./attachments.ts";
 import type { ImageTransform } from "./attachments.ts";
 import { capabilitySentence, formatList, imageInputSentence } from "./image-sentences.ts";
 import { fileOf, gifBytes, jpegBytes, pngBytes, webpBytes } from "./fixtures/images.ts";
@@ -197,13 +203,34 @@ describe("markup", () => {
     expect(input().getAttribute("accept")).toBe("image/png,image/jpeg,image/webp");
     expect(get("label.attachments-label").getAttribute("for")).toBe(input().id);
     const described = (input().getAttribute("aria-describedby") ?? "").split(" ");
-    expect(described).toEqual(["noul-images-instructions", "noul-images-limits"]);
+    expect(described).toEqual([
+      "noul-images-instructions",
+      "noul-images-hint",
+      "noul-images-limits",
+    ]);
     for (const id of described) expect(fieldset.querySelector(`#${id}`)).not.toBeNull();
     expect(get("#noul-images-limits").textContent).toBe(capabilitySentence(subq, limits));
     expect(fieldset.getAttribute("aria-describedby")).toBe("noul-images-privacy");
     expect(get("#noul-images-privacy").textContent).toBe(PRIVACY_NOTE);
     expect(get(".attachments-status").getAttribute("role")).toBe("status");
     expect(status()).toBe("");
+  });
+
+  it("tells the user to ask about the images, and the hint is part of the input's description", () => {
+    createAttachments(mount(), { prefix: "noul-images", provider: openai });
+    const hint = get("#noul-images-hint");
+    expect(hint.textContent).toBe(ASK_ABOUT_IMAGES);
+    expect(hint.textContent).toContain("state or a question");
+    expect(hint.textContent).toContain("What does image 1 show?");
+    expect(zone().contains(hint)).toBe(true);
+    expect(input().getAttribute("aria-describedby")?.split(" ")).toContain(hint.id);
+    expect(zone().hidden).toBe(false);
+  });
+
+  it("hides the hint with the control for a text-only provider", () => {
+    createAttachments(mount(), { prefix: "noul-images", provider: typesafe });
+    expect(zone().contains(get("#noul-images-hint"))).toBe(true);
+    expect(zone().hidden).toBe(true);
   });
 
   it("is hidden for a text-only provider and while no provider is selected, and announces nothing", () => {

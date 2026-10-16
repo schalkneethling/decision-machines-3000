@@ -24,7 +24,9 @@
  * No message here names a part, a file name, or a declared type, because the
  * client controls all three and Varlock's leak scanner replaces a reply that
  * contains a key's value (see `docs/deploy.md`). Messages name the image by its
- * position in the request ("Image 2") and the limit it broke.
+ * position in the request ("Image 2") and the limit it broke. The file name is
+ * kept, cleaned and clipped by `cleanFileName`, only so the adapters can label
+ * each image for the model (issue #57); it reaches no log line and no message.
  *
  * Zod Mini APIs used, read from node_modules/zod/v4/mini/schemas.d.ts and
  * node_modules/zod/v4/core/errors.d.ts: `object`, `array`, `string`, `custom`,
@@ -39,6 +41,7 @@ import type { ImageCapabilities, ProviderDescriptor } from "../src/providers/cat
 import { SIGNATURE_BYTES, detectMediaType } from "../src/providers/image-bytes.ts";
 import { TEXT_ALLOWANCE_BYTES, tooLarge } from "./body-limit.ts";
 import type { ImageAttachment } from "./decide.ts";
+import { cleanFileName } from "./providers/image-labels.ts";
 import { failure } from "./respond.ts";
 
 /** The answer to send instead of reading on. */
@@ -316,6 +319,7 @@ export async function encodeImages(
       mediaType: mediaTypes[index] as string,
       base64: encodeBase64(bytes),
       byteLength: bytes.byteLength,
+      name: cleanFileName(file.name),
     });
   }
   return { ok: true, images: attachments };

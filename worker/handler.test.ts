@@ -1328,7 +1328,9 @@ describe("the wire record", () => {
     primitive: "noul",
     state: "A photo of a rash.",
     questions: { urgent: { instructions: "Does this need a doctor today?" } },
-    images: [{ mediaType: "image/png", base64: realData, byteLength: 230 * 1024 }],
+    images: [
+      { mediaType: "image/png", base64: realData, byteLength: 230 * 1024, name: "rash.png" },
+    ],
   };
 
   it("puts a placeholder where the data was, by calling the adapter's toWire on a copy", () => {
@@ -1353,8 +1355,8 @@ describe("the wire record", () => {
     const request: WithImages = {
       ...withImage,
       images: [
-        { mediaType: "image/png", base64: "a", byteLength: 512 },
-        { mediaType: "image/jpeg", base64: "b", byteLength: 1536 * 1024 },
+        { mediaType: "image/png", base64: "a", byteLength: 512, name: "a.png" },
+        { mediaType: "image/jpeg", base64: "b", byteLength: 1536 * 1024, name: "b.jpg" },
       ],
     };
 

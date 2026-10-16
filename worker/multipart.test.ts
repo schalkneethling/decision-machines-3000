@@ -459,17 +459,21 @@ describe("what reaches the provider and what comes back", () => {
       content: { type: string; image_url?: string }[];
     }[];
     const parts = input[0]!.content;
+    // The state, then a label before each image (issue #57).
     expect(parts.map((part) => part.type)).toEqual([
       "input_text",
+      "input_text",
       "input_image",
+      "input_text",
       "input_image",
+      "input_text",
       "input_image",
     ]);
-    expect(parts.slice(1).map((part) => part.image_url?.split(";")[0])).toEqual([
-      "data:image/png",
-      "data:image/jpeg",
-      "data:image/webp",
-    ]);
+    expect(
+      parts
+        .filter((part) => part.type === "input_image")
+        .map((part) => part.image_url?.split(";")[0]),
+    ).toEqual(["data:image/png", "data:image/jpeg", "data:image/webp"]);
   });
 
   it("logs how many images came, and nothing that names them", async () => {
@@ -740,5 +744,119 @@ describe("the text allowance", () => {
     const { response } = await send(multipart("subq", [["request", text]]), stubDeps());
 
     expect(response.status).toBe(413);
+  });
+});
+
+describe("image labels (issue #57)", () => {
+  const twoImages = (): Part[] => [
+    requestPart,
+    ["image", file(image("png")), "a.png"],
+    ["image", file(image("jpeg")), "b.jpg"],
+  ];
+
+  it("labels the images for OpenAI with the uploaded file names, in order", async () => {
+    const deps = stubDeps(openaiReply);
+    const { response } = await send(multipart("openai", twoImages()), deps);
+
+    expect(response.status).toBe(200);
+    const input = upstreamBody(deps).input as { content: { type: string; text?: string }[] }[];
+    expect(input[0]!.content.map((part) => part.text ?? part.type)).toEqual([
+      question.state,
+      "Image 1: a.png",
+      "input_image",
+      "Image 2: b.jpg",
+      "input_image",
+    ]);
+  });
+
+  it("labels the images for SubQ in the state, and keeps the image objects to two fields", async () => {
+    const deps = stubDeps(subqReply);
+    const { response } = await send(multipart("subq", twoImages()), deps);
+
+    expect(response.status).toBe(200);
+    const sent = upstreamBody(deps);
+    expect(sent.state).toBe(`${question.state}\n\nImage 1: a.png\nImage 2: b.jpg`);
+    expect((sent.images as object[]).map((entry) => Object.keys(entry).sort())).toEqual([
+      ["base64", "mediaType"],
+      ["base64", "mediaType"],
+    ]);
+  });
+
+  it("shows the labels in the wire record, beside the placeholders, on OpenAI", async () => {
+    const deps = stubDeps(openaiReply);
+    const { body } = await send(multipart("openai", twoImages()), deps);
+
+    const wire = body.wire as {
+      request: { input: { content: { type: string; text?: string; image_url?: string }[] }[] };
+    };
+    const shown = wire.request.input[0]!.content.slice(1).map(
+      (part) => part.text ?? part.image_url,
+    );
+    expect(shown).toEqual([
+      "Image 1: a.png",
+      "data:image/png;base64,<image 1: image/png, 64 bytes>",
+      "Image 2: b.jpg",
+      "data:image/jpeg;base64,<image 2: image/jpeg, 64 bytes>",
+    ]);
+  });
+
+  it("shows the labels in the wire record on SubQ", async () => {
+    const deps = stubDeps(subqReply);
+    const { body } = await send(multipart("subq", twoImages()), deps);
+
+    const wire = body.wire as { request: { state: string } };
+    expect(wire.request.state).toContain("Image 1: a.png\nImage 2: b.jpg");
+  });
+
+  it("clips a 300-character name and removes control characters before labelling", async () => {
+    const deps = stubDeps(openaiReply);
+    const long = `${"n".repeat(296)}.png`;
+    const messy = "line\nbreak‮.png";
+    const { response } = await send(
+      multipart("openai", [
+        requestPart,
+        ["image", file(image("png")), long],
+        ["image", file(image("png")), messy],
+      ]),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    const input = upstreamBody(deps).input as { content: { type: string; text?: string }[] }[];
+    const labels = input[0]!.content.filter((part, i) => i > 0 && part.type === "input_text");
+    expect(labels.map((part) => part.text)).toEqual([
+      `Image 1: ${"n".repeat(80)}…`,
+      "Image 2: linebreak.png",
+    ]);
+  });
+
+  it.each([
+    ["a run that succeeds", openaiReply],
+    ["a run whose reply cannot be read", { unexpected: true }],
+  ])("keeps every file name out of the log for %s", async (_name, reply) => {
+    const deps = stubDeps(reply);
+    await send(
+      multipart("openai", [
+        requestPart,
+        ["image", file(image("png")), "secret-holiday.png"],
+        ["image", file(image("png")), "second-secret.png"],
+      ]),
+      deps,
+    );
+
+    const lines = deps.log.mock.calls.map(([line]) => line).join("\n");
+    expect(lines).toContain("images=2");
+    expect(lines).not.toContain("secret");
+  });
+
+  it("keeps the file names out of a refusal for an unsupported image", async () => {
+    const deps = stubDeps();
+    const { text, response } = await send(
+      multipart("subq", [requestPart, ["image", file(image("gif")), "secret-holiday.gif"]]),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    expect(text).not.toContain("secret");
   });
 });

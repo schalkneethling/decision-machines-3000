@@ -10,6 +10,18 @@
  * nothing with the TypeSafe adapter beyond `adapter.ts`, because the two wire
  * formats are free to part.
  *
+ * **Image labels (issue #57).** SubQ's image objects have exactly two fields,
+ * `mediaType` and `base64` (https://docs.subq.ai/endpoints/decisions-api/#images),
+ * and the documented request has no other place for text about an image, so
+ * `toWire` adds no field to them: an undocumented field might be refused with
+ * a 422. The only free text is `state`, which "every question sees" together
+ * with every image. So when `state` is text, the labels (`Image 1: photo.jpg`,
+ * from `image-labels.ts`) are appended to it, one per line after a blank line,
+ * in the order of `images`. When `state` is an object or a list, SubQ gets no
+ * labels: any way to add one changes the shape the user wrote (a wrapper
+ * object, an extra array item) and with it what SubQ scores, which this
+ * adapter will not do silently. The wire view shows whichever was sent.
+ *
  * Three things differ from TypeSafe. SubQ takes an `images` array of
  * `{ mediaType, base64 }` and `toWire` copies it as it is: `base64` is plain
  * one-line base64 with no `data:` prefix (a `data:` URL and wrapped lines both
@@ -42,6 +54,7 @@ import {
   unreadableReply,
 } from "./adapter.ts";
 import type { AdapterResult, Fetch, ProviderAdapter, ProviderDecision } from "./adapter.ts";
+import { imageLabels } from "./image-labels.ts";
 import { decisionReplySchema, errorEnvelopeSchema } from "./subq-schema.ts";
 
 /** The decision endpoint, resolved against the catalog's base URL, so no host is written here. */
@@ -65,8 +78,7 @@ export type SubqWireRequest = {
 };
 
 /**
- * A validated request that may carry images. Images arrive with request
- * validation (#15); until then no caller sets them. The route's record of what
+ * A validated request that may carry images (#15). The route's record of what
  * was sent calls this `toWire` on a copy whose image data is already replaced,
  * so this module needs no redaction code.
  */
@@ -76,7 +88,7 @@ type RequestWithImages = ValidDecisionRequest & { images?: readonly ImageAttachm
 export function toWire(request: RequestWithImages): SubqWireRequest {
   const wire: SubqWireRequest = {
     model: subq.model,
-    state: request.state,
+    state: labelledState(request.state, request.images),
     questions: toWireQuestions(request),
   };
   if (request.images !== undefined && request.images.length > 0) {
@@ -84,6 +96,18 @@ export function toWire(request: RequestWithImages): SubqWireRequest {
     wire.images = request.images.map(({ mediaType, base64 }) => ({ mediaType, base64 }));
   }
   return wire;
+}
+
+/**
+ * `state` with a label line per image appended when it is text, or `state`
+ * itself when there are no images or it is an object or a list (see the doc
+ * comment at the top of this file). A blank state becomes the labels alone,
+ * with no leading blank lines.
+ */
+function labelledState(state: Content, images: readonly ImageAttachment[] | undefined): Content {
+  if (typeof state !== "string" || images === undefined || images.length === 0) return state;
+  const labels = imageLabels(images).join("\n");
+  return state.trim() === "" ? labels : `${state}\n\n${labels}`;
 }
 
 /**

@@ -78,9 +78,18 @@ export type DecisionSuccessBody = Omit<DecisionSuccess, "wire"> & {
 
 /**
  * One image as the neutral request carries it: its media type as the bytes
- * show it, its data as base64, and its decoded size.
+ * show it, its data as base64, its decoded size, and its file name as
+ * `cleanFileName` left it (clipped, on one line, possibly empty). The name is
+ * for the label the model reads (issue #57) and nothing else: this app never
+ * logs it and never puts it in a message it writes. (A provider that quotes its
+ * input in an error would put it in the error detail, as it would the state.)
  */
-export type ImageAttachment = { mediaType: string; base64: string; byteLength: number };
+export type ImageAttachment = {
+  mediaType: string;
+  base64: string;
+  byteLength: number;
+  name: string;
+};
 
 /**
  * A neutral request that may carry images. `state` is named so that a request

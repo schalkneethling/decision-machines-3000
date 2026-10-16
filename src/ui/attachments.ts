@@ -113,6 +113,11 @@ export const PRIVACY_NOTE =
   "The Worker does not store them. The provider may keep what it receives under its own terms. " +
   "Do not upload images you are not allowed to share with that company.";
 
+/** Says how to ask about the pictures: the model reads them with the state and questions, and numbers them in list order. */
+export const ASK_ABOUT_IMAGES =
+  "Ask about the images in the state or a question, for example \u201cWhat does image 1 show?\u201d " +
+  "The first image in the list is image 1, the next is image 2, and so on.";
+
 /** `64 × 48`, or "size unknown" when the header did not say. */
 function sizeText(size: ImageSize | undefined): string {
   return size === undefined ? "size unknown" : `${size.width} × ${size.height}`;
@@ -179,6 +184,7 @@ export function createAttachments(
   const ids = {
     input: `${prefix}-input`,
     instructions: `${prefix}-instructions`,
+    hint: `${prefix}-hint`,
     limits: `${prefix}-limits`,
     privacy: `${prefix}-privacy`,
   };
@@ -188,6 +194,11 @@ export function createAttachments(
     className: "attachments-instructions",
     text: "Choose files with the button, drop them on this box, or paste an image into this panel.",
     attributes: { id: ids.instructions },
+  });
+  const hint = create("p", {
+    className: "attachments-hint",
+    text: ASK_ABOUT_IMAGES,
+    attributes: { id: ids.hint },
   });
   const limits = create("p", { className: "attachments-limits", attributes: { id: ids.limits } });
   const label = create("label", {
@@ -201,7 +212,7 @@ export function createAttachments(
       type: "file",
       id: ids.input,
       multiple: "",
-      "aria-describedby": `${ids.instructions} ${ids.limits}`,
+      "aria-describedby": `${ids.instructions} ${ids.hint} ${ids.limits}`,
     },
   });
   const list = create("ul", { className: "attachments-list", attributes: { role: "list" } });
@@ -213,7 +224,7 @@ export function createAttachments(
   const zone = create(
     "fieldset",
     { className: "attachments-zone", attributes: { "aria-describedby": ids.privacy } },
-    [legend, instructions, limits, label, input, list, privacy],
+    [legend, instructions, hint, limits, label, input, list, privacy],
   );
   // Kept in the page, empty, so that filling it is announced; the zone may be hidden while it speaks.
   const notice = create("p", { className: "attachments-notice" });

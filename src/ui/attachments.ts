@@ -1,4 +1,4 @@
-import { formatBytes, sizeInWords } from "../providers/byte-size.ts";
+import { formatBytes, measuredAgainst, sizeInWords } from "../providers/byte-size.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
 import { SIGNATURE_BYTES, detectMediaType, imageDimensions } from "../providers/image-bytes.ts";
@@ -22,9 +22,13 @@ import { capabilitySentence, formatList, imagesCount, sizeLimits } from "./image
  *    never trusted (the Worker detects the format again and is authoritative).
  * 3. **The transform point.** The file, with its detected type and the
  *    provider's limits, goes through the `transform` the control was given.
- *    The default returns it unchanged. Issue #25 ("Shrink to fit") plugs in
- *    here to downscale and re-encode an oversized picture, which may change
- *    its format, so step 2 runs again on what comes back.
+ *    The default returns it unchanged. Issue #25 ("Shrink to fit",
+ *    `shrink.ts`) plugs in here to downscale and re-encode an oversized
+ *    picture, which may change its format, so step 2 runs again on what comes
+ *    back. The limits it receives have `maxBytesPerImage` lowered to the room
+ *    left in the request (the per-request cap minus the images that will be
+ *    sent), so one budget is all the transform needs. It may refuse a file by
+ *    throwing an `ImageRefusal`, whose message is announced as the reason.
  * 4. The size is checked against `maxBytesPerImage`, and the running total
  *    against `maxBytesPerRequest`, after the transform, so a shrunk picture is
  *    judged by its new size. An oversized file is refused without being read.
@@ -48,6 +52,8 @@ export type Attachment = {
   size: ImageSize | undefined;
   /** The thumbnail's object URL, revoked when the attachment is removed. */
   previewUrl: string;
+  /** The size in bytes the file arrived with, when the transform made it smaller; otherwise undefined. */
+  shrunkFrom: number | undefined;
   /** True when the selected provider cannot take this image, by count or by bytes. */
   overLimit: boolean;
   element: HTMLLIElement;
@@ -66,6 +72,13 @@ export type ImageTransform = (image: ArrivedImage, limits: ImageCapabilities) =>
 
 /** The default transform: the file as it arrived. */
 export const keepAsIs: ImageTransform = ({ file }) => Promise.resolve(file);
+
+/**
+ * Thrown by a transform to refuse a file with a reason the user should read,
+ * such as "this browser cannot shrink images". The message completes the
+ * sentence "photo.jpg was not added: ".
+ */
+export class ImageRefusal extends Error {}
 
 export type AttachmentsOptions = {
   /** The prefix of every id the control mints, such as `noul-images`. */
@@ -94,19 +107,6 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": "jpg",
   "image/webp": "webp",
 };
-
-const numberFormat = new Intl.NumberFormat("en");
-
-/**
- * A measured size beside a limit it broke. `formatBytes` rounds to whole
- * kibibytes, so a file a few hundred bytes over the cap would read "64 KB, over
- * the limit of 64 KB"; in that window the exact count is given instead.
- */
-function measuredAgainst(size: number, limit: number): string {
-  return formatBytes(size) === sizeInWords(limit)
-    ? `${numberFormat.format(size)} bytes`
-    : formatBytes(size);
-}
 
 export const PRIVACY_NOTE =
   "Images go from your browser to this instance's Worker and then to the provider you picked. " +
@@ -223,6 +223,8 @@ export function createAttachments(
   let current = provider;
   const attachments: Attachment[] = [];
   let pastedCount = 0;
+  /** How many `add` calls have not finished; Run waits for them, or it would go without an image still being shrunk. */
+  let pending = 0;
   /** Adds run one after another, so two drops cannot both pass the count check. */
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -349,6 +351,14 @@ export function createAttachments(
         className: "attachment-meta",
         text: `${listed.mediaType}, ${formatBytes(listed.file.size)}, ${sizeText(listed.size)}`,
       }),
+      ...(listed.shrunkFrom === undefined
+        ? []
+        : [
+            create("span", {
+              className: "attachment-shrunk",
+              text: `Shrunk from ${formatBytes(listed.shrunkFrom)} to ${formatBytes(listed.file.size)}`,
+            }),
+          ]),
       create("span", {
         className: "attachment-flag",
         text: "Over the limit",
@@ -396,7 +406,19 @@ export function createAttachments(
     const name = nameFor(source, arrivedType);
     const arrived = asFile(source, name, arrivedType);
 
-    const transformed = await transform({ file: arrived, mediaType: arrivedType }, images);
+    // The transform's budget is the smaller of the per-image cap and the room left in the request.
+    const room = Math.max(0, images.maxBytesPerRequest - totalBytes());
+    const budget = { ...images, maxBytesPerImage: Math.min(images.maxBytesPerImage, room) };
+    let transformed: File;
+    if (transform !== keepAsIs && arrived.size > budget.maxBytesPerImage) {
+      announce(`Making ${name} smaller to fit…`);
+    }
+    try {
+      transformed = await transform({ file: arrived, mediaType: arrivedType }, budget);
+    } catch (error) {
+      if (error instanceof ImageRefusal) return `${name} was not added: ${error.message}`;
+      throw error;
+    }
     const mediaType = transformed === arrived ? arrivedType : await typeOf(transformed);
     if (mediaType === undefined || !images.mediaTypes.includes(mediaType)) return notAnImage;
 
@@ -410,7 +432,14 @@ export function createAttachments(
 
     const file = asFile(transformed, transformed.name === "" ? name : transformed.name, mediaType);
     const size = imageDimensions(new Uint8Array(await file.arrayBuffer()), mediaType);
-    const listed: Listed = { file, mediaType, size, previewUrl: URL.createObjectURL(file) };
+    const shrunkFrom = transformed === arrived ? undefined : arrived.size;
+    const listed: Listed = {
+      file,
+      mediaType,
+      size,
+      shrunkFrom,
+      previewUrl: URL.createObjectURL(file),
+    };
     const attachment: Attachment = {
       ...listed,
       overLimit: false,
@@ -420,11 +449,17 @@ export function createAttachments(
     list.append(attachment.element);
     render();
     onChange?.();
-    return `Image ${attachments.length} added: ${file.name}, ${formatBytes(file.size)}.`;
+    const shrunk =
+      shrunkFrom === undefined
+        ? ""
+        : ` Shrunk from ${formatBytes(shrunkFrom)} to ${formatBytes(file.size)} (${sizeText(size)}).`;
+    return `Image ${attachments.length} added: ${file.name}, ${formatBytes(file.size)}.${shrunk}`;
   }
 
   function add(sources: readonly Blob[]): Promise<void> {
     if (sources.length === 0) return Promise.resolve();
+    pending += 1;
+    onChange?.();
     const run = queue.then(async () => {
       const sentences: string[] = [];
       for (const source of sources) {
@@ -437,6 +472,12 @@ export function createAttachments(
       }
       announce(sentences.join(" "));
     });
+    run
+      .finally(() => {
+        pending -= 1;
+        onChange?.();
+      })
+      .catch(() => {});
     queue = run.catch(() => {});
     return run;
   }
@@ -497,7 +538,10 @@ export function createAttachments(
     },
     files: () => attachments.map((attachment) => attachment.file),
     count: () => attachments.length,
-    blocked: () => blockedMessage(attachments.filter((attachment) => attachment.overLimit).length),
+    blocked: () =>
+      pending > 0
+        ? "Images are still being added. Run is available once they are."
+        : blockedMessage(attachments.filter((attachment) => attachment.overLimit).length),
     add,
   };
 }

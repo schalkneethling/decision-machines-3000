@@ -17,3 +17,16 @@ export function sizeInWords(bytes: number): string {
   const mebibytes = bytes / (1024 * 1024);
   return mebibytes >= 1 ? `${mebibytes} MB` : `${bytes / 1024} KB`;
 }
+
+const numberFormat = new Intl.NumberFormat("en");
+
+/**
+ * A measured size beside a limit it broke. `formatBytes` rounds to whole
+ * kibibytes, so a file a few hundred bytes over the cap would read "64 KB, over
+ * the limit of 64 KB"; in that window the exact count is given instead.
+ */
+export function measuredAgainst(size: number, limit: number): string {
+  return formatBytes(size) === sizeInWords(limit)
+    ? `${numberFormat.format(size)} bytes`
+    : formatBytes(size);
+}

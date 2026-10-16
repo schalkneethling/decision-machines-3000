@@ -7,6 +7,7 @@
     "dev": "vp dev",
     "build": "tsc && tsc -p worker/tsconfig.json && vp build",
     "preview": "vp preview",
+    "deploy": "node scripts/check-provider-keys.ts && wrangler deploy",
     "prepare": "vp config",
     "codegen": "varlock codegen"
   },
@@ -36,6 +37,19 @@
       "name": "npm",
       "version": "^11.16.0 || 12.1.0",
       "onFail": "download"
+    }
+  },
+  "cloudflare": {
+    "bindings": {
+      "TYPESAFE_API_KEY": {
+        "description": "Your [TypeSafe](https://typesafe.ai) API key, for the Jev decision model. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"
+      },
+      "SUBQ_API_KEY": {
+        "description": "Your SubQ API key, for SubQ Snap. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"
+      },
+      "OPENAI_API_KEY": {
+        "description": "Your [OpenAI](https://platform.openai.com/api-keys) API key, for OpenAI Decisions. Enter the word `unset` if you do not have one. **At least one of the three keys must be a real key.**"
+      }
     }
   }
 }

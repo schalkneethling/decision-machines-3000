@@ -1,0 +1,23 @@
+# Provider API keys for this Worker. Set at least one of the three: with none, the
+# Worker answers with the setup notice instead of running anything.
+#
+# This file holds no values and is safe to commit. It does two jobs:
+#   1. The "Deploy to Cloudflare" button reads it and shows one required input per
+#      variable below. The form refuses a blank, so enter the word unset for each
+#      provider you do not have. The Worker treats exactly that word as "no key".
+#   2. For `wrangler dev`, copy it to .dev.vars (which git ignores) and fill in the
+#      keys you have. Delete the lines for providers you do not use. Do not create
+#      .dev.vars while you use `vp dev`: the Varlock setup refuses to start beside it.
+#
+# The protection variables (ACCESS_TEAM_DOMAIN, ACCESS_AUD, ALLOW_UNPROTECTED_INSTANCE)
+# are left out on purpose. The button would make each one a required input, and
+# ALLOW_UNPROTECTED_INSTANCE must never be set by accident. docs/deploy.md covers them.
+
+# TypeSafe API key, for the Jev decision model.
+TYPESAFE_API_KEY=
+
+# SubQ API key, for SubQ Snap.
+SUBQ_API_KEY=
+
+# OpenAI API key, for OpenAI Decisions.
+OPENAI_API_KEY=

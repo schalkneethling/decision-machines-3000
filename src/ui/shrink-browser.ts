@@ -42,6 +42,7 @@ export type CanvasScope = {
 /** The longest edge of the copy that is scanned for transparency. */
 const ALPHA_SCAN_EDGE = 512;
 
+/** The canvas's 2D context, set to its best smoothing where the browser supports the setting. */
 function context2d(canvas: OffscreenCanvas): OffscreenCanvasRenderingContext2D {
   const context = canvas.getContext("2d");
   if (context === null) throw new Error("No 2D canvas context.");

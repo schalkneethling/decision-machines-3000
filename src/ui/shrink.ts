@@ -49,6 +49,14 @@ export const MAX_SOURCE_PIXELS = 64_000_000;
 /** The bytes read to find the pixel size: enough for a JPEG whose EXIF block comes before the frame header. */
 const HEADER_BYTES = 128 * 1024;
 
+/**
+ * The `ImageTransform` the image control runs on each new file: a file within
+ * its budget passes unchanged, and a larger one is decoded with `rasterize`,
+ * searched down `plan` until it fits, and returned as a JPEG (or a WebP when it
+ * has transparency) named for its new format. Every way it can fail throws an
+ * `ImageRefusal` whose message the control announces. Without `rasterize` (a
+ * browser lacking the canvas APIs), an oversized file is refused with a reason.
+ */
 export function createShrinkTransform(
   rasterize: Rasterizer | undefined,
   plan: SearchPlan = DEFAULT_PLAN,
@@ -95,6 +103,11 @@ export function createShrinkTransform(
         );
       }
       const type = result.blob.type;
+      if (type === "") {
+        throw new ImageRefusal(
+          `${mustFit}, and this browser made it smaller in a format it did not name.`,
+        );
+      }
       if (!limits.mediaTypes.includes(type)) {
         throw new ImageRefusal(
           `${mustFit}, and it could only be made smaller as ${type}, which this provider does not take.`,

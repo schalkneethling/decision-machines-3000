@@ -28,9 +28,17 @@ function fakeRasterizer(
     height?: number;
     hasAlpha?: boolean;
     bytesAt?: (width: number, quality: number) => number;
+    /** The `type` the encoded blob reports instead of the one asked for. */
+    answerType?: string;
   } = {},
 ): { rasterize: Rasterizer; closes: () => number } {
-  const { width = 4000, height = 3000, hasAlpha = false, bytesAt = () => 30 * KIB } = options;
+  const {
+    width = 4000,
+    height = 3000,
+    hasAlpha = false,
+    bytesAt = () => 30 * KIB,
+    answerType,
+  } = options;
   let closed = 0;
   const rasterize: Rasterizer = async () => {
     const raster: Raster = {
@@ -43,7 +51,7 @@ function fakeRasterizer(
           attempt.type === "image/webp"
             ? webpBytes({ width: attempt.width, height: attempt.height, size })
             : jpegBytes({ width: attempt.width, height: attempt.height, size });
-        return new Blob([bytes], { type: attempt.type });
+        return new Blob([bytes], { type: answerType ?? attempt.type });
       },
       close: () => {
         closed += 1;
@@ -226,6 +234,17 @@ describe("createShrinkTransform", () => {
         { ...limits, mediaTypes: ["image/png", "image/jpeg"] },
       ),
     ).rejects.toThrow("which this provider does not take");
+  });
+
+  it("refuses a result whose format the browser did not name, without an empty type in the message", async () => {
+    const { rasterize, closes } = fakeRasterizer({ answerType: "" });
+    const refusal = createShrinkTransform(rasterize)(
+      { file: big(), mediaType: "image/jpeg" },
+      limits,
+    );
+    await expect(refusal).rejects.toThrow("made it smaller in a format it did not name.");
+    await expect(refusal).rejects.not.toThrow(/ as ,/);
+    expect(closes()).toBe(1);
   });
 
   it("refuses with a reason when the browser cannot decode the file", async () => {

@@ -198,6 +198,23 @@ code {
   line-height: var(--leading-meta);
 }
 
+/* The example buttons at the top of each panel, and the empty-state message that points at them */
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 0.75rem;
+}
+
+.panel-empty {
+  grid-column: 1 / -1;
+  max-inline-size: 60ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+}
+
 /* Tree or JSON: a two-segment switch above each panel body */
 .view-switch {
   display: inline-flex;
@@ -438,8 +455,13 @@ code {
   cursor: pointer;
 }
 
+/* Off while empty, without a provider, or blocked by images; the running panel's button shows progress */
 .run:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.run[data-running] {
   cursor: progress;
 }
 
@@ -708,7 +730,8 @@ code {
 .raw-summary:focus-visible,
 .view-option:focus-visible,
 .tree-field:focus-visible,
-.text-button:focus-visible {
+.text-button:focus-visible,
+.action-button:focus-visible {
   outline: 2px solid var(--reading);
   outline-offset: 2px;
 }
@@ -945,6 +968,69 @@ textarea.tree-field {
 .text-button:disabled:hover {
   color: var(--ink-muted);
   text-decoration-color: var(--line);
+}
+
+/* Confirmation before a load replaces the person's work: opened with showModal(), so the page behind is inert */
+.confirm-dialog {
+  max-inline-size: min(28rem, calc(100vw - 2rem));
+  padding: 1.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-plate);
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
+.confirm-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.confirm-title {
+  margin: 0;
+  font-size: var(--size-title);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.confirm-message {
+  margin: 0;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block-start: 0.5rem;
+}
+
+/*
+ * Bordered buttons for actions that are not Run: the example loads and the
+ * dialog's choices. They must read as buttons, not links, and none is amber,
+ * because amber stays for Run and Warm connection.
+ */
+.action-button {
+  padding: 0.5rem 1rem;
+  background: var(--well);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-key);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.action-button:hover {
+  border-color: var(--ink-muted);
+}
+
+.action-button[data-tone="alert"] {
+  color: var(--alert);
+  border-color: var(--alert);
 }
 
 .tree-row {

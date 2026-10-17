@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { DecisionRequest } from "../../decision/contract.ts";
-import { choiceExample, examples, noulExample, scoreExample } from "../../decision/examples.ts";
+import { EXAMPLE_SETS, choiceExample, noulExample, scoreExample } from "../../decision/examples.ts";
 import { validateDecisionRequest } from "../../decision/validate.ts";
 import type { ValidDecisionRequest } from "../../decision/validate.ts";
 import {
@@ -44,8 +44,16 @@ function messages(model: ComposerModel): string[] {
   return findIssues(model, DEFAULT_PROVIDER.capabilities).map((issue) => issue.message);
 }
 
+/** Every request of every example set, named "film noul", "images choice", and so on. */
+const examples = Object.values(EXAMPLE_SETS).flatMap((set) =>
+  Object.entries(set.requests).map(([primitive, request]): [string, ValidDecisionRequest] => [
+    `${set.id} ${primitive}`,
+    request,
+  ]),
+);
+
 describe("round trip", () => {
-  it.each(Object.entries(examples))(
+  it.each(examples)(
     "turns the %s example into a view-model and back unchanged",
     (_name, example) => {
       const request = toRequest(toViewModel(example));
@@ -54,16 +62,13 @@ describe("round trip", () => {
     },
   );
 
-  it.each(Object.entries(examples))(
-    "produces a request that passes validation for %s",
-    (_name, example) => {
-      expect(
-        validateDecisionRequest(toRequest(toViewModel(example)), DEFAULT_PROVIDER.capabilities).ok,
-      ).toBe(true);
-    },
-  );
+  it.each(examples)("produces a request that passes validation for %s", (_name, example) => {
+    expect(
+      validateDecisionRequest(toRequest(toViewModel(example)), DEFAULT_PROVIDER.capabilities).ok,
+    ).toBe(true);
+  });
 
-  it.each(Object.entries(examples))("finds no issues in the %s example", (_name, example) => {
+  it.each(examples)("finds no issues in the %s example", (_name, example) => {
     expect(findIssues(toViewModel(example), DEFAULT_PROVIDER.capabilities)).toEqual([]);
   });
 

@@ -10,7 +10,8 @@
     "deploy": "node scripts/deploy.ts",
     "deploy:varlock": "varlock-wrangler deploy",
     "prepare": "vp config",
-    "codegen": "varlock codegen"
+    "codegen": "varlock codegen",
+    "sample-images": "node scripts/sample-images.ts"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "^0.6.0",

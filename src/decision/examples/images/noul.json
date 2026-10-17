@@ -1,0 +1,25 @@
+{
+  "primitive": "noul",
+  "state": "Four drawings are attached, numbered in the order they are listed. Each is a simple picture: a single coloured shape on a white background, or a scene of several shapes.",
+  "questions": {
+    "image_1_is_red": {
+      "instructions": "Is the shape in image 1 red?"
+    },
+    "image_2_is_circle": {
+      "instructions": "Does image 2 show a circle?"
+    },
+    "image_3_has_curves": {
+      "instructions": "Does the shape in image 3 have a curved edge?"
+    },
+    "image_4_is_busy": {
+      "instructions": "Does image 4 show more than three shapes?",
+      "criteria": {
+        "true": "Four or more separate shapes are visible in image 4.",
+        "false": "Three shapes or fewer are visible in image 4."
+      }
+    },
+    "any_photograph": {
+      "instructions": "Is any of the four images a photograph rather than a drawing?"
+    }
+  }
+}

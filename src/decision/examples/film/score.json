@@ -1,0 +1,43 @@
+{
+  "primitive": "score",
+  "state": {
+    "films": [
+      {
+        "title": "Paper Kingdom",
+        "notes": "Whimsical throughout. One scene where the paper city catches a small fire; nobody is hurt and it is put out with a teacup."
+      },
+      {
+        "title": "The Long Table",
+        "notes": "Mild swearing, a food fight, and a heated argument in which a grill is knocked over. No injuries."
+      },
+      {
+        "title": "Last Train to Mercer",
+        "notes": "A corpse is shown briefly under a sheet. Sustained suspense in the final thirty minutes, one character is held at knifepoint, and a fall from the train is implied but not shown."
+      },
+      {
+        "title": "Below the Floorboards",
+        "notes": "Prolonged dread, jump scares, a child is dragged under the floor, and the climax shows a mutilated body in detail."
+      }
+    ]
+  },
+  "criteria": [
+    "Gentle throughout: nothing frightening, violent, or upsetting.",
+    "Brief mild peril, slapstick, or a single tense moment that resolves quickly.",
+    "Sustained tension, several frightening scenes, or moderate violence without gore.",
+    "Graphic violence, gore, or disturbing themes shown in detail."
+  ],
+  "questions": {
+    "film_0": {
+      "instructions": "How intense is the content described in `films[0].notes` for a young audience?"
+    },
+    "film_1": {
+      "instructions": "How intense is the content described in `films[1].notes` for a young audience?"
+    },
+    "film_2": {
+      "instructions": "How intense is the content described in `films[2].notes` for a young audience?"
+    },
+    "film_3": {
+      "instructions": "How intense is the content described in `films[3].notes` for a young audience?"
+    }
+  }
+}

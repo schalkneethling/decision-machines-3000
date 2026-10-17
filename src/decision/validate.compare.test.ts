@@ -10,11 +10,12 @@
  */
 
 import { describe, expect, it } from "vite-plus/test";
-import { examples } from "./examples.ts";
+import { filmExamples } from "./examples.ts";
 import { requestSchemaFor, validateDecisionRequest } from "./validate.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 
+const examples = filmExamples.requests;
 const typesafe = PROVIDERS.typesafe.capabilities;
 const subq = PROVIDERS.subq.capabilities;
 

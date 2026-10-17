@@ -100,7 +100,23 @@ export type Attachments = {
   blocked(): string | undefined;
   /** Runs `sources` through the pipeline, in order, and announces the outcome. The way the file input, drop, and paste add images. */
   add(sources: readonly Blob[]): Promise<void>;
+  /**
+   * Swaps every attached image for `sources`, run through the pipeline in order.
+   * It is one step of the queue that adds run in, so no add lands between the
+   * removal and the new images, and Run waits for it as for an add. It
+   * announces nothing, because the caller says what replaced the images, and
+   * it leaves no progress sentence behind.
+   */
+  replace(sources: readonly Blob[]): Promise<Replacement>;
+  /** Resolves once every add and replace has finished, including any started while it waits. */
+  settled(): Promise<void>;
 };
+
+/** What `replace` did: the files it attached, in order, and one sentence for each source it did not attach. */
+export type Replacement = { added: readonly File[]; refused: readonly string[] };
+
+/** What the pipeline made of one source: the sentence that says so, and the file when it was attached. */
+type Admission = { sentence: string; file?: File };
 
 const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/png": "png",
@@ -401,19 +417,24 @@ export function createAttachments(
     return source instanceof File && source.name !== "" ? source.name : "The pasted image";
   }
 
-  /** The pipeline described at the top of this file. Returns the sentence to announce. */
-  async function admit(source: Blob): Promise<string> {
+  /** The pipeline described at the top of this file. Returns the sentence to announce, and the file when it was attached. */
+  async function admit(source: Blob): Promise<Admission> {
     const label = labelOf(source);
     const images = imagesOf(current);
-    if (current === undefined) return `${label} was not added: no provider is selected.`;
-    if (images === false) return `${label} was not added: ${current.displayName} is text only.`;
+    if (current === undefined)
+      return { sentence: `${label} was not added: no provider is selected.` };
+    if (images === false)
+      return { sentence: `${label} was not added: ${current.displayName} is text only.` };
     if (attachments.length >= images.maxCount) {
-      return `${label} was not added: ${current.displayName} takes at most ${images.maxCount} images per request, and ${attachments.length} are attached.`;
+      return {
+        sentence: `${label} was not added: ${current.displayName} takes at most ${images.maxCount} images per request, and ${attachments.length} are attached.`,
+      };
     }
 
     const notAnImage = `${label} was not added: it is not a ${formatList(images.mediaTypes)} image, judging by its first bytes.`;
     const arrivedType = await typeOf(source);
-    if (arrivedType === undefined || !images.mediaTypes.includes(arrivedType)) return notAnImage;
+    if (arrivedType === undefined || !images.mediaTypes.includes(arrivedType))
+      return { sentence: notAnImage };
     const name = nameFor(source, arrivedType);
     const arrived = asFile(source, name, arrivedType);
 
@@ -427,18 +448,24 @@ export function createAttachments(
     try {
       transformed = await transform({ file: arrived, mediaType: arrivedType }, budget);
     } catch (error) {
-      if (error instanceof ImageRefusal) return `${name} was not added: ${error.message}`;
+      if (error instanceof ImageRefusal)
+        return { sentence: `${name} was not added: ${error.message}` };
       throw error;
     }
     const mediaType = transformed === arrived ? arrivedType : await typeOf(transformed);
-    if (mediaType === undefined || !images.mediaTypes.includes(mediaType)) return notAnImage;
+    if (mediaType === undefined || !images.mediaTypes.includes(mediaType))
+      return { sentence: notAnImage };
 
     if (transformed.size > images.maxBytesPerImage) {
-      return `${name} was not added: it is ${measuredAgainst(transformed.size, images.maxBytesPerImage)}, over this instance's limit of ${sizeInWords(images.maxBytesPerImage)} per image.`;
+      return {
+        sentence: `${name} was not added: it is ${measuredAgainst(transformed.size, images.maxBytesPerImage)}, over this instance's limit of ${sizeInWords(images.maxBytesPerImage)} per image.`,
+      };
     }
     const total = totalBytes() + transformed.size;
     if (total > images.maxBytesPerRequest) {
-      return `${name} was not added: with it the images would add up to ${measuredAgainst(total, images.maxBytesPerRequest)}, over this instance's limit of ${sizeInWords(images.maxBytesPerRequest)} per request.`;
+      return {
+        sentence: `${name} was not added: with it the images would add up to ${measuredAgainst(total, images.maxBytesPerRequest)}, over this instance's limit of ${sizeInWords(images.maxBytesPerRequest)} per request.`,
+      };
     }
 
     const file = asFile(transformed, transformed.name === "" ? name : transformed.name, mediaType);
@@ -464,25 +491,17 @@ export function createAttachments(
       shrunkFrom === undefined
         ? ""
         : ` Shrunk from ${formatBytes(shrunkFrom)} to ${formatBytes(file.size)} (${sizeText(size)}).`;
-    return `Image ${attachments.length} added: ${file.name}, ${formatBytes(file.size)}.${shrunk}`;
+    return {
+      sentence: `Image ${attachments.length} added: ${file.name}, ${formatBytes(file.size)}.${shrunk}`,
+      file,
+    };
   }
 
-  function add(sources: readonly Blob[]): Promise<void> {
-    if (sources.length === 0) return Promise.resolve();
+  /** Runs `work` after every earlier add or replace, and counts it as pending meanwhile, so Run waits for it. */
+  function enqueue<T>(work: () => Promise<T>): Promise<T> {
     pending += 1;
     onChange?.();
-    const run = queue.then(async () => {
-      const sentences: string[] = [];
-      for (const source of sources) {
-        try {
-          sentences.push(await admit(source));
-        } catch {
-          // A file moved or changed since it was chosen cannot be read; the rest of the selection still goes on.
-          sentences.push(`${labelOf(source)} was not added: it could not be read.`);
-        }
-      }
-      announce(sentences.join(" "));
-    });
+    const run = queue.then(work);
     run
       .finally(() => {
         pending -= 1;
@@ -491,6 +510,59 @@ export function createAttachments(
       .catch(() => {});
     queue = run.catch(() => {});
     return run;
+  }
+
+  /** Runs each source through the pipeline in order; a source that cannot be read is refused, and the rest go on. */
+  async function admitAll(sources: readonly Blob[]): Promise<Admission[]> {
+    const admissions: Admission[] = [];
+    for (const source of sources) {
+      try {
+        admissions.push(await admit(source));
+      } catch {
+        // A file moved or changed since it was chosen cannot be read; the rest of the selection still goes on.
+        admissions.push({ sentence: `${labelOf(source)} was not added: it could not be read.` });
+      }
+    }
+    return admissions;
+  }
+
+  function add(sources: readonly Blob[]): Promise<void> {
+    if (sources.length === 0) return Promise.resolve();
+    return enqueue(async () => {
+      const admissions = await admitAll(sources);
+      announce(admissions.map((admission) => admission.sentence).join(" "));
+    });
+  }
+
+  function replace(sources: readonly Blob[]): Promise<Replacement> {
+    return enqueue(async () => {
+      for (const attachment of attachments) URL.revokeObjectURL(attachment.previewUrl);
+      attachments.length = 0;
+      list.replaceChildren();
+      // Emptied quietly, so the last sentence about an image is not left behind for a later read.
+      announce("");
+      render();
+      onChange?.();
+      const admissions = await admitAll(sources);
+      // A shrink's "Making … smaller" sentence would otherwise outlast the swap.
+      announce("");
+      const added: File[] = [];
+      const refused: string[] = [];
+      for (const { sentence, file } of admissions) {
+        if (file === undefined) refused.push(sentence);
+        else added.push(file);
+      }
+      return { added, refused };
+    });
+  }
+
+  async function settled(): Promise<void> {
+    // An add started while this waits moves `queue` on, so it waits again until the queue stands still.
+    let seen: Promise<unknown>;
+    do {
+      seen = queue;
+      await seen;
+    } while (seen !== queue);
   }
 
   input.addEventListener("change", () => {
@@ -554,5 +626,7 @@ export function createAttachments(
         ? "Images are still being added. Run is available once they are."
         : blockedMessage(attachments.filter((attachment) => attachment.overLimit).length),
     add,
+    replace,
+    settled,
   };
 }

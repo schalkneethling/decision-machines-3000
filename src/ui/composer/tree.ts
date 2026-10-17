@@ -30,6 +30,7 @@ import {
 } from "./model.ts";
 import type { ComposerModel, CriteriaModel, Issue, QuestionModel } from "./model.ts";
 import { create } from "../dom.ts";
+import { capitalise } from "../text.ts";
 import {
   addLevelButton,
   addOptionButton,
@@ -717,8 +718,4 @@ function sameFields(a: Set<string> | undefined, b: Set<string> | undefined): boo
 /** Writes text only when it changed, so an unchanged row is left untouched. */
 function setText(node: Element, text: string): void {
   if (node.textContent !== text) node.textContent = text;
-}
-
-function capitalise(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
 }

@@ -41,6 +41,20 @@ function runButtons(): HTMLButtonElement[] {
   return [...document.querySelectorAll<HTMLButtonElement>("form[data-primitive] .run")];
 }
 
+/** Loads the film example into every panel, since an empty panel keeps its Run disabled (issue #58). */
+async function loadFilmExamples(): Promise<void> {
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    'form[data-primitive] .load-example[data-example="film"]',
+  )) {
+    button.click();
+  }
+  await vi.waitFor(() => {
+    for (const line of document.querySelectorAll("form[data-primitive] .panel-status")) {
+      expect(line.textContent).toBe("Film example loaded.");
+    }
+  });
+}
+
 /** Answers GET /api/providers with each queued answer in turn, and the last one after that. */
 function answerProviders(...answers: Response[]) {
   const queue = [...answers];
@@ -323,6 +337,8 @@ describe("a list that could not be loaded", () => {
     const selection = setupProviderSelect(document);
     setupPanels(document, selection);
     await vi.waitFor(() => expect(get(".provider-retry")).toBeTruthy());
+    // The panels start empty, which also disables Run; an example makes them runnable.
+    await loadFilmExamples();
 
     get(".provider-retry").click();
     await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
@@ -414,6 +430,7 @@ describe("Run follows the select", () => {
     setupPanels(document, selection);
     await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
     change("subq");
+    await loadFilmExamples();
 
     fetchMock.mockImplementation(async () => Response.json(noulResponse));
     get("form[data-primitive='score']").dispatchEvent(

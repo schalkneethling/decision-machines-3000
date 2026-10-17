@@ -1,142 +1,148 @@
-import type { DecisionRequest } from "./contract.ts";
+import type { DecisionRequest, Primitive } from "./contract.ts";
+import { validateDecisionRequest } from "./validate.ts";
+import type { ValidDecisionRequest } from "./validate.ts";
+import { PROVIDER_ORDER, PROVIDERS } from "../providers/catalog.ts";
+import filmNoul from "./examples/film/noul.json" with { type: "json" };
+import filmChoice from "./examples/film/choice.json" with { type: "json" };
+import filmScore from "./examples/film/score.json" with { type: "json" };
+import imagesNoul from "./examples/images/noul.json" with { type: "json" };
+import imagesChoice from "./examples/images/choice.json" with { type: "json" };
+import imagesScore from "./examples/images/score.json" with { type: "json" };
+// `?no-inline` keeps each picture a file in the build (Vite's asset suffix, declared in
+// node_modules/vite/dist/vite/client.d.ts); without it, a picture this small would be
+// inlined into the bundle as base64, which the owner ruled out for the samples.
+import redSquare from "./examples/images/picture-1.png?no-inline";
+import blueCircle from "./examples/images/picture-2.png?no-inline";
+import greenTriangle from "./examples/images/picture-3.png?no-inline";
+import busyScene from "./examples/images/picture-4.png?no-inline";
 
 /**
- * Prepopulated, runnable examples for each panel.
+ * The two example sets a panel can load (issue #58). Neither loads by itself:
+ * every panel opens empty, and a person presses a load button.
  *
- * All three share one subject, a small fictional film catalogue, so the reader
- * can compare what each primitive is good for:
- * - Noul answers several independent yes/no questions about one review.
- * - Choice sorts every film into a genre in a single request (one question per film).
- * - Score places every film on the same ordered scale so the answers can be ranked.
+ * Each request is a JSON file under `examples/`, so the data is plain data,
+ * and it is checked with the request validator the moment this module loads.
+ * JSON has no literal types, so an imported file is typed as strings and
+ * objects; `validated` turns it into a `DecisionRequest` through the schema,
+ * never a cast, and throws if a file stops being a valid request for any
+ * provider. `examples.test.ts` loads every file so that such a change fails
+ * there first.
+ *
+ * - **Film reviews.** All three share one subject, a small fictional film
+ *   catalogue, so the reader can compare what each primitive is good for:
+ *   Noul answers several independent yes/no questions about one review,
+ *   Choice sorts every film into a genre in a single request (one question per
+ *   film), and Score places every film on the same ordered scale so the answers
+ *   can be ranked. Backticked paths such as `films[2]` point the model at one
+ *   part of a structured state.
+ * - **Images.** Each request asks about the four sample pictures the set
+ *   attaches, naming them "image 1" to "image 4" in the order they are listed
+ *   (issue #57 labels them so for the model). Noul asks yes/no questions about
+ *   single pictures, Choice names what each one shows, and Score rates how
+ *   cluttered each is. The pictures are this project's own, drawn by
+ *   `scripts/sample-images.ts`; `examples/images/README.md` records their licence.
  *
  * Question ids are for code only; the model never sees them, so each
- * `instructions` carries the complete question. Backticked paths such as
- * `films[2]` point the model at one part of a structured state.
+ * `instructions` carries the complete question.
  */
 
-export const noulExample: DecisionRequest<"noul"> = {
-  primitive: "noul",
-  state: {
-    review:
-      "Saw this at the Roxie last night with a packed house. The first hour drags and the score is intrusive, but the final act, where the lighthouse keeper turns out to have been the brother all along, had the whole room gasping. Not perfect, but go see it before someone ruins it for you.",
-  },
-  questions: {
-    recommends: {
-      instructions: "Does the reviewer recommend watching the film?",
-    },
-    reveals_ending: {
-      instructions: "Does `review` reveal a plot twist or how the film ends?",
-    },
-    saw_in_theater: {
-      instructions: "Did the reviewer watch the film in a cinema?",
-      criteria: {
-        true: "The review names or clearly describes a theater screening with other people present.",
-        false:
-          "The review describes home viewing, streaming, or does not say where the film was watched.",
-      },
-    },
-    complains_about_music: {
-      instructions: "Does the reviewer criticise the film's music or score?",
-    },
-  },
+export type ExampleSetId = "film" | "images";
+
+export const EXAMPLE_SET_IDS: readonly ExampleSetId[] = ["film", "images"];
+
+/** Whether `value` names an example set; the load buttons carry the id in a data attribute. */
+export function isExampleSetId(value: string | undefined): value is ExampleSetId {
+  return EXAMPLE_SET_IDS.some((id) => id === value);
+}
+
+/** A picture an example set attaches, as a bundled asset the browser fetches. */
+export type SampleImage = {
+  /** The file name the image control lists, and the one the model's label carries. */
+  name: string;
+  mediaType: "image/png";
+  /** Where the browser fetches it from: the file's URL in the build, never inlined. */
+  url: string;
 };
 
-const films = [
-  {
-    title: "Static",
-    logline:
-      "A radio astronomer intercepts a signal that repeats her own voice from three years in the future, and every attempt to change what it says makes the message clearer.",
-  },
-  {
-    title: "The Long Table",
-    logline:
-      "Two rival food-truck owners are forced to share a single permit for a summer, trading barbs and recipes until they fall for each other somewhere between the tacos and the last night of the season.",
-  },
-  {
-    title: "Below the Floorboards",
-    logline:
-      "After moving into a farmhouse, a family hears knocking from beneath the kitchen every night at 3:12, and the knocks are learning their names.",
-  },
-  {
-    title: "Twelve Hundred Hives",
-    logline:
-      "Over one season, a crew of migrant beekeepers trucks their colonies across four states, filmed as almond orchards bloom and die back.",
-  },
-  {
-    title: "Paper Kingdom",
-    logline:
-      "A hand-drawn adventure about a girl who folds a city out of newspaper and must keep it standing when the headlines start to come true.",
-  },
-  {
-    title: "Last Train to Mercer",
-    logline:
-      "A retired detective boards an overnight train to identify a body, only to realise the passengers are the suspects from the one case he never closed.",
-  },
-];
-
-const genreQuestion = (index: number) => ({
-  instructions: `Which genre best fits the film described in \`films[${index}]\`?`,
-});
-
-export const choiceExample: DecisionRequest<"choice"> = {
-  primitive: "choice",
-  state: { films },
-  criteria: {
-    science_fiction: "Speculative technology, space, time, or physics that does not exist today.",
-    horror: "Built to frighten: supernatural threats, dread, or violence meant to scare.",
-    romantic_comedy: "A love story told for laughs, with the relationship as the main plot.",
-    documentary:
-      "Non-fiction: real people and events, filmed as they happen or reconstructed from records.",
-    animation: "Drawn, painted, or computer-generated imagery rather than live-action footage.",
-    crime_mystery: "Solving a crime or uncovering a culprit drives the plot.",
-    other: "None of the genres above describes the film well.",
-  },
-  questions: Object.fromEntries(films.map((_, index) => [`film_${index}`, genreQuestion(index)])),
+export type ExampleSet = {
+  id: ExampleSetId;
+  /** How a button and a status line name the set: "film example", "image example". */
+  label: string;
+  requests: { [P in Primitive]: DecisionRequest<P> };
+  /** The pictures the set attaches, in the order they are listed. Empty for a text-only set. */
+  images: readonly SampleImage[];
 };
 
-const contentNotes = [
-  {
-    title: "Paper Kingdom",
-    notes:
-      "Whimsical throughout. One scene where the paper city catches a small fire; nobody is hurt and it is put out with a teacup.",
-  },
-  {
-    title: "The Long Table",
-    notes:
-      "Mild swearing, a food fight, and a heated argument in which a grill is knocked over. No injuries.",
-  },
-  {
-    title: "Last Train to Mercer",
-    notes:
-      "A corpse is shown briefly under a sheet. Sustained suspense in the final thirty minutes, one character is held at knifepoint, and a fall from the train is implied but not shown.",
-  },
-  {
-    title: "Below the Floorboards",
-    notes:
-      "Prolonged dread, jump scares, a child is dragged under the floor, and the climax shows a mutilated body in detail.",
-  },
-];
+/** The member of the validated union for one primitive; `DecisionRequest<P>` equals it at every concrete `P`. */
+type RequestFor<P extends Primitive> = Extract<ValidDecisionRequest, { primitive: P }>;
 
-const intensityQuestion = (index: number) => ({
-  instructions: `How intense is the content described in \`films[${index}].notes\` for a young audience?`,
-});
+/** Whether a validated request is the member for `primitive`; narrows the union to that member. */
+function isFor<P extends Primitive>(
+  value: ValidDecisionRequest,
+  primitive: P,
+): value is RequestFor<P> {
+  return value.primitive === primitive;
+}
 
-export const scoreExample: DecisionRequest<"score"> = {
-  primitive: "score",
-  state: { films: contentNotes },
-  criteria: [
-    "Gentle throughout: nothing frightening, violent, or upsetting.",
-    "Brief mild peril, slapstick, or a single tense moment that resolves quickly.",
-    "Sustained tension, several frightening scenes, or moderate violence without gore.",
-    "Graphic violence, gore, or disturbing themes shown in detail.",
+/**
+ * `raw`, read from `file`, as the request it must be: valid for every
+ * provider's limits and of the expected primitive. Throws otherwise, naming
+ * the file and the first provider that refuses it.
+ */
+function validated<P extends Primitive>(primitive: P, file: string, raw: unknown): RequestFor<P> {
+  let value: ValidDecisionRequest | undefined;
+  for (const id of PROVIDER_ORDER) {
+    const provider = PROVIDERS[id];
+    const result = validateDecisionRequest(raw, provider.capabilities);
+    if (!result.ok) {
+      const where = result.detail === undefined ? "" : ` Path: ${result.detail}.`;
+      throw new Error(
+        `The example ${file} is not a valid request for ${provider.displayName}: ${result.error}${where}`,
+      );
+    }
+    value = result.value;
+  }
+  if (value === undefined || !isFor(value, primitive)) {
+    throw new Error(`The example ${file} must be a "${primitive}" request.`);
+  }
+  return value;
+}
+
+export const filmExamples: ExampleSet = {
+  id: "film",
+  label: "film example",
+  requests: {
+    noul: validated("noul", "film/noul.json", filmNoul),
+    choice: validated("choice", "film/choice.json", filmChoice),
+    score: validated("score", "film/score.json", filmScore),
+  },
+  images: [],
+};
+
+export const imageExamples: ExampleSet = {
+  id: "images",
+  label: "image example",
+  requests: {
+    noul: validated("noul", "images/noul.json", imagesNoul),
+    choice: validated("choice", "images/choice.json", imagesChoice),
+    score: validated("score", "images/score.json", imagesScore),
+  },
+  // Numbered, not descriptive, names: the model reads each file name in the image's label (#57), and a name
+  // that describes the picture would answer the questions without the model looking at it.
+  images: [
+    { name: "picture-1.png", mediaType: "image/png", url: redSquare },
+    { name: "picture-2.png", mediaType: "image/png", url: blueCircle },
+    { name: "picture-3.png", mediaType: "image/png", url: greenTriangle },
+    { name: "picture-4.png", mediaType: "image/png", url: busyScene },
   ],
-  questions: Object.fromEntries(
-    contentNotes.map((_, index) => [`film_${index}`, intensityQuestion(index)]),
-  ),
 };
 
-export const examples = {
-  noul: noulExample,
-  choice: choiceExample,
-  score: scoreExample,
-} as const;
+export const EXAMPLE_SETS: Readonly<Record<ExampleSetId, ExampleSet>> = {
+  film: filmExamples,
+  images: imageExamples,
+};
+
+/** The film requests by their long-standing names; the fixtures and the adapter tests answer them. */
+export const noulExample: DecisionRequest<"noul"> = filmExamples.requests.noul;
+export const choiceExample: DecisionRequest<"choice"> = filmExamples.requests.choice;
+export const scoreExample: DecisionRequest<"score"> = filmExamples.requests.score;

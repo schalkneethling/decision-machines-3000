@@ -61,28 +61,28 @@ const PARCHMENT: Rgb = [247, 242, 232];
 /** The four pictures, in the order the image example attaches them. */
 export const SAMPLE_PICTURES: readonly SamplePicture[] = [
   {
-    name: "red-square.png",
+    name: "picture-1.png",
     width: SIDE,
     height: SIDE,
     background: WHITE,
     shapes: [{ kind: "square", x: 40, y: 40, size: 80, colour: RED }],
   },
   {
-    name: "blue-circle.png",
+    name: "picture-2.png",
     width: SIDE,
     height: SIDE,
     background: WHITE,
     shapes: [{ kind: "circle", cx: 80, cy: 80, radius: 44, colour: BLUE }],
   },
   {
-    name: "green-triangle.png",
+    name: "picture-3.png",
     width: SIDE,
     height: SIDE,
     background: WHITE,
     shapes: [{ kind: "triangle", a: [80, 30], b: [28, 128], c: [132, 128], colour: GREEN }],
   },
   {
-    name: "busy-scene.png",
+    name: "picture-4.png",
     width: SIDE,
     height: SIDE,
     background: PARCHMENT,

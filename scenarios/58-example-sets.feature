@@ -2,8 +2,8 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
 
   Background:
     Given every panel opens empty: its request is {"primitive": <primitive>, "state": "", "questions": {}} in both the tree and the JSON view
-    And each panel shows a short empty-state message that points at its two load buttons
-    And each panel has a group of two buttons, "Load film example" and "Load image example", labelled for that panel
+    And each panel shows a short empty-state message that points at its load buttons
+    And each panel has a group of load buttons labelled for that panel: "Load film example", and "Load image example" while the selected provider takes images
     # The buttons live in each panel, not in one shared control. A panel's edits, its images, and its status line
     # are all its own, so a shared control would have to ask about three panels' edits at once and announce into
     # three status lines. Per-panel buttons also sit beside the empty-state message that names them.
@@ -56,10 +56,26 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Given an empty Noul panel with SubQ Snap selected
     When "Load image example" is pressed
     Then the panel holds the image example's state and questions for Noul
-    And its four sample pictures are fetched and attached through the image control, in order, as red-square.png, blue-circle.png, green-triangle.png, and busy-scene.png
+    And its four sample pictures are fetched and attached through the image control, in order, as picture-1.png, picture-2.png, picture-3.png, and picture-4.png
     And the panel's status line announces "Image example loaded."
     And that is the only announcement: the image control adds the pictures without announcing each one
     And focus is on the State field of the tree
+
+  Scenario: The sample pictures' names do not give the answers away
+    Given the model reads each image's file name in its label, such as "Image 1: picture-1.png" (#57)
+    Then the sample pictures are named picture-1.png to picture-4.png, so an answer about them must come from the pixels
+
+  Scenario: A sample picture the control refuses is named in the status line
+    Given a provider whose limits leave no room for one of the sample pictures
+    When "Load image example" is pressed
+    Then the status line says how many of the four pictures were attached, followed by the control's reason for the one it refused
+    And the image control's own status line stays empty, so the refusal is said once
+
+  Scenario: A second press while an example is loading
+    Given "Load image example" was pressed and the pictures are still being fetched
+    When either load button in that panel is pressed again
+    Then nothing new starts, and the status line says "An example is still loading into the Noul panel."
+    And a picture that does not arrive within ten seconds ends the load with the could-not-be-loaded message
 
   Scenario: The image example is offered only on a provider that takes images
     Given TypeSafe Jev is selected, or no provider is
@@ -86,6 +102,12 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     When "Load film example" is pressed and the person agrees
     Then the panel holds the film example and no images
 
+  Scenario: An image still being added counts as the person's
+    Given a Noul panel in which the person's image is still being read or shrunk
+    When "Load film example" is pressed
+    Then the load waits for the image to arrive, and then asks "This removes the image you attached. You cannot undo this."
+    And an image added after the load has started to swap the pictures lands after the samples and is never taken for one of them
+
   Scenario: A sample picture that cannot be fetched
     Given an empty Score panel with OpenAI Decisions selected, and one sample picture's request fails
     When "Load image example" is pressed
@@ -106,7 +128,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Given a Noul panel in which the person has typed into the State field
     When "Load film example" is pressed and the person presses "Keep my request" or Escape
     Then the panel is unchanged
-    And the status line announces "Nothing loaded. Your request is kept."
+    And the status line announces "Nothing loaded. Your request and images are kept."
 
   Scenario: Loading over edits asks first, and agreeing replaces them
     Given a Noul panel in which the person has typed into the State field
@@ -137,7 +159,8 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   Scenario: The sample images are reproducible
     Given scripts/sample-images.ts, which draws the pictures without any dependency
     When the tests render the pictures with the same function the script uses
-    Then the bytes equal the committed files, byte for byte
+    Then the decoded pixels equal those of the committed files
+    # The compressed bytes may differ between Node versions, because each links its own zlib.
 
   Scenario: Every example file is a valid request
     Given every JSON file in src/decision/examples/
@@ -148,7 +171,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   # --- Accessibility ---------------------------------------------------------------------------------------------------
 
   Scenario: Both load buttons are reachable and labelled
-    Given keyboard-only use
+    Given keyboard-only use, with a provider that takes images selected
     When the person tabs through a panel
     Then "Load film example" and "Load image example" are reached before the view switch
     And each sits in a group labelled "Examples for <Panel name>"
@@ -165,6 +188,6 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Given vp dev is running with real SubQ and OpenAI keys
     And SubQ Snap is selected
     When "Load image example" is pressed in each of the three panels, and each panel is run
-    Then every answer is about the sample pictures: image 1 is red, image 2 is a circle, image 3 has straight edges only, and image 4 is the cluttered one
+    Then every answer is about the sample pictures, which the model can only tell apart by their pixels: image 1 is red, image 2 is a circle, image 3 has straight edges only, and image 4 is the cluttered one
     And the same holds after switching to OpenAI Decisions, loading the image example again, and running the three panels
     And the wire view shows four image placeholders for each run

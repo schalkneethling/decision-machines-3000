@@ -15,11 +15,16 @@ const CONFIRMED = "confirm";
  * person answers. Escape fires `cancel` and closes the dialog without touching
  * `returnValue`, which is reset before each question, so it counts as "no", as
  * does the cancel button. Only the button whose value is `confirm` says yes.
+ * The page has one dialog for every panel, so questions take turns: one asked
+ * while another is open waits until that one is answered, rather than
+ * overwriting its text and sharing its answer.
  */
 export function createConfirmDialog(dialog: HTMLDialogElement): Confirm {
   const title = required(dialog, ".confirm-title", HTMLElement);
   const message = required(dialog, ".confirm-message", HTMLElement);
-  return ({ title: question, message: cost }) =>
+  let turn: Promise<unknown> = Promise.resolve();
+
+  const ask = ({ title: question, message: cost }: Confirmation): Promise<boolean> =>
     new Promise((resolve) => {
       title.textContent = question;
       message.textContent = cost;
@@ -29,4 +34,10 @@ export function createConfirmDialog(dialog: HTMLDialogElement): Confirm {
       });
       dialog.showModal();
     });
+
+  return (confirmation) => {
+    const answer = turn.then(() => ask(confirmation));
+    turn = answer;
+    return answer;
+  };
 }

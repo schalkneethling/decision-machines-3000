@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SampleImage } from "../decision/examples.ts";
 import { pngBytes } from "./fixtures/images.ts";
-import { fetchSampleImages } from "./sample-images.ts";
+import { SAMPLE_FETCH_TIMEOUT_MS, fetchSampleImages } from "./sample-images.ts";
 
 const samples: SampleImage[] = [
   { name: "one.png", mediaType: "image/png", url: "/samples/one.png" },
@@ -48,6 +48,25 @@ describe("fetchSampleImages", () => {
       ),
     );
     await expect(fetchSampleImages(samples)).rejects.toThrow("two.png answered HTTP 404.");
+  });
+
+  it("gives up on a picture that does not arrive in time, so the load ends", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
+    const loading = fetchSampleImages(samples);
+    controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+    await expect(loading).rejects.toThrow("The operation timed out.");
+    expect(timeout).toHaveBeenCalledWith(SAMPLE_FETCH_TIMEOUT_MS);
+    timeout.mockRestore();
   });
 
   it("rejects when fetch itself fails", async () => {

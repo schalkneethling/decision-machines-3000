@@ -1,11 +1,11 @@
 # The image example set
 
-The three JSON files are the image example's requests, one per primitive. The four PNG files are the sample pictures the example attaches, in this order:
+The three JSON files are the image example's requests, one per primitive. The four PNG files are the sample pictures the example attaches, in this order. Their names are plain numbers on purpose: the model reads each image's file name in its label (`Image 1: picture-1.png`), so a name such as `red-square.png` would give the answer away and the example would no longer show that the model looked at the picture.
 
-1. `red-square.png`: a red square on white.
-2. `blue-circle.png`: a blue circle on white.
-3. `green-triangle.png`: a green triangle on white.
-4. `busy-scene.png`: twelve overlapping shapes in several colours on a parchment background.
+1. `picture-1.png`: a red square on white.
+2. `picture-2.png`: a blue circle on white.
+3. `picture-3.png`: a green triangle on white.
+4. `picture-4.png`: twelve overlapping shapes in several colours on a parchment background.
 
 ## Origin
 

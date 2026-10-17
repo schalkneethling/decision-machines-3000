@@ -105,7 +105,7 @@ function type(field: HTMLInputElement | HTMLTextAreaElement, value: string): voi
  */
 function holdFirstSample(): () => void {
   let serve: () => void = () => {};
-  const first = sampleBytes("red-square.png");
+  const first = sampleBytes("picture-1.png");
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -113,7 +113,7 @@ function holdFirstSample(): () => void {
         new Promise<Response>((resolve) => {
           const image = imageExamples.images.find((candidate) => candidate.url === url);
           if (image === undefined) throw new Error(`Unexpected fetch of ${url}.`);
-          if (image.name === "red-square.png") {
+          if (image.name === "picture-1.png") {
             serve = () => resolve(new Response(first, { status: 200 }));
           } else {
             resolve(new Response(sampleBytes(image.name), { status: 200 }));
@@ -349,10 +349,10 @@ describe("loading the image example (issue #58)", () => {
     loadButton("noul", "images").click();
     await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(attachmentNames("noul")).toEqual([
-      "red-square.png",
-      "blue-circle.png",
-      "green-triangle.png",
-      "busy-scene.png",
+      "picture-1.png",
+      "picture-2.png",
+      "picture-3.png",
+      "picture-4.png",
     ]);
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(
       imageExamples.images.map((image) => image.url),
@@ -381,14 +381,14 @@ describe("loading the image example (issue #58)", () => {
     if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
     expect(JSON.parse(body.get("request") as string)).toStrictEqual(imageExamples.requests.score);
     expect(body.getAll("image").map((part) => (part instanceof File ? part.name : ""))).toEqual([
-      "red-square.png",
-      "blue-circle.png",
-      "green-triangle.png",
-      "busy-scene.png",
+      "picture-1.png",
+      "picture-2.png",
+      "picture-3.png",
+      "picture-4.png",
     ]);
     const first = body.getAll("image")[0];
     if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(sampleBytes("red-square.png"));
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(sampleBytes("picture-1.png"));
   });
 
   it("refuses on TypeSafe Jev if its hidden button is pressed anyway, and changes nothing", async () => {
@@ -443,7 +443,7 @@ describe("loading the image example (issue #58)", () => {
 
     loadButton("noul", "images").click();
     await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+      expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
       title: "Load the image example into the Noul panel?",
@@ -468,10 +468,10 @@ describe("loading the image example (issue #58)", () => {
       message: "This removes the 2 images you attached. You cannot undo this.",
     });
     expect(attachmentNames("noul")).toEqual([
-      "red-square.png",
-      "blue-circle.png",
-      "green-triangle.png",
-      "busy-scene.png",
+      "picture-1.png",
+      "picture-2.png",
+      "picture-3.png",
+      "picture-4.png",
     ]);
   });
 
@@ -515,7 +515,7 @@ describe("loading the image example (issue #58)", () => {
 
     loadButton("score", "film").click();
     await vi.waitFor(() =>
-      expect(status("score").textContent).toBe("Nothing loaded. Your request is kept."),
+      expect(status("score").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
       title: "Load the film example into the Score panel?",
@@ -525,7 +525,7 @@ describe("loading the image example (issue #58)", () => {
   });
 
   it("leaves the panel unchanged when a sample picture cannot be fetched", async () => {
-    mockFetch({ failing: "green-triangle.png" });
+    mockFetch({ failing: "picture-3.png" });
     setupPanels(document, selectionOf(openai).selection);
     loadButton("score", "images").click();
     await vi.waitFor(() =>
@@ -567,6 +567,7 @@ describe("loading the image example (issue #58)", () => {
     loadButton("noul", "images").click();
     await settled();
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(status("noul").textContent).toBe("An example is still loading into the Noul panel.");
     serve();
     await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(attachments("noul")).toHaveLength(4);
@@ -575,7 +576,7 @@ describe("loading the image example (issue #58)", () => {
 
   it("says how many pictures were attached when the control refuses one", async () => {
     mockFetch();
-    const busy = sampleBytes("busy-scene.png").length;
+    const busy = sampleBytes("picture-4.png").length;
     const tight: ProviderSummary = {
       ...subq,
       capabilities: {
@@ -591,16 +592,96 @@ describe("loading the image example (issue #58)", () => {
     setupPanels(document, selectionOf(tight).selection);
     loadButton("choice", "images").click();
     await vi.waitFor(() =>
-      expect(status("choice").textContent).toBe(
-        "Image example loaded, but only 3 of 4 sample pictures were attached.",
+      expect(status("choice").textContent).toMatch(
+        /^Image example loaded, but only 3 of 4 sample pictures were attached\. picture-4\.png was not added: /,
       ),
     );
     expect(status("choice").dataset.tone).toBe("alert");
-    expect(attachmentNames("choice")).toEqual([
-      "red-square.png",
-      "blue-circle.png",
-      "green-triangle.png",
-    ]);
+    expect(attachmentNames("choice")).toEqual(["picture-1.png", "picture-2.png", "picture-3.png"]);
+    // The control stays quiet, so the refusal is said once, in the panel's status line.
+    expect(get('form[data-primitive="choice"] .attachments-status').textContent).toBe("");
+  });
+
+  /**
+   * Starts adding one image of the person's own through the file input, and
+   * holds it while its first bytes are read, as a slow disk or a shrink would,
+   * until `release` is called.
+   */
+  function attachOwnHeld(primitive: string, name: string): { release: () => void } {
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const file = fileOf(pngBytes({ size: 1024 }), name, "image/png");
+    const slice = file.slice.bind(file);
+    file.slice = (...args: Parameters<Blob["slice"]>) => {
+      const part = slice(...args);
+      const read = part.arrayBuffer.bind(part);
+      part.arrayBuffer = async () => {
+        await gate;
+        return read();
+      };
+      return part;
+    };
+    const input = get<HTMLInputElement>(`#${primitive}-images-input`);
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return { release };
+  }
+
+  it("counts an image still being added as the person's, and asks before removing it", async () => {
+    mockFetch();
+    const confirmReplace = vi.fn(async () => false);
+    setupPanels(document, selectionOf(subq).selection, { confirmReplace });
+    const adding = attachOwnHeld("noul", "slow.png");
+
+    loadButton("noul", "film").click();
+    await settled();
+    expect(confirmReplace).not.toHaveBeenCalled();
+    adding.release();
+    await vi.waitFor(() =>
+      expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
+    );
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the film example into the Noul panel?",
+      message: "This removes the image you attached. You cannot undo this.",
+    });
+    expect(attachmentNames("noul")).toEqual(["slow.png"]);
+  });
+
+  it("records only the sample pictures as loaded, so a later load still asks about the person's image", async () => {
+    mockFetch();
+    const confirmReplace = vi.fn(async () => true);
+    setupPanels(document, selectionOf(openai).selection, { confirmReplace });
+    loadButton("noul", "images").click();
+    await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
+    expect(confirmReplace).not.toHaveBeenCalled();
+    await attachOwn("noul", "mine.png");
+
+    await loadFilm("noul");
+    expect(confirmReplace).toHaveBeenCalledOnce();
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the film example into the Noul panel?",
+      message: "This removes the image you attached. You cannot undo this.",
+    });
+    expect(attachments("noul")).toHaveLength(0);
+  });
+
+  it("keeps Run disabled while an image is being added, and enables it once the image is in", async () => {
+    mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    expect(runButton("noul").disabled).toBe(false);
+
+    const adding = attachOwnHeld("noul", "slow.png");
+    await settled();
+    expect(runButton("noul").disabled).toBe(true);
+    adding.release();
+    await vi.waitFor(() => expect(attachmentNames("noul")).toEqual(["slow.png"]));
+    await settled();
+    expect(runButton("noul").disabled).toBe(false);
   });
 
   it("leaves focus alone when the person moved on while the pictures were fetched", async () => {
@@ -634,7 +715,7 @@ describe("protecting edits (issue #58)", () => {
     type(stateField("noul"), "My own review.");
     loadButton("noul", "film").click();
     await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+      expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
       title: "Load the film example into the Noul panel?",
@@ -666,7 +747,9 @@ describe("protecting edits (issue #58)", () => {
     type(stateField("choice"), "Changed.");
     loadButton("choice", "film").click();
     await vi.waitFor(() =>
-      expect(status("choice").textContent).toBe("Nothing loaded. Your request is kept."),
+      expect(status("choice").textContent).toBe(
+        "Nothing loaded. Your request and images are kept.",
+      ),
     );
     expect(confirmReplace).toHaveBeenCalledOnce();
   });
@@ -683,7 +766,7 @@ describe("protecting edits (issue #58)", () => {
     type(stateField("noul"), "Typed while loading.");
     serve();
     await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+      expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledOnce();
     expect(stateField("noul").value).toBe("Typed while loading.");
@@ -746,7 +829,9 @@ describe("protecting edits (issue #58)", () => {
       await askToReplace();
       dialogButton("cancel").click();
       await vi.waitFor(() =>
-        expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+        expect(status("noul").textContent).toBe(
+          "Nothing loaded. Your request and images are kept.",
+        ),
       );
       expect(stateField("noul").value).toBe("My own review.");
     });
@@ -755,7 +840,9 @@ describe("protecting edits (issue #58)", () => {
       await askToReplace();
       pressEscape();
       await vi.waitFor(() =>
-        expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+        expect(status("noul").textContent).toBe(
+          "Nothing loaded. Your request and images are kept.",
+        ),
       );
       expect(stateField("noul").value).toBe("My own review.");
     });
@@ -769,7 +856,9 @@ describe("protecting edits (issue #58)", () => {
       await vi.waitFor(() => expect(dialog().open).toBe(true));
       pressEscape();
       await vi.waitFor(() =>
-        expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+        expect(status("noul").textContent).toBe(
+          "Nothing loaded. Your request and images are kept.",
+        ),
       );
     });
   });

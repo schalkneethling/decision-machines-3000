@@ -11,10 +11,10 @@ import imagesScore from "./examples/images/score.json" with { type: "json" };
 // `?no-inline` keeps each picture a file in the build (Vite's asset suffix, declared in
 // node_modules/vite/dist/vite/client.d.ts); without it, a picture this small would be
 // inlined into the bundle as base64, which the owner ruled out for the samples.
-import redSquare from "./examples/images/red-square.png?no-inline";
-import blueCircle from "./examples/images/blue-circle.png?no-inline";
-import greenTriangle from "./examples/images/green-triangle.png?no-inline";
-import busyScene from "./examples/images/busy-scene.png?no-inline";
+import redSquare from "./examples/images/picture-1.png?no-inline";
+import blueCircle from "./examples/images/picture-2.png?no-inline";
+import greenTriangle from "./examples/images/picture-3.png?no-inline";
+import busyScene from "./examples/images/picture-4.png?no-inline";
 
 /**
  * The two example sets a panel can load (issue #58). Neither loads by itself:
@@ -127,11 +127,13 @@ export const imageExamples: ExampleSet = {
     choice: validated("choice", "images/choice.json", imagesChoice),
     score: validated("score", "images/score.json", imagesScore),
   },
+  // Numbered, not descriptive, names: the model reads each file name in the image's label (#57), and a name
+  // that describes the picture would answer the questions without the model looking at it.
   images: [
-    { name: "red-square.png", mediaType: "image/png", url: redSquare },
-    { name: "blue-circle.png", mediaType: "image/png", url: blueCircle },
-    { name: "green-triangle.png", mediaType: "image/png", url: greenTriangle },
-    { name: "busy-scene.png", mediaType: "image/png", url: busyScene },
+    { name: "picture-1.png", mediaType: "image/png", url: redSquare },
+    { name: "picture-2.png", mediaType: "image/png", url: blueCircle },
+    { name: "picture-3.png", mediaType: "image/png", url: greenTriangle },
+    { name: "picture-4.png", mediaType: "image/png", url: busyScene },
   ],
 };
 

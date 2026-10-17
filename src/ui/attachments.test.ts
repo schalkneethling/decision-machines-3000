@@ -529,49 +529,170 @@ describe("removing", () => {
   });
 });
 
-describe("clearing (issue #58)", () => {
-  it("removes every image, revokes each object URL, tells onChange, and announces nothing", async () => {
+/** A transform that holds each file until the test calls `release`, so an add can be caught in flight. */
+function heldTransform(): { transform: ImageTransform; release: () => void } {
+  const waiting: (() => void)[] = [];
+  return {
+    transform: ({ file }) =>
+      new Promise<File>((resolve) => {
+        waiting.push(() => resolve(file));
+      }),
+    release: () => {
+      for (const resolve of waiting.splice(0)) resolve();
+    },
+  };
+}
+
+/** Lets every promise that is ready settle, so the queue moves on as far as it can. */
+async function flush(): Promise<void> {
+  for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+}
+
+describe("replacing (issue #58)", () => {
+  it("swaps every image for the new ones, revokes the old object URLs, and announces nothing", async () => {
     const onChange = vi.fn();
     const control = createAttachments(mount(), { prefix: "noul-images", provider: subq, onChange });
     await control.add([png("a.png", 4 * KIB), png("b.png", 4 * KIB)]);
     onChange.mockClear();
 
-    await control.clear();
-    expect(control.count()).toBe(0);
-    expect(control.files()).toEqual([]);
-    expect(items()).toHaveLength(0);
+    const { added, refused } = await control.replace([png("sample.png", 4 * KIB)]);
+    expect(control.files().map((file) => file.name)).toEqual(["sample.png"]);
+    expect(added).toEqual(control.files());
+    expect(refused).toEqual([]);
+    expect(items()).toHaveLength(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test/a.png");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test/b.png");
-    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalled();
     expect(status()).toBe("");
   });
 
-  it("lifts the block that over-limit images put on Run", async () => {
+  it("empties the control when given nothing, and lifts the block that over-limit images put on Run", async () => {
     const control = createAttachments(mount(), { prefix: "noul-images", provider: openai });
     await control.add(Array.from({ length: 6 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
     control.setProvider(subq);
     expect(control.blocked()).toBeDefined();
 
-    await control.clear();
+    expect(await control.replace([])).toEqual({ added: [], refused: [] });
+    expect(control.count()).toBe(0);
     expect(control.blocked()).toBeUndefined();
     expect(notice()).toBe("");
   });
 
-  it("waits for an add still in flight, so nothing it admits survives", async () => {
+  it("returns a sentence for each source it could not attach, and attaches the rest", async () => {
     const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    const sources = Array.from({ length: limits.maxCount + 1 }, (_, index) =>
+      png(`${index + 1}.png`, KIB),
+    );
+    const { added, refused } = await control.replace(sources);
+    expect(added).toHaveLength(limits.maxCount);
+    expect(refused).toEqual([
+      `${limits.maxCount + 1}.png was not added: SubQ Snap takes at most ${limits.maxCount} images per request, and ${limits.maxCount} are attached.`,
+    ]);
+    expect(status()).toBe("");
+  });
+
+  it("runs after an add still in flight, so the image that add admits is removed too", async () => {
+    const held = heldTransform();
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      provider: subq,
+      transform: held.transform,
+    });
     const adding = control.add([png("late.png", 4 * KIB)]);
-    await control.clear();
+    const replacing = control.replace([png("sample.png", 4 * KIB)]);
+    await flush();
+    held.release();
     await adding;
-    expect(control.count()).toBe(0);
+    await flush();
+    held.release();
+    const { added } = await replacing;
+    expect(control.files().map((file) => file.name)).toEqual(["sample.png"]);
+    expect(added.map((file) => file.name)).toEqual(["sample.png"]);
+  });
+
+  it("lets an add made during the swap land after the new images, and leaves it out of what it attached", async () => {
+    const held = heldTransform();
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      provider: subq,
+      transform: held.transform,
+    });
+    const replacing = control.replace([png("sample.png", 4 * KIB)]);
+    const adding = control.add([png("mine.png", 4 * KIB)]);
+    await flush();
+    held.release();
+    const { added } = await replacing;
+    await flush();
+    held.release();
+    await adding;
+    expect(control.files().map((file) => file.name)).toEqual(["sample.png", "mine.png"]);
+    expect(added.map((file) => file.name)).toEqual(["sample.png"]);
+  });
+
+  it("blocks Run while it runs, as an add does", async () => {
+    const held = heldTransform();
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      provider: subq,
+      transform: held.transform,
+    });
+    const replacing = control.replace([png("sample.png", 4 * KIB)]);
+    await flush();
+    expect(control.blocked()).toBe("Images are still being added. Run is available once they are.");
+    held.release();
+    await replacing;
+    await flush();
+    expect(control.blocked()).toBeUndefined();
+  });
+
+  it("leaves no shrink progress sentence behind", async () => {
+    let finish = (): void => {};
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      provider: subq,
+      // A shrink that holds on, so the progress sentence can be seen while it works.
+      transform: ({ file }) =>
+        new Promise<File>((resolve) => {
+          finish = () => resolve(fileOf(pngBytes({ size: 4 * KIB }), file.name, "image/png"));
+        }),
+    });
+    const replacing = control.replace([png("big.png", limits.maxBytesPerImage + KIB)]);
+    await flush();
+    expect(status()).toBe("Making big.png smaller to fit…");
+    finish();
+    expect((await replacing).added).toHaveLength(1);
+    expect(status()).toBe("");
   });
 });
 
-describe("a quiet add (issue #58)", () => {
-  it("attaches the images without announcing them", async () => {
+describe("settling (issue #58)", () => {
+  it("resolves at once when nothing is being added", async () => {
     const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
-    await control.add([png("a.png", 4 * KIB)], { quiet: true });
+    await expect(control.settled()).resolves.toBeUndefined();
+  });
+
+  it("waits for an add in flight, and for one started while it waits", async () => {
+    const held = heldTransform();
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      provider: subq,
+      transform: held.transform,
+    });
+    void control.add([png("first.png", 4 * KIB)]);
+    let done = false;
+    const settling = control.settled().then(() => {
+      done = true;
+    });
+    await flush();
+    void control.add([png("second.png", 4 * KIB)]);
+    held.release();
+    await flush();
+    expect(done).toBe(false);
     expect(control.count()).toBe(1);
-    expect(status()).toBe("");
+
+    held.release();
+    await settling;
+    expect(control.files().map((file) => file.name)).toEqual(["first.png", "second.png"]);
   });
 });
 

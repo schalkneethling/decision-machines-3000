@@ -573,13 +573,17 @@ export function setupPanels(
    * image. The image set needs an image provider, and its pictures are fetched
    * before anything is replaced, so a failed fetch leaves the panel as it was.
    * Edits and images the person attached are never replaced without asking,
-   * including any made while the pictures were being fetched, and the image
-   * check runs again after the fetch, because the provider may have changed
-   * meanwhile. The status line says what happened either way, in one sentence
-   * once loaded, and focus lands on the first field of what was loaded.
+   * including an image still being added when the button was pressed and any
+   * made while the pictures were being fetched, and the image check runs again
+   * after the fetch, because the provider may have changed meanwhile. The
+   * status line says what happened either way, in one sentence once loaded,
+   * and focus lands on the first field of what was loaded.
    */
   async function loadExample(panel: Panel, set: ExampleSet): Promise<void> {
-    if (panel.loading) return;
+    if (panel.loading) {
+      setStatus(panel, `An example is still loading into the ${panel.name} panel.`);
+      return;
+    }
     const pressed = root.activeElement;
     /** Whether the image set may go into this panel right now; announces the problem when not. */
     const imagesAllowed = (): boolean => {
@@ -591,21 +595,31 @@ export function setupPanels(
     };
     if (!imagesAllowed()) return;
 
-    /** Whether what the person made beyond `agreed` may go; asks only when there is any. */
-    const agreesToReplace = async (agreed: Losses): Promise<boolean> => {
-      const losses = lossesOf(panel);
-      if (losses.edits <= agreed.edits && losses.images <= agreed.images) return true;
-      return confirm(replaceQuestion(panel, set, losses));
+    /**
+     * What the person agreed may go, or undefined when they kept their work.
+     * It asks whenever there is more to lose than `agreed`, and an image still
+     * being added counts, so it waits for every add first, and again after each
+     * answer, until nothing new has appeared. It returns with the queue still,
+     * so the caller's `replace` runs before any later add.
+     */
+    const agreesToReplace = async (agreed: Losses): Promise<Losses | undefined> => {
+      for (;;) {
+        await panel.attachments.settled();
+        const losses = lossesOf(panel);
+        if (losses.edits <= agreed.edits && losses.images <= agreed.images) return losses;
+        if (!(await confirm(replaceQuestion(panel, set, losses)))) return undefined;
+        agreed = losses;
+      }
     };
-    const kept = "Nothing loaded. Your request is kept.";
+    const kept = "Nothing loaded. Your request and images are kept.";
 
     panel.loading = true;
     try {
-      if (!(await agreesToReplace({ edits: 0, images: 0 }))) {
+      const agreed = await agreesToReplace({ edits: 0, images: 0 });
+      if (agreed === undefined) {
         setStatus(panel, kept);
         return;
       }
-      const agreed = lossesOf(panel);
 
       let files: File[];
       try {
@@ -619,23 +633,24 @@ export function setupPanels(
         return;
       }
       if (!imagesAllowed()) return;
-      if (!(await agreesToReplace(agreed))) {
+      if ((await agreesToReplace(agreed)) === undefined) {
         setStatus(panel, kept);
         return;
       }
 
       replaceRequest(panel, set.requests[panel.primitive]);
-      await panel.attachments.clear();
       // The load says what arrived in one sentence, so the control stays quiet.
-      await panel.attachments.add(files, { quiet: true });
-      panel.loadedImages = new Set(panel.attachments.files());
-      const attached = panel.attachments.count();
+      const { added, refused } = await panel.attachments.replace(files);
+      panel.loadedImages = new Set(added);
       setStatus(
         panel,
-        attached === files.length
+        refused.length === 0
           ? `${capitalise(set.label)} loaded.`
-          : `${capitalise(set.label)} loaded, but only ${attached} of ${files.length} sample pictures were attached.`,
-        attached === files.length ? "note" : "alert",
+          : [
+              `${capitalise(set.label)} loaded, but only ${added.length} of ${files.length} sample pictures were attached.`,
+              ...refused,
+            ].join(" "),
+        refused.length === 0 ? "note" : "alert",
       );
       focusLoaded(panel, pressed);
     } finally {

@@ -386,12 +386,12 @@ describe("toWire", () => {
     expect(toWire(scoreRequest).questions).toStrictEqual([recorded.questions[2]]);
   });
 
-  it("sends two images as one user message of a text part and two image parts", () => {
+  it("sends two images as one user message, each image after a text part that labels it", () => {
     const wire = toWire({
       ...noulRequest,
       images: [
-        { mediaType: "image/png", base64: "AAAA" },
-        { mediaType: "image/png", base64: "BBBB" },
+        { mediaType: "image/png", base64: "AAAA", name: "a.png" },
+        { mediaType: "image/jpeg", base64: "BBBB", name: "b.jpg" },
       ],
     });
     expect(wire.input).toStrictEqual([
@@ -399,8 +399,10 @@ describe("toWire", () => {
         role: "user",
         content: [
           { type: "input_text", text: STATE },
+          { type: "input_text", text: "Image 1: a.png" },
           { type: "input_image", image_url: "data:image/png;base64,AAAA" },
-          { type: "input_image", image_url: "data:image/png;base64,BBBB" },
+          { type: "input_text", text: "Image 2: b.jpg" },
+          { type: "input_image", image_url: "data:image/jpeg;base64,BBBB" },
         ],
       },
     ]);
@@ -423,14 +425,29 @@ describe("toWire", () => {
     const wire = toWire({
       ...imageRequest,
       state: text?.text ?? "",
-      images: [{ mediaType, base64: dataUrl.slice(prefix.length) }],
+      images: [{ mediaType, base64: dataUrl.slice(prefix.length), name: "" }],
     });
 
-    expect(wire).toStrictEqual(recorded);
+    // The recorded exchange predates the labels (issue #57), so the only difference is the
+    // label part before the image, here "Image 1" because the image has no name.
+    const labelled = {
+      ...recorded,
+      input: [{ role: "user", content: [text, { type: "input_text", text: "Image 1" }, image] }],
+    };
+    expect(wire).toStrictEqual(labelled);
   });
 
   it.each([2, 10])("rebuilds the recorded %i-level score request", (count) => {
     expect(toWire(levelsRequest(count))).toStrictEqual(recordedRequest(`score-${count}-levels`));
+  });
+
+  it("labels an image with no name by its number alone", () => {
+    const wire = toWire({
+      ...noulRequest,
+      images: [{ mediaType: "image/png", base64: "AAAA", name: "" }],
+    });
+    const content = (wire.input as { content: { type: string; text?: string }[] }[])[0]?.content;
+    expect(content?.[1]).toStrictEqual({ type: "input_text", text: "Image 1" });
   });
 
   it("sends input as text when the images list is empty", () => {

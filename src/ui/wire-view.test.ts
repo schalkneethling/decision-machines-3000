@@ -106,3 +106,33 @@ describe("renderWireView", () => {
     }
   });
 });
+
+describe("renderWireView with image labels (issue #57)", () => {
+  it("shows each label beside its image placeholder, as sent", () => {
+    const withImages: DecisionSuccess = {
+      ...openaiResponse,
+      wire: {
+        request: {
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Which is red?" },
+                { type: "input_text", text: "Image 1: a.png" },
+                {
+                  type: "input_image",
+                  image_url: "data:image/png;base64,<image 1: image/png, 64 bytes>",
+                },
+              ],
+            },
+          ],
+        },
+        response: {},
+      },
+    };
+    const sent = blocks(withImages)["Sent to OpenAI Decisions"] ?? "";
+    const label = sent.indexOf("Image 1: a.png");
+    expect(label).toBeGreaterThan(-1);
+    expect(label).toBeLessThan(sent.indexOf("<image 1: image/png, 64 bytes>"));
+  });
+});

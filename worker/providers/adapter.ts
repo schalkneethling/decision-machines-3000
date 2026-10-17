@@ -68,6 +68,12 @@ export type TransportCause = { name: string; code: string | undefined };
 export type ProviderErrorOptions = {
   /** Developer-facing detail: an upstream status, a dot path into the reply, or a transport error's name. Never the API key. */
   detail?: string;
+  /**
+   * The HTTP status of a provider's error reply, when `detail` came from one.
+   * `detail` then also holds the provider's own error text, which can quote the
+   * request, so a caller that must not log the request can log this alone.
+   */
+  upstreamStatus?: number;
   /** For `rate_limited`: the seconds the provider asked us to wait, when it said. */
   retryAfterSeconds?: number;
   /** Only ever a `TransportCause`, never the original error. */
@@ -85,6 +91,7 @@ export type ProviderErrorOptions = {
 export class ProviderError extends Error {
   readonly kind: ProviderErrorKind;
   readonly detail: string | undefined;
+  readonly upstreamStatus: number | undefined;
   readonly retryAfterSeconds: number | undefined;
   readonly schemaMessage: string | undefined;
 
@@ -93,6 +100,7 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
     this.kind = kind;
     this.detail = options.detail;
+    this.upstreamStatus = options.upstreamStatus;
     this.retryAfterSeconds = options.retryAfterSeconds;
     this.schemaMessage = options.schemaMessage;
   }
@@ -432,7 +440,11 @@ export function failureFromStatus(
   const kind = override?.kind ?? errorKindForStatus(reply.status);
   const retryAfter = kind === "rate_limited" ? retryAfterSeconds(reply.headers) : undefined;
   const message = override?.message ?? defaultMessage(provider.displayName, kind, retryAfter);
-  return new ProviderError(kind, message, { detail, retryAfterSeconds: retryAfter });
+  return new ProviderError(kind, message, {
+    detail,
+    upstreamStatus: reply.status,
+    retryAfterSeconds: retryAfter,
+  });
 }
 
 // ---------------------------------------------------------------------------

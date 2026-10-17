@@ -175,7 +175,7 @@ describe("the empty start (issue #58)", () => {
     setupPanels(document, selectionOf(typesafe).selection);
     for (const primitive of PRIMITIVES) {
       expect(emptyMessage(primitive).hidden).toBe(false);
-      expect(emptyMessage(primitive).textContent).toContain("Load the film example");
+      expect(emptyMessage(primitive).textContent).toContain("Load an example above");
       expect(emptyMessage(primitive).textContent).toContain("Run is off");
       expect(runButton(primitive).disabled).toBe(true);
       expect(status(primitive).textContent).toBe("");
@@ -245,10 +245,36 @@ describe("the empty start (issue #58)", () => {
       for (const button of buttons) {
         expect(button.getAttribute("type")).toBe("button");
         expect(button.disabled).toBe(false);
+        // Styled as a bordered button, not as a link-like text button.
+        expect(button.classList.contains("action-button")).toBe(true);
+        expect(button.classList.contains("text-button")).toBe(false);
       }
       const order = group.compareDocumentPosition(viewButton(primitive, "tree"));
       expect(order & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+});
+
+describe("offering the image example only where it can load (issue #58)", () => {
+  it("hides it on a text-only provider and when no provider is selected, and keeps the film example", () => {
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    for (const primitive of PRIMITIVES) {
+      expect(loadButton(primitive, "images").hidden).toBe(true);
+      expect(loadButton(primitive, "film").hidden).toBe(false);
+    }
+    choose(undefined);
+    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(true);
+  });
+
+  it("shows it on an image provider, and hides it again on a switch to a text-only one", () => {
+    const { selection, choose } = selectionOf(subq);
+    setupPanels(document, selection);
+    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(false);
+    choose(typesafe);
+    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(true);
+    choose(openai);
+    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(false);
   });
 });
 
@@ -321,9 +347,7 @@ describe("loading the image example (issue #58)", () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     loadButton("noul", "images").click();
-    await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe("Image example loaded. 4 sample pictures attached."),
-    );
+    await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(attachmentNames("noul")).toEqual([
       "red-square.png",
       "blue-circle.png",
@@ -333,9 +357,8 @@ describe("loading the image example (issue #58)", () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(
       imageExamples.images.map((image) => image.url),
     );
-    const imagesStatus = get('form[data-primitive="noul"] .attachments-status').textContent ?? "";
-    expect(imagesStatus).toContain("Image 1 added: red-square.png");
-    expect(imagesStatus).toContain("Image 4 added: busy-scene.png");
+    // One announcement: the panel's status line, not one sentence per picture from the image control.
+    expect(get('form[data-primitive="noul"] .attachments-status').textContent).toBe("");
     expect(emptyMessage("noul").hidden).toBe(true);
     expect(runButton("noul").disabled).toBe(false);
     expect(document.activeElement).toBe(stateField("noul"));
@@ -368,7 +391,7 @@ describe("loading the image example (issue #58)", () => {
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(sampleBytes("red-square.png"));
   });
 
-  it("says the example needs an image provider on TypeSafe Jev, and changes nothing", async () => {
+  it("refuses on TypeSafe Jev if its hidden button is pressed anyway, and changes nothing", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(typesafe).selection);
     await loadFilm("choice");
@@ -388,7 +411,7 @@ describe("loading the image example (issue #58)", () => {
     expect(viewButton("choice", "json").getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("says the example needs an image provider when none is selected", async () => {
+  it("refuses with no provider if its hidden button is pressed anyway", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(undefined).selection);
     loadButton("noul", "images").click();
@@ -401,25 +424,104 @@ describe("loading the image example (issue #58)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("asks for attached images to be removed first, and changes nothing", async () => {
-    const fetchMock = mockFetch();
-    setupPanels(document, selectionOf(subq).selection);
-    const input = get<HTMLInputElement>("#noul-images-input");
+  /** Attaches one image of the person's own through the file input. */
+  async function attachOwn(primitive: string, name: string): Promise<void> {
+    const before = attachments(primitive).length;
+    const input = get<HTMLInputElement>(`#${primitive}-images-input`);
     const transfer = new DataTransfer();
-    transfer.items.add(fileOf(pngBytes({ size: 1024 }), "mine.png", "image/png"));
+    transfer.items.add(fileOf(pngBytes({ size: 1024 }), name, "image/png"));
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(1));
+    await vi.waitFor(() => expect(attachments(primitive)).toHaveLength(before + 1));
+  }
+
+  it("asks before removing images the person attached, and keeps them when they cancel", async () => {
+    const fetchMock = mockFetch();
+    const confirmReplace = vi.fn(async () => false);
+    setupPanels(document, selectionOf(subq).selection, { confirmReplace });
+    await attachOwn("noul", "mine.png");
 
     loadButton("noul", "images").click();
     await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe(
-        "Remove the attached 1 image first. The image example attaches 4 sample pictures of its own.",
-      ),
+      expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
     );
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the image example into the Noul panel?",
+      message: "This removes the image you attached. You cannot undo this.",
+    });
     expect(attachmentNames("noul")).toEqual(["mine.png"]);
     expect(emptyMessage("noul").hidden).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces the person's images with the sample pictures when they agree", async () => {
+    mockFetch();
+    const confirmReplace = vi.fn(async () => true);
+    setupPanels(document, selectionOf(subq).selection, { confirmReplace });
+    await attachOwn("noul", "mine.png");
+    await attachOwn("noul", "also-mine.png");
+
+    loadButton("noul", "images").click();
+    await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the image example into the Noul panel?",
+      message: "This removes the 2 images you attached. You cannot undo this.",
+    });
+    expect(attachmentNames("noul")).toEqual([
+      "red-square.png",
+      "blue-circle.png",
+      "green-triangle.png",
+      "busy-scene.png",
+    ]);
+  });
+
+  it("removes attached images when the film example loads, too", async () => {
+    mockFetch();
+    const confirmReplace = vi.fn(async () => true);
+    setupPanels(document, selectionOf(subq).selection, { confirmReplace });
+    type(stateField("choice"), "My own question.");
+    await attachOwn("choice", "mine.png");
+
+    await loadFilm("choice");
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the film example into the Choice panel?",
+      message:
+        "This replaces your request and removes the image you attached. You cannot undo this.",
+    });
+    expect(attachments("choice")).toHaveLength(0);
+    expect(get("#choice-hint").textContent).not.toContain("attached");
+  });
+
+  it("replaces the image example's own pictures without asking", async () => {
+    mockFetch();
+    const confirmReplace = vi.fn(async () => false);
+    setupPanels(document, selectionOf(subq).selection, { confirmReplace });
+    loadButton("score", "images").click();
+    await vi.waitFor(() => expect(status("score").textContent).toBe("Image example loaded."));
+
+    await loadFilm("score");
+    expect(confirmReplace).not.toHaveBeenCalled();
+    expect(attachments("score")).toHaveLength(0);
+  });
+
+  it("asks about the person's own image beside the sample pictures", async () => {
+    mockFetch();
+    const confirmReplace = vi.fn(async () => false);
+    // OpenAI takes up to 8 images, so a fifth fits beside the four samples.
+    setupPanels(document, selectionOf(openai).selection, { confirmReplace });
+    loadButton("score", "images").click();
+    await vi.waitFor(() => expect(status("score").textContent).toBe("Image example loaded."));
+    await attachOwn("score", "mine.png");
+
+    loadButton("score", "film").click();
+    await vi.waitFor(() =>
+      expect(status("score").textContent).toBe("Nothing loaded. Your request is kept."),
+    );
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the film example into the Score panel?",
+      message: "This removes the image you attached. You cannot undo this.",
+    });
+    expect(attachments("score")).toHaveLength(5);
   });
 
   it("leaves the panel unchanged when a sample picture cannot be fetched", async () => {
@@ -466,9 +568,7 @@ describe("loading the image example (issue #58)", () => {
     await settled();
     expect(fetchMock).toHaveBeenCalledTimes(4);
     serve();
-    await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe("Image example loaded. 4 sample pictures attached."),
-    );
+    await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(attachments("noul")).toHaveLength(4);
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
@@ -492,17 +592,15 @@ describe("loading the image example (issue #58)", () => {
     loadButton("choice", "images").click();
     await vi.waitFor(() =>
       expect(status("choice").textContent).toBe(
-        "Image example loaded. 3 of 4 sample pictures attached.",
+        "Image example loaded, but only 3 of 4 sample pictures were attached.",
       ),
     );
+    expect(status("choice").dataset.tone).toBe("alert");
     expect(attachmentNames("choice")).toEqual([
       "red-square.png",
       "blue-circle.png",
       "green-triangle.png",
     ]);
-    expect(get('form[data-primitive="choice"] .attachments-status').textContent).toContain(
-      "busy-scene.png was not added",
-    );
   });
 
   it("leaves focus alone when the person moved on while the pictures were fetched", async () => {
@@ -513,21 +611,17 @@ describe("loading the image example (issue #58)", () => {
     const elsewhere = viewButton("score", "json");
     elsewhere.focus();
     serve();
-    await vi.waitFor(() =>
-      expect(status("score").textContent).toBe("Image example loaded. 4 sample pictures attached."),
-    );
+    await vi.waitFor(() => expect(status("score").textContent).toBe("Image example loaded."));
     expect(document.activeElement).toBe(elsewhere);
   });
 
   it("replaces an untouched film example without asking", async () => {
     mockFetch();
-    const confirmReplace = vi.fn(() => false);
+    const confirmReplace = vi.fn(async () => false);
     setupPanels(document, selectionOf(subq).selection, { confirmReplace });
     await loadFilm("noul");
     loadButton("noul", "images").click();
-    await vi.waitFor(() =>
-      expect(status("noul").textContent).toBe("Image example loaded. 4 sample pictures attached."),
-    );
+    await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(confirmReplace).not.toHaveBeenCalled();
     expect(stateField("noul").value).toBe(imageExamples.requests.noul.state);
   });
@@ -535,22 +629,23 @@ describe("loading the image example (issue #58)", () => {
 
 describe("protecting edits (issue #58)", () => {
   it("asks before replacing edits, and keeps them when the person cancels", async () => {
-    const confirmReplace = vi.fn(() => false);
+    const confirmReplace = vi.fn(async () => false);
     setupPanels(document, selectionOf(typesafe).selection, { confirmReplace });
     type(stateField("noul"), "My own review.");
     loadButton("noul", "film").click();
     await vi.waitFor(() =>
       expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
     );
-    expect(confirmReplace).toHaveBeenCalledWith(
-      "Replace what the Noul panel holds with the film example? Your edits will be lost.",
-    );
+    expect(confirmReplace).toHaveBeenCalledWith({
+      title: "Load the film example into the Noul panel?",
+      message: "This replaces your request. You cannot undo this.",
+    });
     expect(stateField("noul").value).toBe("My own review.");
     expect(status("noul").dataset.tone).toBe("note");
   });
 
   it("replaces the edits when the person agrees", async () => {
-    const confirmReplace = vi.fn(() => true);
+    const confirmReplace = vi.fn(async () => true);
     setupPanels(document, selectionOf(typesafe).selection, { confirmReplace });
     type(stateField("noul"), "My own review.");
     await loadFilm("noul");
@@ -560,7 +655,7 @@ describe("protecting edits (issue #58)", () => {
   });
 
   it("asks again once the loaded example has been edited", async () => {
-    const confirmReplace = vi.fn(() => false);
+    const confirmReplace = vi.fn(async () => false);
     setupPanels(document, selectionOf(typesafe).selection, { confirmReplace });
     await loadFilm("choice");
     loadButton("choice", "film").click();
@@ -579,7 +674,7 @@ describe("protecting edits (issue #58)", () => {
   it("asks about edits typed while the pictures were being fetched", async () => {
     const serve = holdFirstSample();
     vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:test/preview");
-    const confirmReplace = vi.fn(() => false);
+    const confirmReplace = vi.fn(async () => false);
     setupPanels(document, selectionOf(subq).selection, { confirmReplace });
     loadButton("noul", "images").click();
     await settled();
@@ -596,19 +691,91 @@ describe("protecting edits (issue #58)", () => {
     vi.restoreAllMocks();
   });
 
-  it("asks through the browser's confirm when no confirmReplace is given", async () => {
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal("confirm", confirm);
-    setupPanels(document, selectionOf(typesafe).selection);
-    type(stateField("noul"), "My own review.");
-    await loadFilm("noul");
-    expect(confirm).toHaveBeenCalledWith(
-      "Replace what the Noul panel holds with the film example? Your edits will be lost.",
-    );
+  describe("the page's dialog, when no confirmReplace is given", () => {
+    function dialog(): HTMLDialogElement {
+      return get<HTMLDialogElement>("#replace-dialog");
+    }
+
+    function dialogButton(value: "cancel" | "confirm"): HTMLButtonElement {
+      return get<HTMLButtonElement>(`#replace-dialog button[value="${value}"]`);
+    }
+
+    /**
+     * Closes the dialog the way Escape does in a browser: `cancel`, then
+     * `close`, with `returnValue` left as it was. happy-dom's `close()` would
+     * reset it, which would hide a stale answer from an earlier question.
+     */
+    function pressEscape(): void {
+      dialog().dispatchEvent(new Event("cancel", { cancelable: true }));
+      dialog().removeAttribute("open");
+      dialog().dispatchEvent(new Event("close"));
+    }
+
+    /** Types into Noul's state, presses "Load film example", and waits for the dialog to open. */
+    async function askToReplace(): Promise<void> {
+      setupPanels(document, selectionOf(typesafe).selection);
+      type(stateField("noul"), "My own review.");
+      loadButton("noul", "film").click();
+      await vi.waitFor(() => expect(dialog().open).toBe(true));
+    }
+
+    it("opens as a modal, names the question and the cost, and says there is no undo", async () => {
+      const showModal = vi.spyOn(dialog(), "showModal");
+      await askToReplace();
+      expect(showModal).toHaveBeenCalledOnce();
+      expect(dialog().getAttribute("aria-labelledby")).toBe("replace-dialog-title");
+      expect(dialog().getAttribute("aria-describedby")).toBe("replace-dialog-message");
+      expect(get("#replace-dialog-title").textContent).toBe(
+        "Load the film example into the Noul panel?",
+      );
+      expect(get("#replace-dialog-message").textContent).toBe(
+        "This replaces your request. You cannot undo this.",
+      );
+      expect(dialogButton("cancel").hasAttribute("autofocus")).toBe(true);
+    });
+
+    it("loads the example when the person confirms", async () => {
+      await askToReplace();
+      dialogButton("confirm").click();
+      await vi.waitFor(() => expect(status("noul").textContent).toBe("Film example loaded."));
+      expect(dialog().open).toBe(false);
+      expect(JSON.parse(stateField("noul").value)).toEqual(noulExample.state);
+    });
+
+    it("keeps the request when the person presses the cancel button", async () => {
+      await askToReplace();
+      dialogButton("cancel").click();
+      await vi.waitFor(() =>
+        expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+      );
+      expect(stateField("noul").value).toBe("My own review.");
+    });
+
+    it("keeps the request when the person presses Escape", async () => {
+      await askToReplace();
+      pressEscape();
+      await vi.waitFor(() =>
+        expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+      );
+      expect(stateField("noul").value).toBe("My own review.");
+    });
+
+    it("does not carry a confirmation over to the next question", async () => {
+      await askToReplace();
+      dialogButton("confirm").click();
+      await vi.waitFor(() => expect(status("noul").textContent).toBe("Film example loaded."));
+      type(stateField("noul"), "Edited again.");
+      loadButton("noul", "film").click();
+      await vi.waitFor(() => expect(dialog().open).toBe(true));
+      pressEscape();
+      await vi.waitFor(() =>
+        expect(status("noul").textContent).toBe("Nothing loaded. Your request is kept."),
+      );
+    });
   });
 
   it("counts a JSON edit brought back into the tree as an edit", async () => {
-    const confirmReplace = vi.fn(() => false);
+    const confirmReplace = vi.fn(async () => false);
     setupPanels(document, selectionOf(typesafe).selection, { confirmReplace });
     viewButton("noul", "json").click();
     textarea("noul").value = JSON.stringify(noulExample);

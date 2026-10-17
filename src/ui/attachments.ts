@@ -98,8 +98,17 @@ export type Attachments = {
   count(): number;
   /** Why Run must wait, or undefined when every image fits the selected provider. */
   blocked(): string | undefined;
-  /** Runs `sources` through the pipeline, in order, and announces the outcome. The way the file input, drop, and paste add images. */
-  add(sources: readonly Blob[]): Promise<void>;
+  /**
+   * Runs `sources` through the pipeline, in order, and announces the outcome.
+   * The way the file input, drop, and paste add images. With `quiet`, nothing is
+   * announced, for a caller that announces the result in its own words.
+   */
+  add(sources: readonly Blob[], options?: { quiet?: boolean }): Promise<void>;
+  /**
+   * Removes every image, after any add still in flight, without announcing it:
+   * the caller says what replaced them. Run's block and the limits follow.
+   */
+  clear(): Promise<void>;
 };
 
 const EXTENSIONS: Readonly<Record<string, string>> = {
@@ -467,7 +476,7 @@ export function createAttachments(
     return `Image ${attachments.length} added: ${file.name}, ${formatBytes(file.size)}.${shrunk}`;
   }
 
-  function add(sources: readonly Blob[]): Promise<void> {
+  function add(sources: readonly Blob[], { quiet = false } = {}): Promise<void> {
     if (sources.length === 0) return Promise.resolve();
     pending += 1;
     onChange?.();
@@ -481,7 +490,21 @@ export function createAttachments(
           sentences.push(`${labelOf(source)} was not added: it could not be read.`);
         }
       }
-      announce(sentences.join(" "));
+      if (!quiet) announce(sentences.join(" "));
+    });
+    queue = run.catch(() => {});
+    return run;
+  }
+
+  function clear(): Promise<void> {
+    const run = queue.then(() => {
+      for (const attachment of attachments) URL.revokeObjectURL(attachment.previewUrl);
+      attachments.length = 0;
+      list.replaceChildren();
+      // Emptied quietly, so the last sentence about an image is not left behind for a later read.
+      announce("");
+      render();
+      onChange?.();
     });
     run
       .finally(() => {
@@ -554,5 +577,6 @@ export function createAttachments(
         ? "Images are still being added. Run is available once they are."
         : blockedMessage(attachments.filter((attachment) => attachment.overLimit).length),
     add,
+    clear,
   };
 }

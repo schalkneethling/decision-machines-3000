@@ -529,6 +529,52 @@ describe("removing", () => {
   });
 });
 
+describe("clearing (issue #58)", () => {
+  it("removes every image, revokes each object URL, tells onChange, and announces nothing", async () => {
+    const onChange = vi.fn();
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq, onChange });
+    await control.add([png("a.png", 4 * KIB), png("b.png", 4 * KIB)]);
+    onChange.mockClear();
+
+    await control.clear();
+    expect(control.count()).toBe(0);
+    expect(control.files()).toEqual([]);
+    expect(items()).toHaveLength(0);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test/a.png");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test/b.png");
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(status()).toBe("");
+  });
+
+  it("lifts the block that over-limit images put on Run", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: openai });
+    await control.add(Array.from({ length: 6 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
+    control.setProvider(subq);
+    expect(control.blocked()).toBeDefined();
+
+    await control.clear();
+    expect(control.blocked()).toBeUndefined();
+    expect(notice()).toBe("");
+  });
+
+  it("waits for an add still in flight, so nothing it admits survives", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    const adding = control.add([png("late.png", 4 * KIB)]);
+    await control.clear();
+    await adding;
+    expect(control.count()).toBe(0);
+  });
+});
+
+describe("a quiet add (issue #58)", () => {
+  it("attaches the images without announcing them", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png", 4 * KIB)], { quiet: true });
+    expect(control.count()).toBe(1);
+    expect(status()).toBe("");
+  });
+});
+
 describe("provider changes with images attached", () => {
   it("keeps the images on a text-only provider, says so visibly and in the status, and sends none", async () => {
     const onChange = vi.fn();

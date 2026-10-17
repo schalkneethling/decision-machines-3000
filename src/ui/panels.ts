@@ -17,6 +17,8 @@ import { STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
 import type { ComposerModel, DraftRequest } from "./composer/model.ts";
 import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
+import { createConfirmDialog } from "./confirm-dialog.ts";
+import type { Confirm, Confirmation } from "./confirm-dialog.ts";
 import { create, required } from "./dom.ts";
 import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
@@ -74,6 +76,8 @@ type Panel = {
   untouched: boolean;
   /** How many edits the person made since the panel was last loaded; a load asks before replacing any. */
   edits: number;
+  /** The images the last loaded example attached. Any other attached image is the person's, and a load asks before removing it. */
+  loadedImages: ReadonlySet<File>;
   /** True from a press of a load button until the example is in place; presses meanwhile are dropped. */
   loading: boolean;
   /** Tells the page that Run may now enable or disable. */
@@ -213,6 +217,7 @@ function setupPanel(
     serialised: "",
     untouched: true,
     edits: 0,
+    loadedImages: new Set(),
     loading: false,
     onChange,
   };
@@ -414,13 +419,12 @@ function focusLoaded(panel: Panel, pressed: Element | null): void {
 }
 
 /**
- * Why the image example cannot load into `panel` right now, or undefined when
- * it can. The pictures would not be sent to a text-only provider, and the
- * control cannot be emptied from here, so attached images are the person's to
- * remove first.
+ * Why the image example cannot load right now, or undefined when it can: the
+ * pictures would not be sent to a text-only provider, or to no provider. Its
+ * button is hidden then, so this mostly answers a provider change made while
+ * the pictures were being fetched.
  */
 function imageExampleProblem(
-  panel: Panel,
   set: ExampleSet,
   chosen: ProviderSummary | undefined,
 ): string | undefined {
@@ -429,11 +433,30 @@ function imageExampleProblem(
   if (chosen.capabilities.images === false) {
     return `${needs} ${chosen.displayName} is text only. Choose another provider first.`;
   }
-  const attached = panel.attachments.count();
-  if (attached > 0) {
-    return `Remove the attached ${imagesCount(attached)} first. The ${set.label} attaches ${set.images.length} sample pictures of its own.`;
-  }
   return undefined;
+}
+
+/** What a load would take from the person: their edits, and how many images they attached themselves. */
+type Losses = { edits: number; images: number };
+
+function lossesOf(panel: Panel): Losses {
+  const own = panel.attachments.files().filter((file) => !panel.loadedImages.has(file));
+  return { edits: panel.edits, images: own.length };
+}
+
+/** The question a load asks before it replaces `losses`, which says plainly that there is no undo. */
+function replaceQuestion(panel: Panel, set: ExampleSet, losses: Losses): Confirmation {
+  const costs: string[] = [];
+  if (losses.edits > 0) costs.push("replaces your request");
+  if (losses.images > 0) {
+    costs.push(
+      `removes ${losses.images === 1 ? "the image" : `the ${losses.images} images`} you attached`,
+    );
+  }
+  return {
+    title: `Load the ${set.label} into the ${panel.name} panel?`,
+    message: `This ${costs.join(" and ")}. You cannot undo this.`,
+  };
 }
 
 /** `omittedImages` is how many attached images the run left out because the provider is text only. */
@@ -469,10 +492,11 @@ export type PanelOptions = {
   /** Called after every run the provider answered successfully; the warm form restarts its count. */
   onAnswered?: (response: DecisionSuccess) => void;
   /**
-   * Asks whether to replace a panel's edits with an example, and returns the
-   * answer. The page uses the browser's confirm dialog; tests answer directly.
+   * Asks whether a load may replace what the person made in a panel, and
+   * resolves the answer. The page asks through its `#replace-dialog`; tests
+   * answer directly.
    */
-  confirmReplace?: (message: string) => boolean;
+  confirmReplace?: Confirm;
 };
 
 /**
@@ -490,7 +514,7 @@ export function setupPanels(
   // Outside the live region, so the JSON is never announced.
   const wire = required(root, "#wire-body", HTMLElement);
   const confirm =
-    confirmReplace ?? ((message: string) => root.defaultView?.confirm?.(message) ?? false);
+    confirmReplace ?? createConfirmDialog(required(root, "#replace-dialog", HTMLDialogElement));
   // Until a provider is selected, requests are checked against the default provider's limits.
   const provider = selection.current();
   const capabilities = provider?.capabilities ?? DEFAULT_PROVIDER.capabilities;
@@ -504,12 +528,17 @@ export function setupPanels(
    * Run is disabled while a run is in flight, while there is no provider, on a
    * panel that is still empty, and on a panel whose images the selected
    * provider cannot take, until the excess is removed. The running panel reads
-   * "Running". The state is read here rather than passed in, so a provider or
-   * image change during a run cannot relabel the buttons.
+   * "Running". "Load image example" is hidden unless the selected provider
+   * takes images, because it could only refuse. The state is read here rather
+   * than passed in, so a provider or image change during a run cannot relabel
+   * the buttons.
    */
   function updateButtons(): void {
-    const unavailable = selection.current() === undefined;
+    const chosen = selection.current();
+    const unavailable = chosen === undefined;
+    const imagesTaken = chosen !== undefined && chosen.capabilities.images !== false;
     for (const panel of panels) {
+      panel.loadButtons.images.hidden = !imagesTaken;
       panel.button.disabled =
         running !== undefined ||
         unavailable ||
@@ -540,13 +569,14 @@ export function setupPanels(
   updateButtons();
 
   /**
-   * Loads an example set into a panel. The image set needs an image provider
-   * and an empty image list, and its pictures are fetched before anything is
-   * replaced, so a failed fetch leaves the panel as it was. Edits are never
-   * replaced without asking, including edits typed while the pictures were
-   * being fetched, and the image checks run again after the fetch, because the
-   * provider may have changed meanwhile. The status line says what happened
-   * either way, and focus lands on the first field of what was loaded.
+   * Loads an example set into a panel, replacing its request and every attached
+   * image. The image set needs an image provider, and its pictures are fetched
+   * before anything is replaced, so a failed fetch leaves the panel as it was.
+   * Edits and images the person attached are never replaced without asking,
+   * including any made while the pictures were being fetched, and the image
+   * check runs again after the fetch, because the provider may have changed
+   * meanwhile. The status line says what happened either way, in one sentence
+   * once loaded, and focus lands on the first field of what was loaded.
    */
   async function loadExample(panel: Panel, set: ExampleSet): Promise<void> {
     if (panel.loading) return;
@@ -554,28 +584,29 @@ export function setupPanels(
     /** Whether the image set may go into this panel right now; announces the problem when not. */
     const imagesAllowed = (): boolean => {
       if (set.images.length === 0) return true;
-      const problem = imageExampleProblem(panel, set, selection.current());
+      const problem = imageExampleProblem(set, selection.current());
       if (problem === undefined) return true;
       setStatus(panel, problem, "alert");
       return false;
     };
     if (!imagesAllowed()) return;
 
-    /** Whether the edits made after the first `agreedTo` may go; asks when there are any. */
-    const agreesToReplace = (agreedTo: number): boolean =>
-      panel.edits <= agreedTo ||
-      confirm(
-        `Replace what the ${panel.name} panel holds with the ${set.label}? Your edits will be lost.`,
-      );
+    /** Whether what the person made beyond `agreed` may go; asks only when there is any. */
+    const agreesToReplace = async (agreed: Losses): Promise<boolean> => {
+      const losses = lossesOf(panel);
+      if (losses.edits <= agreed.edits && losses.images <= agreed.images) return true;
+      return confirm(replaceQuestion(panel, set, losses));
+    };
     const kept = "Nothing loaded. Your request is kept.";
-    if (!agreesToReplace(0)) {
-      setStatus(panel, kept);
-      return;
-    }
-    const agreedTo = panel.edits;
 
     panel.loading = true;
     try {
+      if (!(await agreesToReplace({ edits: 0, images: 0 }))) {
+        setStatus(panel, kept);
+        return;
+      }
+      const agreed = lossesOf(panel);
+
       let files: File[];
       try {
         files = await fetchSampleImages(set.images);
@@ -588,23 +619,24 @@ export function setupPanels(
         return;
       }
       if (!imagesAllowed()) return;
-      if (!agreesToReplace(agreedTo)) {
+      if (!(await agreesToReplace(agreed))) {
         setStatus(panel, kept);
         return;
       }
 
       replaceRequest(panel, set.requests[panel.primitive]);
-      if (files.length > 0) {
-        await panel.attachments.add(files);
-        const attached = panel.attachments.count();
-        const pictures =
-          attached === files.length
-            ? `${files.length} sample pictures attached.`
-            : `${attached} of ${files.length} sample pictures attached.`;
-        setStatus(panel, `${capitalise(set.label)} loaded. ${pictures}`);
-      } else {
-        setStatus(panel, `${capitalise(set.label)} loaded.`);
-      }
+      await panel.attachments.clear();
+      // The load says what arrived in one sentence, so the control stays quiet.
+      await panel.attachments.add(files, { quiet: true });
+      panel.loadedImages = new Set(panel.attachments.files());
+      const attached = panel.attachments.count();
+      setStatus(
+        panel,
+        attached === files.length
+          ? `${capitalise(set.label)} loaded.`
+          : `${capitalise(set.label)} loaded, but only ${attached} of ${files.length} sample pictures were attached.`,
+        attached === files.length ? "note" : "alert",
+      );
       focusLoaded(panel, pressed);
     } finally {
       panel.loading = false;

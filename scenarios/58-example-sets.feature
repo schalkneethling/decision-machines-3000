@@ -57,27 +57,34 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     When "Load image example" is pressed
     Then the panel holds the image example's state and questions for Noul
     And its four sample pictures are fetched and attached through the image control, in order, as red-square.png, blue-circle.png, green-triangle.png, and busy-scene.png
-    And the image control's status line announces each image added, as for any upload
-    And the panel's status line announces "Image example loaded. 4 sample pictures attached."
+    And the panel's status line announces "Image example loaded."
+    And that is the only announcement: the image control adds the pictures without announcing each one
     And focus is on the State field of the tree
 
-  Scenario: The image example needs a provider that takes images
-    Given a Choice panel holding the film example, and TypeSafe Jev selected
-    When "Load image example" is pressed
+  Scenario: The image example is offered only on a provider that takes images
+    Given TypeSafe Jev is selected, or no provider is
+    Then every panel shows "Load film example" and hides "Load image example", because it could only refuse
+    When SubQ Snap or OpenAI Decisions is selected
+    Then "Load image example" is shown again
+
+  Scenario: The provider changes to a text-only one while the sample pictures are fetched
+    Given "Load image example" was pressed on SubQ Snap
+    When TypeSafe Jev is selected before the pictures arrive
     Then the status line says the image example needs a provider that takes images and that TypeSafe Jev is text only
-    And the panel's request, its images, and its view are unchanged
-
-  Scenario: The image example with no provider selected
-    Given a panel and no provider selected
-    When "Load image example" is pressed
-    Then the status line says the image example needs a provider that takes images and that no provider is selected
     And nothing is replaced
 
-  Scenario: The image example when the panel already holds images
-    Given a Noul panel with one image attached and SubQ Snap selected
+  Scenario: Loading an example over images the person attached asks first
+    Given a Noul panel with one image the person attached, and SubQ Snap selected
     When "Load image example" is pressed
-    Then the status line says to remove the attached images first, because the example attaches its own four
-    And nothing is replaced
+    Then the confirmation asks "Load the image example into the Noul panel?"
+    And it says "This removes the image you attached. You cannot undo this."
+    When the person agrees
+    Then the person's image is removed and the four sample pictures take its place
+
+  Scenario: The film example removes attached images too
+    Given a Choice panel with the person's own state and one image they attached
+    When "Load film example" is pressed and the person agrees
+    Then the panel holds the film example and no images
 
   Scenario: A sample picture that cannot be fetched
     Given an empty Score panel with OpenAI Decisions selected, and one sample picture's request fails
@@ -87,9 +94,17 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
 
   # --- Protecting edits ------------------------------------------------------------------------------------------------
 
+  Scenario: The confirmation is a modal dialog that says there is no undo
+    Given a Noul panel in which the person has typed into the State field
+    When "Load film example" is pressed
+    Then a dialog opens with showModal(), so the rest of the page is inert
+    And its heading asks "Load the film example into the Noul panel?"
+    And its message says "This replaces your request. You cannot undo this."
+    And focus starts on "Keep my request", so pressing Enter keeps the request
+
   Scenario: Loading over edits asks first, and cancelling keeps them
     Given a Noul panel in which the person has typed into the State field
-    When "Load film example" is pressed and the person cancels
+    When "Load film example" is pressed and the person presses "Keep my request" or Escape
     Then the panel is unchanged
     And the status line announces "Nothing loaded. Your request is kept."
 
@@ -103,6 +118,11 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Given a Noul panel holding the film example, untouched since it was loaded
     When "Load image example" is pressed on an image provider
     Then no question is asked, and the image example replaces the film example
+
+  Scenario: The image example's own pictures go without asking
+    Given a Score panel holding the image example and its four sample pictures, untouched since it was loaded
+    When "Load film example" is pressed
+    Then no question is asked, and the sample pictures are removed with the rest of the example
 
   # --- The sample images -----------------------------------------------------------------------------------------------
 

@@ -329,6 +329,7 @@ code {
   grid-template-areas:
     "thumb name"
     "thumb meta"
+    "thumb shrunk"
     "thumb actions";
   column-gap: 0.75rem;
   align-items: start;
@@ -358,6 +359,14 @@ code {
 
 .attachment-meta {
   grid-area: meta;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.attachment-shrunk {
+  grid-area: shrunk;
   color: var(--ink-muted);
   font-size: var(--size-meta);
   line-height: var(--leading-meta);

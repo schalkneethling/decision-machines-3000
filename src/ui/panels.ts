@@ -6,6 +6,8 @@ import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { ValidDecisionRequest } from "../decision/validate.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
 import { createAttachments, toFormData } from "./attachments.ts";
+import { browserRasterizer } from "./shrink-browser.ts";
+import { createShrinkTransform } from "./shrink.ts";
 import type { Attachments } from "./attachments.ts";
 import { imagesCount } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
@@ -129,6 +131,7 @@ function setupPanel(
   const attachments = createAttachments(form, {
     prefix: `${primitive}-images`,
     provider,
+    transform: createShrinkTransform(browserRasterizer()),
     onChange: () => {
       if (!panel) return;
       panel.imagesHint.textContent = imagesHintText(attachments.count());

@@ -198,6 +198,23 @@ code {
   line-height: var(--leading-meta);
 }
 
+/* The two example buttons at the top of each panel, and the empty-state message that names them */
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 0 1rem;
+}
+
+.panel-empty {
+  grid-column: 1 / -1;
+  max-inline-size: 60ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+}
+
 /* Tree or JSON: a two-segment switch above each panel body */
 .view-switch {
   display: inline-flex;
@@ -438,8 +455,13 @@ code {
   cursor: pointer;
 }
 
+/* Off while empty, without a provider, or blocked by images; the running panel's button shows progress */
 .run:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.run[data-running] {
   cursor: progress;
 }
 

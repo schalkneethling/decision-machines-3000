@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { examples } from "./examples.ts";
+import { filmExamples } from "./examples.ts";
 import { validateDecisionRequest, validateWarmRequest } from "./validate.ts";
 import type { ValidationResult } from "./validate.ts";
 import { DEFAULT_PROVIDER, PROVIDERS } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
+
+const examples = filmExamples.requests;
 
 function expectFailure(result: ValidationResult) {
   if (result.ok) {

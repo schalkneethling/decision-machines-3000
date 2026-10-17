@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { examples } from "./examples.ts";
+import { filmExamples } from "./examples.ts";
 import { validateDecisionRequest } from "./validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 
 const root = join(import.meta.dirname, "..", "..");
+const examples = filmExamples.requests;
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(join(root, directory), { withFileTypes: true, recursive: true })

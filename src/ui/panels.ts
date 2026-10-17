@@ -1,5 +1,6 @@
 import type { DecisionSuccess, Primitive } from "../decision/contract.ts";
-import { examples } from "../decision/examples.ts";
+import { EXAMPLE_SETS, isExampleSetId } from "../decision/examples.ts";
+import type { ExampleSet, ExampleSetId } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
@@ -12,8 +13,8 @@ import type { Attachments } from "./attachments.ts";
 import { imagesCount } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult, PostBody } from "./client.ts";
-import { toRequest, toViewModel } from "./composer/model.ts";
-import type { DraftRequest } from "./composer/model.ts";
+import { STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
+import type { ComposerModel, DraftRequest } from "./composer/model.ts";
 import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
 import { create, required } from "./dom.ts";
@@ -26,6 +27,8 @@ import {
   renderResponse,
   renderUnreachable,
 } from "./readout.ts";
+import { fetchSampleImages } from "./sample-images.ts";
+import { capitalise } from "./text.ts";
 import { renderWire } from "./wire-view.ts";
 
 type View = "tree" | "json";
@@ -34,6 +37,8 @@ const VIEWS = ["tree", "json"] as const satisfies readonly View[];
 
 type Panel = {
   primitive: Primitive;
+  /** The panel's name as its heading shows it: "Noul". */
+  name: string;
   /** The limits this panel validates against. */
   capabilities: ProviderCapabilities;
   form: HTMLFormElement;
@@ -47,6 +52,9 @@ type Panel = {
   button: HTMLButtonElement;
   label: HTMLElement;
   status: HTMLElement;
+  /** The message a panel shows until it is edited or an example is loaded. */
+  emptyMessage: HTMLElement;
+  loadButtons: Record<ExampleSetId, HTMLButtonElement>;
   switches: Record<View, HTMLButtonElement>;
   bodies: Record<View, HTMLElement>;
   composer: Composer;
@@ -59,6 +67,17 @@ type Panel = {
    * fan-out questions and rows that are not valid yet.
    */
   serialised: string;
+  /**
+   * True from the start until the person edits the panel or loads an example.
+   * Run is disabled meanwhile, and the empty-state message says why.
+   */
+  untouched: boolean;
+  /** How many edits the person made since the panel was last loaded; a load asks before replacing any. */
+  edits: number;
+  /** True from a press of a load button until the example is in place; presses meanwhile are dropped. */
+  loading: boolean;
+  /** Tells the page that Run may now enable or disable. */
+  onChange: () => void;
 };
 
 const VIEW_STORAGE_PREFIX = "decisionmachines3000:view:";
@@ -101,25 +120,33 @@ function imagesHintText(count: number): string {
   return `${imagesCount(count)} attached. ${count === 1 ? "It is" : "They are"} sent as image parts beside this JSON, not inside it.`;
 }
 
+/**
+ * What a panel holds at the start, before anything is loaded: an empty state,
+ * no questions, and no shared criteria. The JSON view shows the same,
+ * `{ "primitive": …, "state": "", "questions": {} }`.
+ */
+function emptyModel(primitive: Primitive): ComposerModel {
+  return { primitive, state: "", questions: [], nextKey: 0 };
+}
+
 type PanelSetup = {
   /** The limits this panel validates against until a provider is selected. */
   capabilities: ProviderCapabilities;
   /** The provider selected while the panel is built, for the image control's first, silent render. */
   provider: ProviderSummary | undefined;
-  /** Called after every change to the panel's images, so the Run buttons follow the block state. */
-  onAttachmentsChange: () => void;
+  /** Called after any change that may enable or disable Run: the panel's images, or its first edit. */
+  onChange: () => void;
 };
 
 function setupPanel(
   form: HTMLFormElement,
-  { capabilities, provider, onAttachmentsChange }: PanelSetup,
+  { capabilities, provider, onChange }: PanelSetup,
 ): Panel {
   const primitive = form.dataset.primitive;
   if (!isPrimitive(primitive)) {
     throw new Error(`Unknown primitive "${primitive ?? ""}" on a panel form.`);
   }
 
-  const example = examples[primitive];
   const status = required(form, ".panel-status", HTMLElement);
   const treeBody = required(form, '[data-view-body="tree"]', HTMLElement);
   const hint = required(form, ".hint", HTMLElement);
@@ -135,12 +162,12 @@ function setupPanel(
     onChange: () => {
       if (!panel) return;
       panel.imagesHint.textContent = imagesHintText(attachments.count());
-      onAttachmentsChange();
+      onChange();
     },
   });
   const composer = createComposer({
     prefix: `${primitive}-tree`,
-    model: toViewModel(example),
+    model: emptyModel(primitive),
     capabilities,
     announce: (message) => {
       if (panel) setStatus(panel, message);
@@ -149,12 +176,14 @@ function setupPanel(
       if (!panel) return;
       panel.request = toRequest(composer.model());
       if (panel.status.dataset.tone === "alert") setStatus(panel, "");
+      markEdited(panel);
     },
   });
   treeBody.append(composer.element);
 
   panel = {
     primitive,
+    name: capitalise(primitive),
     capabilities,
     form,
     field: required(form, "textarea.request-field", HTMLTextAreaElement),
@@ -165,6 +194,11 @@ function setupPanel(
     button: required(form, ".run", HTMLButtonElement),
     label: required(form, ".run-label", HTMLElement),
     status,
+    emptyMessage: required(form, ".panel-empty", HTMLElement),
+    loadButtons: {
+      film: required(form, '.load-example[data-example="film"]', HTMLButtonElement),
+      images: required(form, '.load-example[data-example="images"]', HTMLButtonElement),
+    },
     switches: {
       tree: required(form, '.view-option[data-view="tree"]', HTMLButtonElement),
       json: required(form, '.view-option[data-view="json"]', HTMLButtonElement),
@@ -177,8 +211,21 @@ function setupPanel(
     view: "tree",
     request: toRequest(composer.model()),
     serialised: "",
+    untouched: true,
+    edits: 0,
+    loading: false,
+    onChange,
   };
   return panel;
+}
+
+/** Records an edit the person made: the empty-state message goes, Run may enable, and a load will ask first. */
+function markEdited(panel: Panel): void {
+  panel.edits += 1;
+  if (!panel.untouched) return;
+  panel.untouched = false;
+  panel.emptyMessage.hidden = true;
+  panel.onChange();
 }
 
 function showView(panel: Panel, view: View): void {
@@ -239,6 +286,7 @@ function switchView(panel: Panel, view: View): boolean {
     }
     panel.composer.setModel(toViewModel(request));
     panel.request = toRequest(panel.composer.model());
+    markEdited(panel);
   }
   clearFieldError(panel);
   setStatus(panel, "");
@@ -329,6 +377,65 @@ function revalidate(panel: Panel): void {
   }
 }
 
+/**
+ * Puts `request` into the panel, in whichever view is open, as if it had just
+ * been loaded: no edits, no shown error, and the empty-state message gone.
+ */
+function replaceRequest(panel: Panel, request: ValidDecisionRequest): void {
+  panel.composer.setModel(toViewModel(request));
+  panel.request = toRequest(panel.composer.model());
+  clearFieldError(panel);
+  if (panel.view === "json") writeJson(panel);
+  panel.edits = 0;
+  if (panel.untouched) {
+    panel.untouched = false;
+    panel.emptyMessage.hidden = true;
+  }
+  panel.onChange();
+}
+
+/**
+ * Puts focus on the first field of what was loaded: the tree's State field, or
+ * the textarea. Only when focus is still on `pressed`, the load button, or has
+ * fallen to the body: a person who tabbed on while the pictures were fetched
+ * keeps their place.
+ */
+function focusLoaded(panel: Panel, pressed: Element | null): void {
+  const active = panel.form.ownerDocument.activeElement;
+  if (active !== null && active !== pressed && active !== panel.form.ownerDocument.body) return;
+  if (panel.view === "json") {
+    panel.field.focus();
+    return;
+  }
+  const state = panel.composer.element.querySelector<HTMLElement>(
+    `[data-for="${STATE_KEY}"][data-control="state"]`,
+  );
+  state?.focus();
+}
+
+/**
+ * Why the image example cannot load into `panel` right now, or undefined when
+ * it can. The pictures would not be sent to a text-only provider, and the
+ * control cannot be emptied from here, so attached images are the person's to
+ * remove first.
+ */
+function imageExampleProblem(
+  panel: Panel,
+  set: ExampleSet,
+  chosen: ProviderSummary | undefined,
+): string | undefined {
+  const needs = `The ${set.label} needs a provider that takes images.`;
+  if (chosen === undefined) return `${needs} No provider is selected.`;
+  if (chosen.capabilities.images === false) {
+    return `${needs} ${chosen.displayName} is text only. Choose another provider first.`;
+  }
+  const attached = panel.attachments.count();
+  if (attached > 0) {
+    return `Remove the attached ${imagesCount(attached)} first. The ${set.label} attaches ${set.images.length} sample pictures of its own.`;
+  }
+  return undefined;
+}
+
 /** `omittedImages` is how many attached images the run left out because the provider is text only. */
 function renderResult(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
   switch (result.kind) {
@@ -361,43 +468,55 @@ function tryParse(source: string): { ok: true; value: unknown } | { ok: false } 
 export type PanelOptions = {
   /** Called after every run the provider answered successfully; the warm form restarts its count. */
   onAnswered?: (response: DecisionSuccess) => void;
+  /**
+   * Asks whether to replace a panel's edits with an example, and returns the
+   * answer. The page uses the browser's confirm dialog; tests answer directly.
+   */
+  confirmReplace?: (message: string) => boolean;
 };
 
 /**
- * Fills each panel with its example, wires the Tree and JSON views, and wires
- * Run to the shared readout and to the provider `selection` holds. Run stays
- * disabled while the selection has no provider.
+ * Wires each panel, which starts empty, to its two example buttons, its Tree
+ * and JSON views, and Run, which posts to the shared readout on the provider
+ * `selection` holds. Run stays disabled while the selection has no provider
+ * and while a panel is still empty.
  */
 export function setupPanels(
   root: Document,
   selection: ProviderSelection,
-  { onAnswered }: PanelOptions = {},
+  { onAnswered, confirmReplace }: PanelOptions = {},
 ): void {
   const readout = required(root, "#readout-body", HTMLElement);
   // Outside the live region, so the JSON is never announced.
   const wire = required(root, "#wire-body", HTMLElement);
+  const confirm =
+    confirmReplace ?? ((message: string) => root.defaultView?.confirm?.(message) ?? false);
   // Until a provider is selected, requests are checked against the default provider's limits.
   const provider = selection.current();
   const capabilities = provider?.capabilities ?? DEFAULT_PROVIDER.capabilities;
   const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
-    setupPanel(form, { capabilities, provider, onAttachmentsChange: updateButtons }),
+    setupPanel(form, { capabilities, provider, onChange: updateButtons }),
   );
   /** The panel whose run is in flight, or undefined between runs. */
   let running: Panel | undefined;
 
   /**
-   * Run is disabled while a run is in flight, while there is no provider, and
-   * on a panel whose images the selected provider cannot take, until the
-   * excess is removed. The running panel reads "Running". The state is read
-   * here rather than passed in, so a provider or image change during a run
-   * cannot relabel the buttons.
+   * Run is disabled while a run is in flight, while there is no provider, on a
+   * panel that is still empty, and on a panel whose images the selected
+   * provider cannot take, until the excess is removed. The running panel reads
+   * "Running". The state is read here rather than passed in, so a provider or
+   * image change during a run cannot relabel the buttons.
    */
   function updateButtons(): void {
     const unavailable = selection.current() === undefined;
     for (const panel of panels) {
       panel.button.disabled =
-        running !== undefined || unavailable || panel.attachments.blocked() !== undefined;
+        running !== undefined ||
+        unavailable ||
+        panel.untouched ||
+        panel.attachments.blocked() !== undefined;
       panel.label.textContent = panel === running ? "Running" : "Run";
+      panel.button.toggleAttribute("data-running", panel === running);
     }
   }
 
@@ -421,6 +540,78 @@ export function setupPanels(
   updateButtons();
 
   /**
+   * Loads an example set into a panel. The image set needs an image provider
+   * and an empty image list, and its pictures are fetched before anything is
+   * replaced, so a failed fetch leaves the panel as it was. Edits are never
+   * replaced without asking, including edits typed while the pictures were
+   * being fetched, and the image checks run again after the fetch, because the
+   * provider may have changed meanwhile. The status line says what happened
+   * either way, and focus lands on the first field of what was loaded.
+   */
+  async function loadExample(panel: Panel, set: ExampleSet): Promise<void> {
+    if (panel.loading) return;
+    const pressed = root.activeElement;
+    /** Whether the image set may go into this panel right now; announces the problem when not. */
+    const imagesAllowed = (): boolean => {
+      if (set.images.length === 0) return true;
+      const problem = imageExampleProblem(panel, set, selection.current());
+      if (problem === undefined) return true;
+      setStatus(panel, problem, "alert");
+      return false;
+    };
+    if (!imagesAllowed()) return;
+
+    /** Whether the edits made after the first `agreedTo` may go; asks when there are any. */
+    const agreesToReplace = (agreedTo: number): boolean =>
+      panel.edits <= agreedTo ||
+      confirm(
+        `Replace what the ${panel.name} panel holds with the ${set.label}? Your edits will be lost.`,
+      );
+    const kept = "Nothing loaded. Your request is kept.";
+    if (!agreesToReplace(0)) {
+      setStatus(panel, kept);
+      return;
+    }
+    const agreedTo = panel.edits;
+
+    panel.loading = true;
+    try {
+      let files: File[];
+      try {
+        files = await fetchSampleImages(set.images);
+      } catch {
+        setStatus(
+          panel,
+          `The ${set.label}'s sample pictures could not be loaded. Nothing was changed.`,
+          "alert",
+        );
+        return;
+      }
+      if (!imagesAllowed()) return;
+      if (!agreesToReplace(agreedTo)) {
+        setStatus(panel, kept);
+        return;
+      }
+
+      replaceRequest(panel, set.requests[panel.primitive]);
+      if (files.length > 0) {
+        await panel.attachments.add(files);
+        const attached = panel.attachments.count();
+        const pictures =
+          attached === files.length
+            ? `${files.length} sample pictures attached.`
+            : `${attached} of ${files.length} sample pictures attached.`;
+        setStatus(panel, `${capitalise(set.label)} loaded. ${pictures}`);
+      } else {
+        setStatus(panel, `${capitalise(set.label)} loaded.`);
+      }
+      focusLoaded(panel, pressed);
+    } finally {
+      panel.loading = false;
+    }
+  }
+
+  /**
    * What Run posts: the request text alone as JSON, or, when the panel holds
    * images the provider takes, a multipart form of that text and the files.
    * Returns the body and how many images were left out because the provider is text only.
@@ -438,7 +629,8 @@ export function setupPanels(
 
   async function run(panel: Panel): Promise<void> {
     const chosen = selection.current();
-    if (chosen === undefined) {
+    // An untouched panel has nothing to send, and its empty-state message says so.
+    if (chosen === undefined || panel.untouched) {
       return;
     }
     const blocked = panel.attachments.blocked();
@@ -487,10 +679,25 @@ export function setupPanels(
       });
     }
 
+    for (const button of Object.values(panel.loadButtons)) {
+      button.addEventListener("click", () => {
+        const id = button.dataset.example;
+        if (!isExampleSetId(id)) return;
+        loadExample(panel, EXAMPLE_SETS[id]).catch((error: unknown) => {
+          setStatus(
+            panel,
+            `Something went wrong while loading the example${error instanceof Error ? `: ${error.message}` : "."}`,
+            "alert",
+          );
+        });
+      });
+    }
+
     // Keep the request current while the JSON parses and validates, and drop a
     // shown error as soon as the text is fixed. Run and the switch back to the
     // tree report any remaining problem.
     panel.field.addEventListener("input", () => {
+      markEdited(panel);
       const parsed = tryParse(panel.field.value);
       const validation = parsed.ok
         ? validateDecisionRequest(parsed.value, panel.capabilities)

@@ -1,0 +1,24 @@
+{
+  "primitive": "score",
+  "state": "Four drawings are attached, numbered in the order they are listed. Each is a simple picture: a single coloured shape on a white background, or a scene of several shapes.",
+  "criteria": [
+    "Empty: a plain background with nothing drawn on it.",
+    "One shape alone on a plain background.",
+    "A few shapes, two or three, with space between them.",
+    "Many shapes, some overlapping, filling most of the picture."
+  ],
+  "questions": {
+    "image_1_clutter": {
+      "instructions": "How cluttered is image 1?"
+    },
+    "image_2_clutter": {
+      "instructions": "How cluttered is image 2?"
+    },
+    "image_3_clutter": {
+      "instructions": "How cluttered is image 3?"
+    },
+    "image_4_clutter": {
+      "instructions": "How cluttered is image 4?"
+    }
+  }
+}

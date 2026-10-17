@@ -20,7 +20,7 @@
   <body>
     <header class="masthead">
       <h1 class="wordmark">DecisionMachines3000</h1>
-      <p class="masthead-summary">Three ways to ask a model a question about the same films.</p>
+      <p class="masthead-summary">Three ways to ask a model a question about the same thing.</p>
     </header>
 
     <main class="bench">
@@ -63,6 +63,18 @@
           The probability that a yes/no statement about the state is true.
         </p>
         <form class="panel-form" data-primitive="noul" novalidate>
+          <div class="examples" role="group" aria-label="Examples for Noul">
+            <button class="text-button load-example" type="button" data-example="film">
+              Load film example
+            </button>
+            <button class="text-button load-example" type="button" data-example="images">
+              Load image example
+            </button>
+          </div>
+          <p class="panel-empty">
+            This panel is empty. Load the film example or the image example above, or write a state
+            and a question. Run is off until the panel holds a request.
+          </p>
           <div class="view-switch" role="group" aria-label="Edit the Noul request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
               Tree
@@ -105,6 +117,18 @@
           One option from a fixed set, with a probability for every option.
         </p>
         <form class="panel-form" data-primitive="choice" novalidate>
+          <div class="examples" role="group" aria-label="Examples for Choice">
+            <button class="text-button load-example" type="button" data-example="film">
+              Load film example
+            </button>
+            <button class="text-button load-example" type="button" data-example="images">
+              Load image example
+            </button>
+          </div>
+          <p class="panel-empty">
+            This panel is empty. Load the film example or the image example above, or write a state
+            and a question. Run is off until the panel holds a request.
+          </p>
           <div class="view-switch" role="group" aria-label="Edit the Choice request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
               Tree
@@ -147,6 +171,18 @@
           A position on ordered levels you describe, with a probability for each level.
         </p>
         <form class="panel-form" data-primitive="score" novalidate>
+          <div class="examples" role="group" aria-label="Examples for Score">
+            <button class="text-button load-example" type="button" data-example="film">
+              Load film example
+            </button>
+            <button class="text-button load-example" type="button" data-example="images">
+              Load image example
+            </button>
+          </div>
+          <p class="panel-empty">
+            This panel is empty. Load the film example or the image example above, or write a state
+            and a question. Run is off until the panel holds a request.
+          </p>
           <div class="view-switch" role="group" aria-label="Edit the Score request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
               Tree

@@ -1,0 +1,60 @@
+{
+  "primitive": "choice",
+  "state": {
+    "films": [
+      {
+        "title": "Static",
+        "logline": "A radio astronomer intercepts a signal that repeats her own voice from three years in the future, and every attempt to change what it says makes the message clearer."
+      },
+      {
+        "title": "The Long Table",
+        "logline": "Two rival food-truck owners are forced to share a single permit for a summer, trading barbs and recipes until they fall for each other somewhere between the tacos and the last night of the season."
+      },
+      {
+        "title": "Below the Floorboards",
+        "logline": "After moving into a farmhouse, a family hears knocking from beneath the kitchen every night at 3:12, and the knocks are learning their names."
+      },
+      {
+        "title": "Twelve Hundred Hives",
+        "logline": "Over one season, a crew of migrant beekeepers trucks their colonies across four states, filmed as almond orchards bloom and die back."
+      },
+      {
+        "title": "Paper Kingdom",
+        "logline": "A hand-drawn adventure about a girl who folds a city out of newspaper and must keep it standing when the headlines start to come true."
+      },
+      {
+        "title": "Last Train to Mercer",
+        "logline": "A retired detective boards an overnight train to identify a body, only to realise the passengers are the suspects from the one case he never closed."
+      }
+    ]
+  },
+  "criteria": {
+    "science_fiction": "Speculative technology, space, time, or physics that does not exist today.",
+    "horror": "Built to frighten: supernatural threats, dread, or violence meant to scare.",
+    "romantic_comedy": "A love story told for laughs, with the relationship as the main plot.",
+    "documentary": "Non-fiction: real people and events, filmed as they happen or reconstructed from records.",
+    "animation": "Drawn, painted, or computer-generated imagery rather than live-action footage.",
+    "crime_mystery": "Solving a crime or uncovering a culprit drives the plot.",
+    "other": "None of the genres above describes the film well."
+  },
+  "questions": {
+    "film_0": {
+      "instructions": "Which genre best fits the film described in `films[0]`?"
+    },
+    "film_1": {
+      "instructions": "Which genre best fits the film described in `films[1]`?"
+    },
+    "film_2": {
+      "instructions": "Which genre best fits the film described in `films[2]`?"
+    },
+    "film_3": {
+      "instructions": "Which genre best fits the film described in `films[3]`?"
+    },
+    "film_4": {
+      "instructions": "Which genre best fits the film described in `films[4]`?"
+    },
+    "film_5": {
+      "instructions": "Which genre best fits the film described in `films[5]`?"
+    }
+  }
+}

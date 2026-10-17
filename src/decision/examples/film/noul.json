@@ -1,0 +1,24 @@
+{
+  "primitive": "noul",
+  "state": {
+    "review": "Saw this at the Roxie last night with a packed house. The first hour drags and the score is intrusive, but the final act, where the lighthouse keeper turns out to have been the brother all along, had the whole room gasping. Not perfect, but go see it before someone ruins it for you."
+  },
+  "questions": {
+    "recommends": {
+      "instructions": "Does the reviewer recommend watching the film?"
+    },
+    "reveals_ending": {
+      "instructions": "Does `review` reveal a plot twist or how the film ends?"
+    },
+    "saw_in_theater": {
+      "instructions": "Did the reviewer watch the film in a cinema?",
+      "criteria": {
+        "true": "The review names or clearly describes a theater screening with other people present.",
+        "false": "The review describes home viewing, streaming, or does not say where the film was watched."
+      }
+    },
+    "complains_about_music": {
+      "instructions": "Does the reviewer criticise the film's music or score?"
+    }
+  }
+}

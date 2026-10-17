@@ -2,7 +2,16 @@
 
 A small demo of [TypeSafe's](https://typesafe.ai) Jev decision model and its three primitives: Noul, Choice, and Score.
 
-Each primitive gets its own panel with a tree-based "branch composer" for building up questions and state, plus a JSON editor for editing the same request by hand. When the selected provider takes images, each panel also shows an Images control: choose files, drop them on it, or paste one, and the browser checks each file's real format and the provider's limits (read from `GET /api/providers`) before sending the files as multipart parts beside the request JSON. A readout renders the model's answers, including probabilities drawn as bars. A separate warm-connection demo, available under `vp dev`, shows the latency difference between a cold connection to a provider and one that has already been warmed up (see [The warm-connection demo](#the-warm-connection-demo)).
+Each primitive gets its own panel with a tree-based "branch composer" for building up questions and state, plus a JSON editor for editing the same request by hand. Every panel starts empty, and two buttons at its top load an example into it (see [The example sets](#the-example-sets)). When the selected provider takes images, each panel also shows an Images control: choose files, drop them on it, or paste one, and the browser checks each file's real format and the provider's limits (read from `GET /api/providers`) before sending the files as multipart parts beside the request JSON. A readout renders the model's answers, including probabilities drawn as bars. A separate warm-connection demo, available under `vp dev`, shows the latency difference between a cold connection to a provider and one that has already been warmed up (see [The warm-connection demo](#the-warm-connection-demo)).
+
+## The example sets
+
+A panel opens with an empty request, `{ "primitive": …, "state": "", "questions": {} }`, and Run stays off until the panel holds one. Each panel has two buttons, "Load film example" and "Load image example", and loading an example that would replace your edits asks first.
+
+- **Film reviews** are the original examples: a few fictional films, which Noul, Choice, and Score each ask about in their own way. The set needs no images, so it loads on any provider.
+- **Images** attaches four small drawings this project made, a red square, a blue circle, a green triangle, and a busy scene of overlapping shapes, and asks about them as "image 1" to "image 4" in the order they are listed. The set needs a provider that takes images, and a panel whose image list is empty.
+
+The requests are JSON files under [`src/decision/examples/`](./src/decision/examples/), checked against the request validator when the page loads. The pictures sit beside the image set with their licence ([`src/decision/examples/images/README.md`](./src/decision/examples/images/README.md)) and are drawn by `vp run sample-images` ([`scripts/sample-images.ts`](./scripts/sample-images.ts)), so they can be redrawn at any time.
 
 ## Deploy your own
 

@@ -849,6 +849,35 @@ describe("image labels (issue #57)", () => {
     expect(lines).not.toContain("secret");
   });
 
+  it("logs only the status of a provider error that quotes the file names", async () => {
+    const deps = stubDeps();
+    deps.fetch.mockImplementation(() =>
+      Promise.resolve(
+        Response.json(
+          {
+            error: {
+              message: "Could not read Image 1: secret-holiday.png",
+              type: "invalid_request_error",
+              param: null,
+              code: null,
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    const { response } = await send(
+      multipart("openai", [requestPart, ["image", file(image("png")), "secret-holiday.png"]]),
+      deps,
+    );
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    const lines = deps.log.mock.calls.map(([line]) => line).join("\n");
+    expect(lines).toContain('detail="400"');
+    expect(lines).toContain("images=1");
+    expect(lines).not.toContain("secret");
+  });
+
   it("keeps the file names out of a refusal for an unsupported image", async () => {
     const deps = stubDeps();
     const { text, response } = await send(

@@ -284,7 +284,11 @@ export async function decide(
           status: response.status,
           latencyMs,
           kind: thrown.kind,
-          detail: thrown.detail,
+          // A provider's error text can quote the request, and an image run's request names its files (#57).
+          detail:
+            valid.images !== undefined && thrown.upstreamStatus !== undefined
+              ? `${thrown.upstreamStatus}`
+              : thrown.detail,
           schema: thrown.schemaMessage,
         }),
       );

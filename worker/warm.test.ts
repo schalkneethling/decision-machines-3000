@@ -440,7 +440,7 @@ describe("warmUrl", () => {
       expect(body.error).toBe("SubQ Snap has no call to warm a connection with.");
       expect(deps.fetch).not.toHaveBeenCalled();
     } finally {
-      subq.warmPath = saved;
+      if (saved !== undefined) subq.warmPath = saved;
     }
   });
 

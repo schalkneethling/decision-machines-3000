@@ -174,7 +174,13 @@ describe("ConnectionPool", () => {
   });
 
   it("sends the method, headers, and string body it is given", async () => {
-    let seen: { method?: string; authorization?: string; body: string } | undefined;
+    let seen:
+      | {
+          method?: string | undefined;
+          authorization?: string | undefined;
+          body: string;
+        }
+      | undefined;
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));

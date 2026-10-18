@@ -44,7 +44,7 @@ const STATE =
 // The three requests below carry the same state, instructions, and criteria as
 // `fixtures/subq/three-types.json`, one primitive per request as the neutral
 // contract requires. A test compares them with the fixture's recorded body.
-const noulRequest: DecisionRequest<"noul"> = {
+const noulRequest = {
   primitive: "noul",
   state: STATE,
   questions: {
@@ -56,9 +56,9 @@ const noulRequest: DecisionRequest<"noul"> = {
       },
     },
   },
-};
+} satisfies DecisionRequest<"noul">;
 
-const choiceRequest: DecisionRequest<"choice"> = {
+const choiceRequest = {
   primitive: "choice",
   state: STATE,
   criteria: {
@@ -68,9 +68,9 @@ const choiceRequest: DecisionRequest<"choice"> = {
     front_desk: null,
   },
   questions: { queue: { instructions: "Which team should own this chat?" } },
-};
+} satisfies DecisionRequest<"choice">;
 
-const scoreRequest: DecisionRequest<"score"> = {
+const scoreRequest = {
   primitive: "score",
   state: STATE,
   questions: {
@@ -79,7 +79,7 @@ const scoreRequest: DecisionRequest<"score"> = {
       criteria: ["Within a week", "Within a day", "Within an hour"],
     },
   },
-};
+} satisfies DecisionRequest<"score">;
 
 type Fields = Record<string, unknown>;
 
@@ -128,6 +128,13 @@ function urlOf(input: Parameters<Fetch>[0]): string {
 function sentBody(init: RequestInit): string {
   if (typeof init.body !== "string") throw new Error("Expected the request body to be a string.");
   return init.body;
+}
+
+/** The first call a stubbed `fetch` recorded. A test that reaches for one expects it to exist. */
+function firstCall(calls: Call[]): Call {
+  const [call] = calls;
+  if (call === undefined) throw new Error("Expected the fetch to have been called.");
+  return call;
 }
 
 /** A `fetch` that answers every call with one JSON reply and records what it was asked. */
@@ -509,7 +516,7 @@ describe("decide", () => {
       wire: { response: threeTypesReplyWith("escalate") },
     });
     expect(calls).toHaveLength(1);
-    const [call] = calls;
+    const call = firstCall(calls);
     expect(call.url).toBe("https://api.subq.ai/v1/systemone");
     expect(call.init.method).toBe("POST");
     expect(call.init.signal).toBe(signal);

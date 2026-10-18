@@ -64,7 +64,7 @@ const PINNED_MODEL = "jev-1.13.0";
 /** A key that must never appear in an error. Its shape mirrors a real one without being one. */
 const API_KEY = "sk-test-0123456789abcdef-never-logged";
 
-const noulRequest: DecisionRequest<"noul"> = {
+const noulRequest = {
   primitive: "noul",
   state: "Patient with asthma reports a sore throat and shortness of breath.",
   questions: {
@@ -73,9 +73,9 @@ const noulRequest: DecisionRequest<"noul"> = {
       criteria: { true: "Breathing trouble", false: "Stable symptoms" },
     },
   },
-};
+} satisfies DecisionRequest<"noul">;
 
-const choiceRequest: DecisionRequest<"choice"> = {
+const choiceRequest = {
   primitive: "choice",
   state: "Patient asks for a repeat prescription.",
   criteria: { nurse_line: "Needs a nurse today", pharmacy: "Refill only", front_desk: null },
@@ -86,9 +86,9 @@ const choiceRequest: DecisionRequest<"choice"> = {
       criteria: { nurse_line: "Needs a nurse now", emergency: null },
     },
   },
-};
+} satisfies DecisionRequest<"choice">;
 
-const scoreRequest: DecisionRequest<"score"> = {
+const scoreRequest = {
   primitive: "score",
   state: "Patient reports a mild cough.",
   questions: {
@@ -97,7 +97,7 @@ const scoreRequest: DecisionRequest<"score"> = {
       criteria: ["Within a week", "Within a day", "Within an hour"],
     },
   },
-};
+} satisfies DecisionRequest<"score">;
 
 async function rejection(promise: Promise<unknown>): Promise<ProviderError> {
   try {
@@ -131,6 +131,13 @@ function urlOf(input: Parameters<Fetch>[0]): string {
 function sentBody(init: RequestInit): string {
   if (typeof init.body !== "string") throw new Error("Expected the request body to be a string.");
   return init.body;
+}
+
+/** The first call a stubbed `fetch` recorded. A test that reaches for one expects it to exist. */
+function firstCall(calls: Call[]): Call {
+  const [call] = calls;
+  if (call === undefined) throw new Error("Expected the fetch to have been called.");
+  return call;
 }
 
 /** A `fetch` that answers every call with one reply and records what it was asked. */
@@ -397,7 +404,7 @@ describe("decide", () => {
       wire: { response: fixture("noul").body },
     });
     expect(calls).toHaveLength(1);
-    const [call] = calls;
+    const call = firstCall(calls);
     expect(call.url).toBe("https://api.typesafe.ai/v1/systemone");
     expect(call.init.method).toBe("POST");
     expect(call.init.signal).toBe(signal);

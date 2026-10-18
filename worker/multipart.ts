@@ -240,7 +240,8 @@ export async function readMultipart(
     request: form.getAll("request"),
     image: form.getAll("image"),
   });
-  if (!parsed.success) return refuse(parsed.error.issues[0].message);
+  // A failed parse always has an issue, so UNREADABLE is never expected to be shown.
+  if (!parsed.success) return refuse(parsed.error.issues[0]?.message ?? UNREADABLE);
   // The schema holds one text part and the files, so the casts only restate what it checked.
   const text = parsed.data.request[0] as string;
   // A string is at least as many bytes as it has UTF-16 units, so the cheap test comes first.

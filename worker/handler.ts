@@ -269,8 +269,9 @@ async function dispatch(
     const refusal = isGated(method, pathname) ? await gate(request, env, deps) : undefined;
     return refusal ?? answer(request, env, deps);
   }
-  if (method === "HEAD" && Object.hasOwn(methods, "GET")) {
-    return headOf(methods.GET(request, env, deps));
+  const getAnswer = Object.hasOwn(methods, "GET") ? methods.GET : undefined;
+  if (method === "HEAD" && getAnswer !== undefined) {
+    return headOf(getAnswer(request, env, deps));
   }
   return methodNotAllowed(method, methods);
 }

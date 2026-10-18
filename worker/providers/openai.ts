@@ -361,7 +361,10 @@ function legendFor(
   if (request.primitive !== "score") {
     throw new Error(`Question "${id}" is not a score question, so it has no legend.`);
   }
-  const levels = resolvedCriteria(id, request.questions[id].criteria ?? request.criteria);
+  const question = request.questions[id];
+  if (question === undefined)
+    throw new Error(`Question "${id}" is not in the request, so it has no legend.`);
+  const levels = resolvedCriteria(id, question.criteria ?? request.criteria);
   return Object.fromEntries(levels.map((level, index) => [String(index), level]));
 }
 

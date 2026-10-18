@@ -322,6 +322,40 @@ describe("the image control with the shrink transform", () => {
     expect(asked).toEqual([64 * KIB, 24 * KIB]);
   });
 
+  describe("the room left in the request, as the refusal words it", () => {
+    // The request holds 64 KiB, so attaching `taken` bytes first leaves 65,536 - taken bytes of room.
+    async function refusedWithRoom(taken: number, size: number): Promise<string> {
+      const control = createAttachments(mount(), {
+        prefix: "noul-images",
+        provider: openai,
+        transform: createShrinkTransform(undefined),
+      });
+      await control.add([fileOf(pngBytes({ size: taken }), "first.png", "image/png")]);
+      await control.add([fileOf(pngBytes({ size }), "next.png", "image/png")]);
+      return status();
+    }
+
+    it("gives 34,299 bytes of room as a rounded size, not with every decimal", async () => {
+      expect(await refusedWithRoom(31_237, 40_000)).toBe(
+        "next.png was not added: it is 39 KB, over the 33 KB it must fit in, and this browser cannot shrink images.",
+      );
+    });
+
+    it("shows a picture and the room it failed to fit in bytes when rounding would hide the difference", async () => {
+      expect(await refusedWithRoom(30_636, 35_000)).toBe(
+        "next.png was not added: it is 35,000 bytes, over the 34,900 bytes it must fit in, and this browser cannot shrink images.",
+      );
+    });
+
+    it("still writes a budget that is the whole 64 KiB as 64 KB", async () => {
+      const file = fileOf(jpegBytes({ size: 5 * MIB }), "wall.jpg", "image/jpeg");
+      const refusal = createShrinkTransform(undefined)({ file, mediaType: "image/jpeg" }, limits);
+      await expect(refusal).rejects.toThrow(
+        "it is 5.0 MB, over the 64 KB it must fit in, and this browser cannot shrink images.",
+      );
+    });
+  });
+
   it("fits large photos in the request in total, and refuses the one that cannot fit the room left", async () => {
     // The encodings are 40 KiB at 1024 px, 20 KiB at 768 px, and 10 KiB at 512 px, so the third photo has 4 KiB left and cannot fit.
     const { rasterize } = fakeRasterizer({

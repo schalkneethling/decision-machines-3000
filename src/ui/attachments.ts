@@ -1,4 +1,4 @@
-import { formatBytes, measuredAgainst, sizeInWords } from "../providers/byte-size.ts";
+import { formatBytes, sizeAndLimit } from "../providers/byte-size.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
 import { SIGNATURE_BYTES, detectMediaType, imageDimensions } from "../providers/image-bytes.ts";
@@ -457,14 +457,16 @@ export function createAttachments(
       return { sentence: notAnImage };
 
     if (transformed.size > images.maxBytesPerImage) {
+      const shown = sizeAndLimit(transformed.size, images.maxBytesPerImage);
       return {
-        sentence: `${name} was not added: it is ${measuredAgainst(transformed.size, images.maxBytesPerImage)}, over this instance's limit of ${sizeInWords(images.maxBytesPerImage)} per image.`,
+        sentence: `${name} was not added: it is ${shown.measured}, over this instance's limit of ${shown.limit} per image.`,
       };
     }
     const total = totalBytes() + transformed.size;
     if (total > images.maxBytesPerRequest) {
+      const shown = sizeAndLimit(total, images.maxBytesPerRequest);
       return {
-        sentence: `${name} was not added: with it the images would add up to ${measuredAgainst(total, images.maxBytesPerRequest)}, over this instance's limit of ${sizeInWords(images.maxBytesPerRequest)} per request.`,
+        sentence: `${name} was not added: with it the images would add up to ${shown.measured}, over this instance's limit of ${shown.limit} per request.`,
       };
     }
 

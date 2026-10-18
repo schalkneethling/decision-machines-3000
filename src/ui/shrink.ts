@@ -1,4 +1,4 @@
-import { formatBytes, measuredAgainst, sizeInWords } from "../providers/byte-size.ts";
+import { formatBytes, sizeAndLimit } from "../providers/byte-size.ts";
 import { SIGNATURE_BYTES, imageDimensions } from "../providers/image-bytes.ts";
 import { ImageRefusal } from "./attachments.ts";
 import type { ImageTransform } from "./attachments.ts";
@@ -66,7 +66,8 @@ export function createShrinkTransform(
     // With no room left the control's own size check refuses the image with the request total.
     if (file.size <= budget || budget <= 0) return file;
 
-    const mustFit = `it is ${measuredAgainst(file.size, budget)}, over the ${sizeInWords(budget)} it must fit in`;
+    const shown = sizeAndLimit(file.size, budget);
+    const mustFit = `it is ${shown.measured}, over the ${shown.limit} it must fit in`;
     if (rasterize === undefined) {
       throw new ImageRefusal(`${mustFit}, and this browser cannot shrink images.`);
     }

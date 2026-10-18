@@ -274,10 +274,11 @@ function matchFanOut(
   start: number,
   state: Content,
 ): FanOutMatch | undefined {
-  const [firstId] = entries[start];
-  const idMatch = /^([a-z0-9_]+)_0$/.exec(firstId);
-  if (idMatch === null) return undefined;
-  const id = idMatch[1];
+  const first = entries[start];
+  if (first === undefined) return undefined;
+  const idMatch = /^([a-z0-9_]+)_0$/.exec(first[0]);
+  const id = idMatch?.[1];
+  if (id === undefined) return undefined;
 
   for (const path of arrayKeys(state)) {
     const count = arrayLength(state, path) ?? 0;
@@ -293,7 +294,7 @@ function matchFanOut(
     if (template === undefined || !hasPlaceholder(template)) continue;
     if (!templates.every((candidate) => candidate === template)) continue;
 
-    const criteria = run[0][1].criteria;
+    const criteria = run[0]?.[1].criteria;
     if (!run.every(([, question]) => sameContent(question.criteria, criteria))) continue;
 
     const expandsBack = run.every(
@@ -326,7 +327,9 @@ function buildModel<P extends Primitive>(
     const fanOut = supportsFanOut(request.primitive)
       ? matchFanOut(entries, index, request.state)
       : undefined;
-    const [id, source] = entries[index];
+    const entry = entries[index];
+    if (entry === undefined) break;
+    const [id, source] = entry;
     const question: QuestionModel = fanOut
       ? {
           key: takeKey(model, "q"),
@@ -755,6 +758,7 @@ export function moveByKey<T extends { key: string }>(list: T[], key: string, ste
   const to = from + step;
   if (from === -1 || to < 0 || to >= list.length) return -1;
   const [item] = list.splice(from, 1);
+  if (item === undefined) return -1;
   list.splice(to, 0, item);
   return to;
 }

@@ -60,7 +60,10 @@ function keyTypeRule(item: SchemaItem): RegExp {
   const line = item.comments.find((comment) => comment.includes("@type="));
   const match = line?.match(/^#\s*@type=string\(matches=regex\("(.*)", "([a-z]*)"\)\)$/);
   if (!match) throw new Error(`${item.name} has no @type=string(matches=regex(...)) line`);
-  return new RegExp(match[1], match[2]);
+  const [, pattern, flags] = match;
+  if (pattern === undefined || flags === undefined)
+    throw new Error(`${item.name} has an unreadable @type line`);
+  return new RegExp(pattern, flags);
 }
 
 describe("the schema", () => {
@@ -164,7 +167,7 @@ describe("the deploy guide", () => {
     const guide = readRoot("docs/deploy.md");
     // Every line inside a fenced `sh` block is a command line or its continuation.
     const commands = [...guide.matchAll(/```sh\n([\s\S]*?)```/g)].flatMap((block) =>
-      block[1].split("\n"),
+      (block[1] ?? "").split("\n"),
     );
     expect(commands.length).toBeGreaterThan(0);
     for (const line of commands) {

@@ -157,13 +157,15 @@ export function targetArguments(argv: readonly string[]): string[] {
   const picked: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    const flag = argument.split("=", 1)[0];
+    if (argument === undefined) continue;
+    const flag = argument.split("=", 1)[0] ?? argument;
     if (!TARGET_FLAGS.has(flag)) continue;
     picked.push(argument);
     // The separate-value form: the next argument is this flag's value, whatever it looks like.
-    if (argument === flag && index + 1 < argv.length) {
+    const value = argv[index + 1];
+    if (argument === flag && value !== undefined) {
       index += 1;
-      picked.push(argv[index]);
+      picked.push(value);
     }
   }
   return picked;

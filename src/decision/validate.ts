@@ -93,6 +93,13 @@ function unknownField(key: string): string {
   return isPlaceholder(key) ? "an unknown field" : `an unknown field "${key}"`;
 }
 
+/** The first field an unknown-field issue names. Zod only raises this issue for at least one key. */
+function firstUnknownKey(issue: { keys: readonly string[] }): string {
+  const [key] = issue.keys;
+  if (key === undefined) throw new Error("Zod reported unknown fields without naming one.");
+  return key;
+}
+
 /** The message for an unknown field, with a hint when the field is `type`. */
 function unknownFieldMessage(where: string, key: string, allowed: readonly string[]): string {
   const hint =
@@ -193,7 +200,7 @@ const noulCriteria = knownFieldsFirst(
   NOUL_CRITERIA_KEYS,
   (issue) =>
     issue.code === "unrecognized_keys"
-      ? unknownFieldMessage(criteriaPlaceOf(issue), issue.keys[0], NOUL_CRITERIA_KEYS)
+      ? unknownFieldMessage(criteriaPlaceOf(issue), firstUnknownKey(issue), NOUL_CRITERIA_KEYS)
       : `${criteriaPlaceOf(issue)} must be an object with optional "true" and "false" descriptions, not ${describeKind(issue.input)}.`,
   z.object({ true: z.exactOptional(noulDescription), false: z.exactOptional(noulDescription) }),
 );
@@ -307,7 +314,11 @@ function questionsSchema<C extends z.ZodMiniType>(
     QUESTION_KEYS,
     (issue) =>
       issue.code === "unrecognized_keys"
-        ? unknownFieldMessage(`Question "${questionIdOf(issue)}"`, issue.keys[0], QUESTION_KEYS)
+        ? unknownFieldMessage(
+            `Question "${questionIdOf(issue)}"`,
+            firstUnknownKey(issue),
+            QUESTION_KEYS,
+          )
         : `Question "${questionIdOf(issue)}" must be an object with "instructions" and optional "criteria", not ${describeKind(issue.input)}.`,
     z.object({ instructions, criteria: z.exactOptional(criteria) }),
   );
@@ -385,7 +396,7 @@ function decisionRequestSchema(capabilities: ProviderCapabilities) {
     REQUEST_KEYS,
     (issue) =>
       issue.code === "unrecognized_keys"
-        ? unknownFieldMessage("The request", issue.keys[0], REQUEST_KEYS)
+        ? unknownFieldMessage("The request", firstUnknownKey(issue), REQUEST_KEYS)
         : NOT_AN_OBJECT(issue.input),
     request,
   );
@@ -454,6 +465,7 @@ export function validateDecisionRequest(
   }
   if (result.success) return { ok: true, value: result.data };
   const [issue] = result.error.issues;
+  if (issue === undefined) throw new Error("Zod reported a failed check without an issue.");
   const failure: ValidationFailure = { ok: false, error: issue.message };
   const path = pathOf(issue);
   // Joined by hand: `z.core.toDotPath` writes a list index as `[0]`, and paths here read `criteria.0`.
@@ -467,7 +479,7 @@ function pathOf(issue: z.core.$ZodIssue): PropertyKey[] {
   // is added to point at it, as in `questions.greeting.type`.
   // A field named like the placeholder is left out of the path, so it is never echoed.
   if (issue.code === "unrecognized_keys") {
-    const [key] = issue.keys;
+    const key = firstUnknownKey(issue);
     return isPlaceholder(key) ? issue.path : [...issue.path, key];
   }
   // A blank key cannot be read at the end of a dotted path (`questions.`), so an empty

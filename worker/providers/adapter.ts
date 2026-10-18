@@ -521,5 +521,6 @@ export function parseReply<T>(
   }
   if (result.success) return result.data;
   const [issue] = result.error.issues;
+  if (issue === undefined) throw unreadableReply(provider, "body: could not be checked");
   throw unreadableReply(provider, describeIssue(issue), clip(issue.message));
 }

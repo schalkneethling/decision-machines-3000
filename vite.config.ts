@@ -24,18 +24,22 @@ import { viteHostPlugin } from "./server/vite-host.ts";
 export default defineConfig(({ command }) => {
   const servesApi = command === "serve" && !process.env.VITEST;
   const buildsWorker = command === "build" && !process.env.VITEST;
+  const plugins = lazyPlugins(async () => {
+    if (servesApi) {
+      const { varlockCloudflareVitePlugin } = await import("@varlock/cloudflare-integration");
+      return [viteHostPlugin(), varlockCloudflareVitePlugin()];
+    }
+    if (buildsWorker) {
+      const { cloudflare } = await import("@cloudflare/vite-plugin");
+      return [cloudflare()];
+    }
+    return [];
+  });
   return {
-    plugins: lazyPlugins(async () => {
-      if (servesApi) {
-        const { varlockCloudflareVitePlugin } = await import("@varlock/cloudflare-integration");
-        return [viteHostPlugin(), varlockCloudflareVitePlugin()];
-      }
-      if (buildsWorker) {
-        const { cloudflare } = await import("@cloudflare/vite-plugin");
-        return [cloudflare()];
-      }
-      return [];
-    }),
+    // `lazyPlugins` is typed as returning `PluginOption[] | undefined` (it returns
+    // undefined while metadata is read), but Vite's `plugins?: PluginOption[]` rejects an
+    // explicit undefined under exactOptionalPropertyTypes. Omitting the key is equivalent.
+    ...(plugins === undefined ? {} : { plugins }),
     staged: {
       "*": "vp check --fix",
     },

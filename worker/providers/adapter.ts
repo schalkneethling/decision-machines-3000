@@ -75,7 +75,7 @@ export type ProviderErrorOptions = {
    */
   upstreamStatus?: number;
   /** For `rate_limited`: the seconds the provider asked us to wait, when it said. */
-  retryAfterSeconds?: number;
+  retryAfterSeconds?: number | undefined;
   /** Only ever a `TransportCause`, never the original error. */
   cause?: TransportCause;
   /**
@@ -84,7 +84,7 @@ export type ProviderErrorOptions = {
    * turned on Zod's English locale (`worker/zod-locale.ts`), and then
    * "Invalid input: expected number, received string".
    */
-  schemaMessage?: string;
+  schemaMessage?: string | undefined;
 };
 
 /** A failed provider call, normalised so the route can answer the same way for every provider. */
@@ -269,7 +269,7 @@ export async function fetchJson(
     response = await fetch(url, {
       method: request.method,
       headers: { ...request.headers, authorization: `Bearer ${apiKey}` },
-      body: request.body,
+      ...(request.body === undefined ? {} : { body: request.body }),
       signal,
       // "manual", not "error": workerd rejects "error" with a TypeError, which
       // made every provider call fail on a deployed Worker (#48). "manual" hands

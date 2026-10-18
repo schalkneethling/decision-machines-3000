@@ -83,7 +83,9 @@ async function requestJson<T>(
     if (timedOut) {
       return { kind: "timeout" };
     }
-    return { kind: "unreachable", detail: error instanceof Error ? error.message : undefined };
+    return error instanceof Error
+      ? { kind: "unreachable", detail: error.message }
+      : { kind: "unreachable" };
   } finally {
     clearTimeout(timer);
   }

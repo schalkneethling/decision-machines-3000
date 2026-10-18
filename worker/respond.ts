@@ -29,9 +29,9 @@ export function json(
 
 export type FailureOptions = {
   /** Developer-facing detail, such as a validation path or an upstream status. */
-  detail?: string;
+  detail?: string | undefined;
   /** Extra response headers, such as `Allow` or `Retry-After`. */
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | undefined;
 };
 
 /** A failure in the shape every `/api` route uses: `{ ok: false, error, detail? }`. */

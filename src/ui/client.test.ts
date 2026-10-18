@@ -396,7 +396,7 @@ describe("askProvider", () => {
     // What the platform does with that body: a multipart type with a boundary it chose.
     const request = new Request("https://decisionmachines3000.example/api/decide/subq", {
       method: "POST",
-      body: init?.body,
+      body: init?.body ?? null,
     });
     expect(request.headers.get("content-type")).toMatch(/^multipart\/form-data; boundary=/);
     expect(result).toEqual({ kind: "response", status: 200, response: noulResponse });

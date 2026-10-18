@@ -40,7 +40,8 @@ const LOG_PREFIX = "[api]";
 export function providerKeysFromProcessEnv(): ProviderKeys {
   const keys: ProviderKeys = {};
   for (const name of Object.values(PROVIDER_KEY_NAMES)) {
-    keys[name] = process.env[name];
+    const value = process.env[name];
+    if (value !== undefined) keys[name] = value;
   }
   return keys;
 }

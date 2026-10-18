@@ -12,6 +12,7 @@
     /* Worker code starts strict, unlike the root tsconfig (#34). */
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",

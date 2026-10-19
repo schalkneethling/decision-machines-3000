@@ -25,7 +25,7 @@
     "@varlock/cloudflare-integration": "^1.6.1",
     "happy-dom": "^20.14.5",
     "typescript": "~6.0.2",
-    "varlock": "^1.22.0",
+    "varlock": "^1.23.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8",
     "vite-plus": "0.2.8",
     "wrangler": "^4.150.0"

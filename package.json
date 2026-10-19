@@ -21,17 +21,17 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.63.2",
     "@types/node": "^26.6.2",
-    "@varlock/1password-plugin": "^2.0.4",
+    "@varlock/1password-plugin": "^2.0.5",
     "@varlock/cloudflare-integration": "^1.6.1",
     "happy-dom": "^20.14.5",
-    "typescript": "~6.0.2",
-    "varlock": "^1.22.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8",
-    "vite-plus": "0.2.8",
+    "typescript": "~7.0.2",
+    "varlock": "^1.23.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
+    "vite-plus": "1.1.0",
     "wrangler": "^4.150.0"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0"
   },
   "devEngines": {
     "packageManager": {

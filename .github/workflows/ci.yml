@@ -67,12 +67,11 @@ jobs:
       # choose another npm (https://developers.cloudflare.com/workers/ci-cd/builds/build-image/).
       # The Deploy to Cloudflare button fails at install when devEngines or the lockfile
       # rejects it (#68). Update the version here when Cloudflare changes the image.
-      # `npx npm@10.9.2` is not enough: on the runner it ran the npm already installed
-      # (10.9.9), so the exact version is installed globally and printed first.
-      - name: Install Cloudflare's npm
-        run: | # zizmor: ignore[adhoc-packages] pinned on purpose to match Cloudflare's build image
-          npm install --global npm@10.9.2
-          npm --version
-
+      # The exact npm goes into a temporary folder and runs from there: `npx npm@10.9.2`
+      # ran the runner's own npm (10.9.9), and a global install needs root.
       - name: Install dependencies as the Deploy button's build does
-        run: npm clean-install --dry-run --ignore-scripts
+        run: | # zizmor: ignore[adhoc-packages] pinned on purpose to match Cloudflare's build image
+          npm install --prefix "$RUNNER_TEMP/cloudflare-npm" npm@10.9.2
+          cloudflare_npm="$RUNNER_TEMP/cloudflare-npm/node_modules/.bin/npm"
+          "$cloudflare_npm" --version
+          "$cloudflare_npm" clean-install --dry-run --ignore-scripts

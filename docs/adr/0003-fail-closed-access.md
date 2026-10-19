@@ -39,6 +39,13 @@ All pages were read on 2026-10-15.
 
 Two things the pages do not state, left for the live check in [`scenarios/14-fail-closed.feature`](../../scenarios/14-fail-closed.feature): that the `Cf-Access-Jwt-Assertion` header reaches the Worker when Access is enabled at the Worker level rather than on a hostname (the Workers page documents `ctx.access` for that case and does not mention the header), and where the dashboard shows the team domain (the validating page gives its shape, `<team>.cloudflareaccess.com`).
 
+**Live check, 2026-10-19,** on the owner's instance (Worker-level Access, All traffic, a policy that allows one email address):
+
+- **The header reaches the Worker.** After signing in through Access, `GET /api/providers` reported `"protection": { "mode": "access", "validated": true }`, so the Worker received the token in `Cf-Access-Jwt-Assertion` and verified it. A run then succeeded on all three providers.
+- **The dashboard shows the team domain on the Worker's own Access tab.** Under "Application values" it lists the AUD tag and a JWKS URL, `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, which contains the team domain.
+- **Access stops unsigned requests first.** Without a session, `/`, `GET /api/providers` and `POST /api/decide/typesafe` all answered Access's 302 to its login page. That was true even with a forged `Cf-Access-Jwt-Assertion` header, so the Worker's own 403 is a second line that a request through the `workers.dev` hostname never reaches.
+- **Not checked:** the scenario's `wrangler tail` step, which looks for the key or the token in logs.
+
 ## Consequences
 
 - A fork deployed with the button answers every run with the 503 and shows the notice until its owner acts. That is the point.
@@ -47,4 +54,4 @@ Two things the pages do not state, left for the live check in [`scenarios/14-fai
 - `wrangler dev` on the built Worker needs `ACCESS_*` or the opt-out, passed with `--var KEY:VALUE`; `vp preview` has no way to receive them, because `.env.schema` deliberately does not declare them (#18); `vp dev` needs nothing, and counts as local whatever address it listens on.
 - The key fetch uses `redirect: "manual"`, because workerd implements only `"follow"` and `"manual"` and throws on `"error"`; a 3xx from the certs endpoint is refused by status, its body cancelled unread.
 - The verification has no clock leeway and no JWT library. Both are deliberate: Access and the Worker run on Cloudflare's clocks, and Web Crypto covers RS256.
-- Turnstile, WAF rate limiting, and billing alerts remain follow-ups for owners who want a public instance.
+- Turnstile (#65), rate limiting (#66), and billing alerts remain follow-ups for owners who want a public instance.

@@ -1,0 +1,77 @@
+# Checks every pull request and every push to main without any secret: no
+# Cloudflare token and no provider key. Deploys and the live provider checks stay
+# manual (docs/deploy.md), because they need the owner's 1Password.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs Vite+ at the version in package-lock.json, Node.js, and the npm
+      # that devEngines.packageManager resolves to (node_modules/vite-plus/docs/guide/ci.md).
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-version: "24"
+          cache: true
+          run-install: false
+
+      - name: Install dependencies
+        run: vp install --frozen-lockfile
+
+      - name: Format, lint, and type check
+        run: vp check
+
+      - name: Test
+        run: vp test
+
+      # Type checks the app and the Worker separately, then builds both.
+      - name: Build
+        run: vp run build
+
+      # Bundles the built Worker with the repository's wrangler.jsonc and stops before
+      # uploading, so it needs no Cloudflare login.
+      - name: Check the Worker bundle
+        run: vp exec wrangler deploy --dry-run
+
+  cloudflare-install:
+    name: Install with Cloudflare's npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Cloudflare's Workers Builds image installs with npm 10.9.2 and offers no way to
+      # choose another npm (https://developers.cloudflare.com/workers/ci-cd/builds/build-image/).
+      # The Deploy to Cloudflare button fails at install when devEngines or the lockfile
+      # rejects it (#68). Update the version here when Cloudflare changes the image.
+      # The exact npm goes into a temporary folder and runs from there: `npx npm@10.9.2`
+      # ran the runner's own npm (10.9.9), and a global install needs root.
+      - name: Install dependencies as the Deploy button's build does
+        run: | # zizmor: ignore[adhoc-packages] pinned on purpose to match Cloudflare's build image
+          npm install --prefix "$RUNNER_TEMP/cloudflare-npm" npm@10.9.2
+          cloudflare_npm="$RUNNER_TEMP/cloudflare-npm/node_modules/.bin/npm"
+          "$cloudflare_npm" --version
+          "$cloudflare_npm" clean-install --dry-run --ignore-scripts

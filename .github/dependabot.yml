@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+      semver-major-days: 7
+      semver-minor-days: 3
+      semver-patch-days: 2
+      include:
+        - "*"
+
+  # Keeps the commit SHAs that the workflows pin their actions to up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+      include:
+        - "*"

@@ -70,7 +70,7 @@ jobs:
       # `npx npm@10.9.2` is not enough: on the runner it ran the npm already installed
       # (10.9.9), so the exact version is installed globally and printed first.
       - name: Install Cloudflare's npm
-        run: |
+        run: | # zizmor: ignore[adhoc-packages] pinned on purpose to match Cloudflare's build image
           npm install --global npm@10.9.2
           npm --version
 

@@ -4,8 +4,8 @@
  * The SDK is used for its types only (`import type`), so the Worker carries no
  * runtime from it: no retry policy, no runtime detection, and the same code
  * path as the other two adapters. Decision recorded in the pull request for
- * issue #7. The request body is the SDK's `SystemOneRequestPayload`, so a
- * change to the wire format shows up here as a type error.
+ * issue #7. The request body is the SDK's `SystemOneRequest` plus a required
+ * `model`, so a change to the wire format shows up here as a type error.
  *
  * TypeSafe's wire vocabulary is the neutral vocabulary, so `toWire` passes
  * `noul`, `choice`, and `score` questions straight through, resolving each
@@ -17,7 +17,7 @@
  * builds a header with it.
  */
 
-import type { Questions, SystemOneRequestPayload } from "@typesafe-ai/sdk";
+import type { Questions, SystemOneRequest } from "@typesafe-ai/sdk";
 import type { ValidDecisionRequest } from "../../src/decision/validate.ts";
 import { typesafe } from "../../src/providers/catalog.ts";
 import {
@@ -34,8 +34,14 @@ import { decisionReplySchema, errorEnvelopeSchema } from "./typesafe-schema.ts";
 /** The decision endpoint, resolved against the catalog's base URL, so no host is written here. */
 const DECISION_URL = `${typesafe.baseUrl}/v1/systemone`;
 
+/**
+ * The request body: the SDK's request with the model required. The SDK exported
+ * this shape as `SystemOneRequestPayload` until 0.7.0, which dropped it.
+ */
+type SystemOneWireRequest = SystemOneRequest & { model: string };
+
 /** The wire request for a validated neutral request, with the model pinned to the catalog's. */
-export function toWire(request: ValidDecisionRequest): SystemOneRequestPayload {
+export function toWire(request: ValidDecisionRequest): SystemOneWireRequest {
   return { model: typesafe.model, state: request.state, questions: toWireQuestions(request) };
 }
 

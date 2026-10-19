@@ -19,13 +19,16 @@ The protection settings from section 2 (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ALL
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/jev-3000)
 
-The button clones this repository into your GitHub account, asks for the provider keys, and deploys a Worker to `<name>.<your-subdomain>.workers.dev`. These points come from a test of the button on a throwaway account (docs/spikes/worker-toolchain.md, step 9):
+The button clones this repository into your GitHub account, asks for the provider keys, and deploys a Worker to `<name>.<your-subdomain>.workers.dev`. These points come from a test of the button on a throwaway account (docs/spikes/worker-toolchain.md, step 9), and from a second run against this repository on 2026-10-19:
+
+- **Change the project name before you deploy.** The form fills it in with the Worker name from `wrangler.jsonc`, `decisionmachines3000`. If your account already has a Worker with that name (for example one you deployed by hand), choose another name, because the button would deploy to it and write its own key secrets over yours. What happens in that case was not tested, so don't try it on a Worker you care about.
 
 - **Every key is a required input.** The form refuses a blank (it uses the browser's own "this field cannot be empty" check), so you cannot leave a key out. For each provider you do not have, enter exactly the word `unset`. The Worker treats exactly that word (trimmed, in any case) as "no key", and nothing else: a short real key such as `x` still counts as a key.
 - **At least one of the three must be a real key.** With all three set to `unset`, the page loads but `GET /api/providers` answers 503 with the setup notice.
 - **`unset` is stored as a live secret.** `wrangler secret list` shows all three names even when two are `unset`. That is expected, and it is why the deploy-time key check (below) cannot spot it: the check reads names, never values.
 - **The button names the new repository after the project name you choose.** If your GitHub account already has a repository with that name, the deploy fails. Choose another project name. The button also writes that name into `wrangler.jsonc` as the Worker's name.
-- **The first build fails, and that is harmless.** Cloudflare's first build runs on its own "Uploading template." commit, which holds only `wrangler.jsonc`, so it fails with an error about a missing `package.json`. The next commit brings the source, and the build after it succeeds.
+- **The first build runs on the full source.** The 2026-10-19 run created the repository with one commit, "source repo import", and built that. (The earlier test saw a first build on a template-only "Uploading template." commit fail harmlessly; that commit no longer appears.) Cloudflare's build image installs with npm 10.9.2 and offers no way to choose another npm, which is why `devEngines` in `package.json` accepts it (#68). A build that fails at install with `EBADDEVENGINES` comes from a copy made before that change.
+- **The form has three switches the earlier test did not see.** "Create private Git repository" is off by default. "Enable Preview builds" is on and runs `npx wrangler preview` for branches other than the production one; any version it uploads carries the same protection gate. "Protect with Cloudflare Access" is off. Turning it on was not tested, and even if it protects the hostname, the Worker still refuses runs until you set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` (section 2).
 - **The deploy field is pre-filled from the `deploy` script** in `package.json` (Cloudflare's Deploy buttons page says so), which runs the key check and then a plain `wrangler deploy`. See "The deploy script" in section 3.
 - **The prompts come from `.dev.vars.example`,** and their descriptions from `cloudflare.bindings` in `package.json`. The protection variables are not in that file on purpose: the button would make each one a required input, and `ALLOW_UNPROTECTED_INSTANCE` must never be set by accident. Section 2 sets them.
 
@@ -38,8 +41,8 @@ The button clones this repository into your GitHub account, asks for the provide
 Access puts a sign-in in front of the Worker. Only the people your policy allows can open the page, and the Worker verifies the signed token Access attaches to each request, so a request that reaches the Worker another way is still refused.
 
 1. In the Cloudflare dashboard, open **Workers & Pages**, select your Worker, and open the **Access** tab.
-2. Select **Protect this Worker behind Access**, choose **All traffic**, and under **Authentication policy** pick or create a policy that allows you (for example your Cloudflare account, or your email domain). Select **Apply Access**. Zero Trust has to be enabled on the account; the dashboard offers that if it is not.
-3. Open **Zero Trust** > **Access controls** > **Applications**, select the application Cloudflare just created for the Worker, and copy its **Application Audience (AUD) tag** (under Configure > Additional settings). Note your team domain too: it has the shape `<team>.cloudflareaccess.com`, and the team name is the one you chose when Zero Trust was set up.
+2. Select **Protect this Worker behind Access**, choose **All traffic**, and under **Authentication policy** pick or create a policy that allows you (for example your Cloudflare account, or an Access policy that names your email address). Don't choose the pre-configured **Email domain** policy if your address is on a public mail service such as Gmail, because it lets in anyone with an address on that domain. Select **Apply Access**. Zero Trust has to be enabled on the account; the dashboard offers that if it is not.
+3. Stay on the Worker's **Access** tab and reload it. Under **Application values** it shows the **AUD tag**, and a **JWKS** URL of the shape `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Copy the AUD tag, and take your team domain, `<team>.cloudflareaccess.com`, from the JWKS URL. (The same AUD tag is also under **Zero Trust** > **Access controls** > **Applications** > the application Cloudflare created > Configure > Additional settings.)
 4. Give the Worker both values (add your deploy's `--name`, as the rule above says). Secrets are the safe place, because a later `wrangler deploy` overwrites variables set in the dashboard but never touches secrets:
 
    ```sh
@@ -65,7 +68,7 @@ printf '%s' 'I accept the bill' | vp exec wrangler secret put ALLOW_UNPROTECTED_
 
 The value has to be exactly that sentence; `yes`, `true`, or `1` do not count, which is what keeps this from being set by accident. The page then shows a notice that the instance is unprotected on purpose, and `GET /api/providers` reports `"mode": "opted_out"`. If you later set the Access variables as well, Access wins and the opt-out is ignored.
 
-**An unprotected public instance can run up a bill.** Every run spends tokens on your provider account, and nothing in this app limits who can press Run or how often. Set a spending cap or a billing alert with each provider you have a key for before you opt out. Turnstile and Cloudflare WAF rate limiting are the planned follow-ups for owners who want a public instance.
+**An unprotected public instance can run up a bill.** Every run spends tokens on your provider account, and nothing in this app limits who can press Run or how often. Set a spending cap or a billing alert with each provider you have a key for before you opt out. A Turnstile check before each run (#65) and a rate limit on provider calls (#66) are the planned follow-ups for owners who want a public instance.
 
 ## 3. Deploy by hand with plain Wrangler
 

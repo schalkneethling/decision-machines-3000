@@ -15,7 +15,7 @@ The requests are JSON files under [`src/decision/examples/`](./src/decision/exam
 
 ## Deploy your own
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/jev-3000)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/decision-machines-3000)
 
 The button needs at least one real provider key. It makes all three keys required inputs, so enter the word `unset` for each provider you do not have. A fresh instance then refuses every run until you put it behind Cloudflare Access, which is the first step after the deploy. [`docs/deploy.md`](./docs/deploy.md) walks through the button, the protection step, and deploying by hand with plain Wrangler.
 

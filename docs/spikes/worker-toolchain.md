@@ -6,7 +6,7 @@ This records the result of issue #1. It answers whether `@cloudflare/vite-plugin
 
 Local timings ran on an Apple M3 Pro with Node 24.21.0 and are indicative only. The deployed runs used the owner's account on 2026-10-12.
 
-**Where the code is.** This document, ADR-0001, and the scenarios are on `main`. The code the spike ran is not merged: the minimal Worker, the CPU benchmark, the Cloudflare plugin wiring, and the dependency changes. It is kept on the branch [`issue-1-worker-toolchain-spike`](https://github.com/schalkneethling/jev-3000/tree/issue-1-worker-toolchain-spike). Wherever this document says "the branch" or "this branch", it means that branch. #6 builds the real Worker with tests, using the spike branch as its reference.
+**Where the code is.** This document, ADR-0001, and the scenarios are on `main`. The code the spike ran is not merged: the minimal Worker, the CPU benchmark, the Cloudflare plugin wiring, and the dependency changes. It is kept on the branch [`issue-1-worker-toolchain-spike`](https://github.com/schalkneethling/decision-machines-3000/tree/issue-1-worker-toolchain-spike). Wherever this document says "the branch" or "this branch", it means that branch. #6 builds the real Worker with tests, using the spike branch as its reference.
 
 ## Installed versions
 

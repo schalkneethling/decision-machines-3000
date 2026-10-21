@@ -28,7 +28,7 @@
     "varlock": "^1.23.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
     "vite-plus": "1.1.0",
-    "wrangler": "^4.150.0"
+    "wrangler": "^4.151.2"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0"

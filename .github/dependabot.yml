@@ -11,6 +11,13 @@ updates:
       semver-patch-days: 2
       include:
         - "*"
+    groups:
+      # @cloudflare/vite-plugin depends on one exact Wrangler version, so bumping
+      # Wrangler on its own leaves a second, nested copy under the plugin (#80).
+      cloudflare:
+        patterns:
+          - "wrangler"
+          - "@cloudflare/vite-plugin"
 
   # Keeps the commit SHAs that the workflows pin their actions to up to date.
   - package-ecosystem: "github-actions"

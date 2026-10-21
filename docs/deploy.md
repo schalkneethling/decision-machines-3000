@@ -17,7 +17,7 @@ The protection settings from section 2 (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ALL
 
 ## 1. Deploy with the button
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/jev-3000)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/schalkneethling/decision-machines-3000)
 
 The button clones this repository into your GitHub account, asks for the provider keys, and deploys a Worker to `<name>.<your-subdomain>.workers.dev`. These points come from a test of the button on a throwaway account (docs/spikes/worker-toolchain.md, step 9), and from a second run against this repository on 2026-10-19:
 

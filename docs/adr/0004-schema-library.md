@@ -4,7 +4,7 @@
 - **Date:** 2026-10-13
 - **Spike:** issue #31, results in [`docs/spikes/schema-library.md`](../spikes/schema-library.md)
 
-The comparison code named below (`spikes/schema-library/`) is on the branch [`issue-31-schema-library-spike`](https://github.com/schalkneethling/jev-3000/tree/issue-31-schema-library-spike), not on `main`.
+The comparison code named below (`spikes/schema-library/`) is on the branch [`issue-31-schema-library-spike`](https://github.com/schalkneethling/decision-machines-3000/tree/issue-31-schema-library-spike), not on `main`.
 
 ## Context
 

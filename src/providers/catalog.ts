@@ -82,7 +82,7 @@ const KIB = 1024;
  * 128 KiB images peaked at 12 ms. A 96 KiB cap then measured a p95 of 11 ms, so
  * the owner chose 64 KiB, which is still to be re-measured. The measurements are
  * on PR #53, starting at
- * https://github.com/schalkneethling/jev-3000/pull/53#issuecomment-6221879089,
+ * https://github.com/schalkneethling/decision-machines-3000/pull/53#issuecomment-6221879089,
  * and the browser is later meant to shrink pictures to fit (issue #25).
  *
  * The two caps are equal today but are separate constants because they limit

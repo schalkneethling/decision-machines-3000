@@ -23,7 +23,7 @@
     "@types/node": "^26.6.5",
     "@varlock/1password-plugin": "^2.0.5",
     "@varlock/cloudflare-integration": "^1.6.2",
-    "happy-dom": "^21.0.1",
+    "happy-dom": "^21.0.4",
     "typescript": "~7.0.2",
     "varlock": "^1.23.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",

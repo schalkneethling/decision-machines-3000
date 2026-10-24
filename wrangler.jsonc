@@ -5,9 +5,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "decisionmachines3000",
   "main": "./worker/index.ts",
-  // The newest date the installed workerd (1.20261006.1) supports. Dates from
-  // 2026-08-04 turn on nodejs_compat by default, so no compatibility_flags are needed.
-  "compatibility_date": "2026-10-06",
+  // The newest date the installed workerd (1.20261012.1) supports, which
+  // `node -p 'require("workerd").compatibilityDate'` prints. Dates from 2026-08-04
+  // turn on nodejs_compat by default, so no compatibility_flags are needed.
+  "compatibility_date": "2026-10-12",
   // Both are set on purpose (ADR-0003). Left out, Wrangler turns them on at every
   // deploy and warns. The workers.dev hostname stays on, because a fork deployed
   // with the Deploy button has no other hostname. Version URLs (the key keeps its

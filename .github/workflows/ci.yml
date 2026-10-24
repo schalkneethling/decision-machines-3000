@@ -35,6 +35,12 @@ jobs:
           cache: true
           run-install: false
 
+      # Dependabot bumps vite-plus but not the vite alias that must name the same
+      # version, which otherwise fails late in the build (PR #73). This runs before
+      # the install, needs only Node.js, and says what to change.
+      - name: Check the vite alias matches vite-plus
+        run: node scripts/check-vite-alias.ts
+
       - name: Install dependencies
         run: vp install --frozen-lockfile
 

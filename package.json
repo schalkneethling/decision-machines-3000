@@ -26,12 +26,12 @@
     "happy-dom": "^21.0.1",
     "typescript": "~7.0.2",
     "varlock": "^1.23.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
-    "vite-plus": "1.1.0",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0",
+    "vite-plus": "1.3.0",
     "wrangler": "^4.150.0"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0"
   },
   "devEngines": {
     "packageManager": {

@@ -208,7 +208,7 @@ Feature: The Worker accepts images as binary multipart parts, checks their real 
   Scenario: Manual, confirming the 64 KiB cap by CPU time (acceptance criterion added on issue #15)
     # The 2 MiB cap was measured on 2026-10-16 on a scratch Worker and failed: a request at the cap used 35 to 107 ms of CPU
     # (SubQ median 74 ms, OpenAI median 50 ms), a 2 MiB body refused before any encoding still used up to 59 ms,
-    # and a 128 KiB image peaked at 12 ms. Details: https://github.com/schalkneethling/jev-3000/pull/53#issuecomment-6221879089
+    # and a 128 KiB image peaked at 12 ms. Details: https://github.com/schalkneethling/decision-machines-3000/pull/53#issuecomment-6221879089
     # A 96 KiB cap was measured next, with 56 requests in the mix below at 96 KiB: median 5 ms, but p95 11 ms, with all three
     # runs over 10 ms (19, 11, 11) right after the deploy. A private instance often runs on a fresh Worker, so the owner chose 64 KiB.
     # The 64 KiB cap is confirmed only once its own measurement has run; until then it is a choice, not a result.

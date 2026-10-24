@@ -14,7 +14,7 @@ import { create } from "./dom.ts";
 
 /** Where the notices send the owner: the deployment guide, which covers keys and protection. */
 export const DEPLOYMENT_GUIDE_URL =
-  "https://github.com/schalkneethling/jev-3000/blob/main/docs/deploy.md";
+  "https://github.com/schalkneethling/decision-machines-3000/blob/main/docs/deploy.md";
 
 /** The sentences for a state that needs a notice, or undefined when none does. */
 function sentencesFor(protection: Protection | undefined): string | undefined {

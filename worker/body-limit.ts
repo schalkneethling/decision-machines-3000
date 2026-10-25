@@ -15,13 +15,12 @@ import { PROVIDERS } from "../src/providers/catalog.ts";
 import { failure } from "./respond.ts";
 
 /**
- * Room for the images of one request: the largest `maxBytesPerRequest` any
- * provider in the catalog accepts, 64 KiB today (the project's own cap, issue
- * #15, lowered from 2 MiB after a CPU measurement on Cloudflare; the reason is
- * in `src/providers/catalog.ts`). Read from the catalog, so a provider with a
- * larger cap widens the limit without a second edit. The new cap still has to
- * be confirmed by reading `cpuTime` from `wrangler tail` on a deployment (see
- * `scenarios/15-server-images.feature`).
+ * Room for the images of one request, as decoded bytes: the largest
+ * `maxBytesPerRequest` any provider in the catalog accepts (the project's own
+ * cap; the reason is in `src/providers/catalog.ts`). Read from the catalog, so
+ * a provider with a larger cap widens the limit without a second edit. A new
+ * cap has to be confirmed by reading `cpuTime` from `wrangler tail` on a
+ * deployment (see `scenarios/15-server-images.feature`).
  */
 export const IMAGE_ALLOWANCE_BYTES = Math.max(
   0,
@@ -30,32 +29,41 @@ export const IMAGE_ALLOWANCE_BYTES = Math.max(
   ),
 );
 
+/** The length of the base64 text for `bytes` bytes: four characters for every three bytes, padded. */
+export function base64Length(bytes: number): number {
+  return Math.ceil(bytes / 3) * 4;
+}
+
 /**
- * Room for the request's JSON text: 256 KiB, the cap the old `/api/jev`
- * middleware applied (`MAX_BODY_BYTES` in the deleted `server/jev-api.ts`).
+ * Room for the images as the body carries them: base64 text, a third larger
+ * than the bytes it encodes.
+ */
+export const IMAGE_TEXT_ALLOWANCE_BYTES = base64Length(IMAGE_ALLOWANCE_BYTES);
+
+/**
+ * Room for the request's JSON text, everything except the images' base64:
+ * 256 KiB, the cap the old `/api/jev` middleware applied (`MAX_BODY_BYTES` in
+ * the deleted `server/jev-api.ts`).
  */
 export const TEXT_ALLOWANCE_BYTES = 256 * 1024;
 
 /**
- * Room for the multipart framing around those parts: the boundary lines and
- * each part's headers, which include a file name the client chooses. Without
- * it, a request that holds exactly the images and text the limits allow would
- * be refused for its wrapping alone. 16 KiB covers eight image parts with
- * file names of several hundred characters.
+ * Room for the JSON around each image: its braces, keys, and a name the client
+ * chooses. Without it, a request that holds exactly the text and images the
+ * limits allow would be refused for its wrapping alone. 64 KiB covers eight
+ * images whose names are the longest the route reads (`MAX_NAME_CHARACTERS` in
+ * `images.ts`, 1,024 characters) even when every character is written as a
+ * six-byte `\u` escape.
  */
-export const FRAMING_ALLOWANCE_BYTES = 16 * 1024;
+export const FRAMING_ALLOWANCE_BYTES = 64 * 1024;
 
-/**
- * The largest multipart body read: the text, image, and framing allowances
- * together. A JSON body has no images or framing, so it is held to
- * `TEXT_ALLOWANCE_BYTES` alone, and so is the `request` part of a multipart one.
- */
+/** The largest body read: the text, image, and framing allowances together. */
 export const MAX_BODY_BYTES =
-  TEXT_ALLOWANCE_BYTES + IMAGE_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES;
+  TEXT_ALLOWANCE_BYTES + IMAGE_TEXT_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES;
 
 export const TOO_LARGE_MESSAGE =
   `The request is too large. The request text may hold up to ${sizeInWords(TEXT_ALLOWANCE_BYTES)}, ` +
-  `and a multipart request may add up to ${sizeInWords(IMAGE_ALLOWANCE_BYTES)} of images. ` +
+  `and its images may add up to ${sizeInWords(IMAGE_ALLOWANCE_BYTES)}. ` +
   'Trim "state", ask fewer questions, or send smaller images.';
 
 /**
@@ -68,7 +76,7 @@ export function declaredLength(header: string | null | undefined): number | unde
     : undefined;
 }
 
-/** The 413 for a body over its limit: `MAX_BODY_BYTES`, or `TEXT_ALLOWANCE_BYTES` for JSON text. */
+/** The 413 for a body over `MAX_BODY_BYTES`, or whose text without the images is over `TEXT_ALLOWANCE_BYTES`. */
 export function tooLarge(): Response {
   return failure(413, TOO_LARGE_MESSAGE);
 }

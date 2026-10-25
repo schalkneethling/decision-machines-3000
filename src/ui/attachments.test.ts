@@ -8,8 +8,9 @@ import {
   ASK_ABOUT_IMAGES,
   PRIVACY_NOTE,
   createAttachments,
+  encodeBase64,
   fitsWithin,
-  toFormData,
+  withImages as requestWithImages,
 } from "./attachments.ts";
 import type { ImageTransform } from "./attachments.ts";
 import { capabilitySentence, formatList, imageInputSentence } from "./image-sentences.ts";
@@ -157,35 +158,60 @@ describe("fitsWithin", () => {
   });
 });
 
-describe("toFormData", () => {
-  it("appends the request text and one image part per file, each with its filename", async () => {
+describe("requestWithImages", () => {
+  it("adds an images list to the request, one entry per file, in order, with its name and base64", async () => {
     const files = [
       png("a.png"),
-      png("b.png"),
       new File([pngBytes()], "pasted-image-1.png", { type: "image/png" }),
     ];
-    const text = '{"primitive":"noul"}';
-    const form = toFormData(text, files);
-    expect(form.get("request")).toBe(text);
-    const images = form.getAll("image");
-    expect(images).toHaveLength(3);
-    expect(images.map((part) => (part instanceof File ? part.name : typeof part))).toEqual([
-      "a.png",
-      "b.png",
-      "pasted-image-1.png",
-    ]);
-    // The bytes travel as they are: the first part's bytes equal the file's.
-    const first = images[0];
-    if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(
-      new Uint8Array(await files[0]!.arrayBuffer()),
-    );
-    // The body the platform writes from this form declares multipart with a boundary and no base64.
-    const request = new Request("https://decisionmachines3000.example/api/decide/subq", {
-      method: "POST",
-      body: form,
+    const text = '{"primitive":"noul","state":"","questions":{}}';
+    const body = JSON.parse(await requestWithImages(text, files)) as Record<string, unknown>;
+
+    expect(body).toEqual({
+      primitive: "noul",
+      state: "",
+      questions: {},
+      images: [
+        { name: "a.png", base64: encodeBase64(new Uint8Array(await files[0]!.arrayBuffer())) },
+        { name: "pasted-image-1.png", base64: encodeBase64(pngBytes()) },
+      ],
     });
-    expect(request.headers.get("content-type")).toMatch(/^multipart\/form-data; boundary=/);
+  });
+});
+
+describe("encodeBase64", () => {
+  const bytes = Uint8Array.from({ length: 70_000 }, (_, index) => index % 256);
+  // Built one character at a time, so it shares no slicing with the code under test.
+  const expected = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
+
+  it("encodes a known value", () => {
+    expect(encodeBase64(new TextEncoder().encode("Hello"))).toBe("SGVsbG8=");
+  });
+
+  it("matches a one-character-at-a-time encoding on the btoa path used where the native encoder is missing", () => {
+    const prototype = Uint8Array.prototype as { toBase64?: unknown };
+    const original = Object.getOwnPropertyDescriptor(prototype, "toBase64");
+    delete prototype.toBase64;
+    try {
+      expect(encodeBase64(bytes)).toBe(expected);
+    } finally {
+      if (original !== undefined) Object.defineProperty(prototype, "toBase64", original);
+    }
+  });
+
+  it("uses the native encoder when the runtime has one", () => {
+    const prototype = Uint8Array.prototype as { toBase64?: unknown };
+    const original = Object.getOwnPropertyDescriptor(prototype, "toBase64");
+    Object.defineProperty(prototype, "toBase64", {
+      configurable: true,
+      value: () => "native",
+    });
+    try {
+      expect(encodeBase64(bytes)).toBe("native");
+    } finally {
+      if (original === undefined) delete prototype.toBase64;
+      else Object.defineProperty(prototype, "toBase64", original);
+    }
   });
 });
 
@@ -399,8 +425,10 @@ describe("attaching", () => {
     // The generated extension follows the bytes, and the count goes on.
     await control.add([new Blob([jpegBytes({ size: KIB })])]);
     expect(control.files()[1]?.name).toBe("pasted-image-2.jpg");
-    const form2 = toFormData("{}", control.files());
-    expect(form2.getAll("image").map((part) => (part instanceof File ? part.name : ""))).toEqual([
+    const body = JSON.parse(await requestWithImages("{}", control.files())) as {
+      images: { name: string }[];
+    };
+    expect(body.images.map((image) => image.name)).toEqual([
       "pasted-image-1.png",
       "pasted-image-2.jpg",
     ]);

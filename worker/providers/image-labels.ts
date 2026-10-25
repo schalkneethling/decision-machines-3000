@@ -4,7 +4,7 @@
  *
  * The file name is typed by whoever picked the file, so it is text from outside
  * and is treated as such. `cleanFileName` runs once, where the Worker reads the
- * upload (`encodeImages`), so every later step holds a name that is one short
+ * request (`takeImages` in `worker/images.ts`), so every later step holds a name that is one short
  * line. A name is placed in the provider's request and, because the wire view
  * shows that request, in the response. It is never placed in a log line or an
  * error message: those carry the image count only, because Varlock's leak

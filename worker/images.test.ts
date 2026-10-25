@@ -7,10 +7,10 @@
 
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
+import { encodeBase64 } from "../src/providers/base64.ts";
 import { sizeInWords } from "../src/providers/byte-size.ts";
 import { MAX_IMAGE_BYTES, openai, subq } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor } from "../src/providers/catalog.ts";
-import { encodeBase64 } from "../src/ui/attachments.ts";
 import {
   FRAMING_ALLOWANCE_BYTES,
   MAX_BODY_BYTES,

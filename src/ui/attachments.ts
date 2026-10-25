@@ -1,3 +1,4 @@
+import { encodeBase64 } from "../providers/base64.ts";
 import { formatBytes, sizeAndLimit } from "../providers/byte-size.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
@@ -137,24 +138,6 @@ export const ASK_ABOUT_IMAGES =
 /** `64 × 48`, or "size unknown" when the header did not say. */
 function sizeText(size: ImageSize | undefined): string {
   return size === undefined ? "size unknown" : `${size.width} × ${size.height}`;
-}
-
-/**
- * The base64 text of `bytes` on one line. Browsers that have the native
- * `Uint8Array.prototype.toBase64` use it; elsewhere, Node before version 25
- * among them, the text is built from `btoa` in slices, which keeps each
- * argument list short.
- */
-export function encodeBase64(bytes: Uint8Array): string {
-  // Typed as optional on purpose: an older browser lacks the method.
-  const native = (bytes as Uint8Array & { toBase64?: () => string }).toBase64;
-  if (typeof native === "function") return native.call(bytes);
-  const slice = 0x8000;
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += slice) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + slice));
-  }
-  return btoa(binary);
 }
 
 /**

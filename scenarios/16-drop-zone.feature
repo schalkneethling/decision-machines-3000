@@ -165,21 +165,21 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
 
   # --- Sending -----------------------------------------------------------------------------------------------------
 
-  Scenario: With images attached, Run posts multipart/form-data built with FormData
+  Scenario: With images attached, Run posts the request with the images as base64 in its JSON
+    # Images went as multipart parts first. Reading multipart cost the Worker more CPU than encoding, so the browser
+    # now encodes them (scenarios/15-server-images.feature).
     Given SubQ Snap is selected and two images are attached
     When Run is pressed
-    Then fetch is called with a FormData body
-    And the app sets no Content-Type header (MDN: a hand-set header drops the boundary)
-    And new Request(url, { method: "POST", body }) gives a Content-Type that starts with "multipart/form-data; boundary="
-    And form.get("request") is a string equal to the textarea text in the JSON view, or the serialised tree request
-    And form.getAll("image") holds one entry per image, in order, each a File with the original bytes
-    And no part contains base64
+    Then fetch is called with a JSON text body and Content-Type application/json
+    And the body is the textarea text in the JSON view, or the serialised tree request, with an "images" list added
+    And "images" holds one { "name", "base64" } entry per image, in order, whose base64 decodes to the image's bytes
+    And the textarea text is unchanged
 
-  Scenario: Parts are added with append, never set, and every image part has a filename
-    Given three images, one of them a pasted Blob
-    When the form is built
-    Then getAll("image") returns three entries and get("request") returns the request text
-    And the pasted image's part filename is "pasted-image-1.png" and never "blob"
+  Scenario: Every image is sent with a name, a pasted one included
+    Given two images, one of them a pasted Blob
+    When the body is built
+    Then "images" holds two entries
+    And the pasted image's name is "pasted-image-1.png" and never "blob"
 
   Scenario: With no images, Run posts application/json as before
     Given no images are attached
@@ -188,7 +188,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
 
   Scenario: The JSON view hint says how images travel
     Given two images are attached and the JSON view is open
-    Then the hint under the textarea says "2 images attached. They are sent as image parts beside this JSON, not inside it."
+    Then the hint under the textarea says '2 images attached. Run adds them to this JSON as base64 in an "images" list, which this view does not show.'
     And the sentence disappears when the last image is removed
 
   # --- Provider changes with images attached ------------------------------------------------------------------------
@@ -230,7 +230,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     When SubQ Snap is chosen and the two files are chosen through the Noul panel's "Choose images" button
     Then two thumbnails appear with type, size, and dimensions, and the panel status says "Image 1 added …" then "Image 2 added …"
     When Run is pressed
-    Then the Network panel shows a request to /api/decide/subq with Content-Type "multipart/form-data; boundary=…" set by Chrome
+    Then the Network panel shows a request to /api/decide/subq with Content-Type application/json and an "images" list in its payload
     And the readout answers, and the "Sent to SubQ Snap" wire block shows "<image 1: image/png, 12 KB>" placeholders, not base64
 
   Scenario: Manual, a phone photo

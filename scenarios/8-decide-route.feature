@@ -126,15 +126,11 @@ Feature: POST /api/decide/{provider} runs a provider end to end through its adap
     And the request sent upstream still holds the real base64 value
     And no adapter source contains image redaction code
 
-  Scenario: Text that is not JSON or multipart is refused
-    When a text/plain body is posted
+  Scenario: Text that is not JSON is refused
+    # multipart/form-data was accepted until images moved into the JSON (scenarios/15-server-images.feature).
+    When a text/plain or multipart/form-data body is posted
     Then the response is 415
-    And the error names application/json and multipart/form-data
-
-  Scenario: Multipart without images behaves like JSON
-    Given a multipart/form-data body with a "request" part and no image parts
-    When it is handled
-    Then the response is the same as for the same JSON sent as application/json
+    And the error names application/json and says images go as base64 in its "images" list
 
   Scenario: Invalid input is a 400 with the validator's own message and path
     When a request that fails validation is posted

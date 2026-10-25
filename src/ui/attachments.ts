@@ -1,3 +1,4 @@
+import { encodeBase64 } from "../providers/base64.ts";
 import { formatBytes, sizeAndLimit } from "../providers/byte-size.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
@@ -35,7 +36,7 @@ import { capabilitySentence, formatList, imagesCount, sizeLimits } from "./image
  * 5. The accepted file is read once for its pixel size, given an object URL
  *    for its thumbnail, and listed. It is kept as a `File` whose declared type
  *    is the detected one, and with a generated name when it arrived as a
- *    nameless `Blob`, so every multipart part has a filename and a true type.
+ *    nameless `Blob`, so every image sent has a name and a true type.
  *
  * The status line (`role="status"`) announces what the user caused: an image
  * added, removed, or refused with the reason, and what a provider change does
@@ -140,17 +141,22 @@ function sizeText(size: ImageSize | undefined): string {
 }
 
 /**
- * The multipart body Run sends: the request JSON as the text of one `request`
- * part, then one `image` part per file, in order, each with its filename.
- * Parts are added with `append`, because `set` would replace the earlier
- * `image` parts (MDN, FormData.set). Nothing here sets a Content-Type: the
- * browser writes `multipart/form-data` with its boundary when it sends the form.
+ * The body Run sends with images: the request JSON with an `images` list
+ * added, one `{ name, base64 }` entry per file, in order. The browser encodes
+ * the images, so the Worker reads one JSON body and never encodes bytes, which
+ * is what lets the caps be larger than reading a multipart body allowed
+ * (`worker/images.ts`). `requestText` is the request the panel validated, so it
+ * is a JSON object without an `images` field of its own.
  */
-export function toFormData(requestText: string, files: readonly File[]): FormData {
-  const form = new FormData();
-  form.append("request", requestText);
-  for (const file of files) form.append("image", file, file.name);
-  return form;
+export async function withImages(requestText: string, files: readonly File[]): Promise<string> {
+  const images: { name: string; base64: string }[] = [];
+  for (const file of files) {
+    images.push({
+      name: file.name,
+      base64: encodeBase64(new Uint8Array(await file.arrayBuffer())),
+    });
+  }
+  return JSON.stringify({ ...(JSON.parse(requestText) as Record<string, unknown>), images });
 }
 
 /**

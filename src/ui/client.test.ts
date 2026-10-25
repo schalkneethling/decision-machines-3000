@@ -380,28 +380,6 @@ describe("askProvider", () => {
     expect(result).toEqual({ kind: "response", status: 200, response: noulResponse });
   });
 
-  it("passes a FormData body through with no Content-Type of its own, so the browser writes the boundary", async () => {
-    const fetchMock = answering(() => Promise.resolve(Response.json(noulResponse)));
-    const form = new FormData();
-    form.append("request", '{ "primitive": "noul" }');
-    form.append("image", new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" }));
-
-    const result = await askProvider("subq", form);
-
-    const [input, init] = fetchMock.mock.calls[0] ?? [];
-    expect(input).toBe("/api/decide/subq");
-    expect(init?.method).toBe("POST");
-    expect(init?.body).toBe(form);
-    expect(init?.headers).toBeUndefined();
-    // What the platform does with that body: a multipart type with a boundary it chose.
-    const request = new Request("https://decisionmachines3000.example/api/decide/subq", {
-      method: "POST",
-      body: init?.body ?? null,
-    });
-    expect(request.headers.get("content-type")).toMatch(/^multipart\/form-data; boundary=/);
-    expect(result).toEqual({ kind: "response", status: 200, response: noulResponse });
-  });
-
   it("returns a failure body as a response, so the readout can show its error", async () => {
     const conflict = { ok: false, error: "Set OPENAI_API_KEY to use it." };
     answering(() => Promise.resolve(Response.json(conflict, { status: 409 })));

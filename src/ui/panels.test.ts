@@ -99,6 +99,23 @@ function type(field: HTMLInputElement | HTMLTextAreaElement, value: string): voi
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/** The JSON a decide call posted, with its `images` list split off. */
+function sentRequest(init: RequestInit | undefined): {
+  request: Record<string, unknown>;
+  images: { name: string; base64: string }[];
+} {
+  if (typeof init?.body !== "string") throw new Error("Expected a JSON text body.");
+  const { images = [], ...request } = JSON.parse(init.body) as Record<string, unknown> & {
+    images?: { name: string; base64: string }[];
+  };
+  return { request, images };
+}
+
+/** The bytes a base64 string decodes to. */
+function decoded(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
 /**
  * A `fetch` that serves every sample picture at once except the first, which
  * waits until the returned function is called, so a test can act mid-load.
@@ -368,7 +385,7 @@ describe("loading the image example (issue #58)", () => {
     expect(get("#noul-hint").textContent).toContain("4 images attached");
   });
 
-  it("posts the loaded request and the pictures as one multipart form", async () => {
+  it("posts the loaded request with the pictures as base64 in its images list", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(openai).selection);
     loadButton("score", "images").click();
@@ -377,18 +394,15 @@ describe("loading the image example (issue #58)", () => {
     await vi.waitFor(() => expect(decideCalls(fetchMock)).toHaveLength(1));
     const [url, init] = decideCalls(fetchMock)[0] ?? [];
     expect(url).toBe("/api/decide/openai");
-    const body = init?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(JSON.parse(body.get("request") as string)).toStrictEqual(imageExamples.requests.score);
-    expect(body.getAll("image").map((part) => (part instanceof File ? part.name : ""))).toEqual([
+    const { request, images } = sentRequest(init);
+    expect(request).toStrictEqual(imageExamples.requests.score);
+    expect(images.map((image) => image.name)).toEqual([
       "picture-1.png",
       "picture-2.png",
       "picture-3.png",
       "picture-4.png",
     ]);
-    const first = body.getAll("image")[0];
-    if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(sampleBytes("picture-1.png"));
+    expect(decoded(images[0]!.base64)).toEqual(sampleBytes("picture-1.png"));
   });
 
   it("refuses on TypeSafe Jev if its hidden button is pressed anyway, and changes nothing", async () => {
@@ -1333,7 +1347,7 @@ describe("images", () => {
     }
   });
 
-  it("posts a multipart form with the JSON text as the request part and each file as an image part", async () => {
+  it("posts the JSON view's request with each file as base64 in its images list, and leaves the textarea alone", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("noul");
@@ -1343,33 +1357,22 @@ describe("images", () => {
     attach("noul", png("a.png"), png("b.png"));
     await vi.waitFor(() => expect(attachments("noul")).toHaveLength(2));
     expect(get("#noul-hint").textContent).toContain(
-      "2 images attached. They are sent as image parts beside this JSON, not inside it.",
+      '2 images attached. Run adds them to this JSON as base64 in an "images" list, which this view does not show.',
     );
 
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const init = fetchMock.mock.calls[0]?.[1];
-    const body = init?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(init?.headers).toBeUndefined();
-    expect(body.get("request")).toBe(text);
-    const parts = body.getAll("image");
-    expect(parts).toHaveLength(2);
-    expect(parts.map((part) => (part instanceof File ? part.name : typeof part))).toEqual([
-      "a.png",
-      "b.png",
-    ]);
-    const first = parts[0];
-    if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(pngBytes({ size: 4 * KIB }));
-    for (const part of [body.get("request"), ...parts]) {
-      if (typeof part === "string") expect(part).not.toMatch(/^data:|[A-Za-z0-9+/]{200,}/);
-    }
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    const { request, images } = sentRequest(init);
+    expect(request).toStrictEqual(noulExample);
+    expect(images.map((image) => image.name)).toEqual(["a.png", "b.png"]);
+    expect(decoded(images[0]!.base64)).toEqual(pngBytes({ size: 4 * KIB }));
     // The textarea is untouched.
     expect(textarea("noul").value).toBe(text);
   });
 
-  it("posts the tree's request as the request part when the tree view is open", async () => {
+  it("posts the tree's request with the images when the tree view is open", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("score");
@@ -1377,10 +1380,9 @@ describe("images", () => {
     await vi.waitFor(() => expect(attachments("score")).toHaveLength(1));
     submit("score");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const body = fetchMock.mock.calls[0]?.[1]?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(JSON.parse(body.get("request") as string)).toStrictEqual(scoreExample);
-    expect(body.getAll("image")).toHaveLength(1);
+    const { request, images } = sentRequest(fetchMock.mock.calls[0]?.[1]);
+    expect(request).toStrictEqual(scoreExample);
+    expect(images).toHaveLength(1);
   });
 
   it("posts JSON as before when no image is attached", async () => {
@@ -1413,10 +1415,9 @@ describe("images", () => {
 
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const body = fetchMock.mock.calls[0]?.[1]?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(JSON.parse(body.get("request") as string).state).toBe("");
-    expect(body.getAll("image")).toHaveLength(1);
+    const { request, images } = sentRequest(fetchMock.mock.calls[0]?.[1]);
+    expect(request.state).toBe("");
+    expect(images).toHaveLength(1);
   });
 
   it("keeps the images on a text-only provider, sends JSON without them, and says so in the result", async () => {

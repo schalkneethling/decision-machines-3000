@@ -6,13 +6,13 @@ import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
 import type { ValidDecisionRequest, ValidationResult } from "../decision/validate.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
-import { createAttachments, toFormData } from "./attachments.ts";
+import { createAttachments, withImages } from "./attachments.ts";
 import { browserRasterizer } from "./shrink-browser.ts";
 import { createShrinkTransform } from "./shrink.ts";
 import type { Attachments } from "./attachments.ts";
 import { imagesCount } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
-import type { AskResult, PostBody } from "./client.ts";
+import type { AskResult } from "./client.ts";
 import { STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
 import type { ComposerModel, DraftRequest } from "./composer/model.ts";
 import { createComposer } from "./composer/tree.ts";
@@ -121,7 +121,7 @@ function setStatus(panel: Panel, message: string, tone: "note" | "alert" = "note
 /** What the JSON view's hint says about the images, or nothing when there are none. */
 function imagesHintText(count: number): string {
   if (count === 0) return "";
-  return `${imagesCount(count)} attached. ${count === 1 ? "It is" : "They are"} sent as image parts beside this JSON, not inside it.`;
+  return `${imagesCount(count)} attached. Run adds ${count === 1 ? "it" : "them"} to this JSON as base64 in an "images" list, which this view does not show.`;
 }
 
 /**
@@ -672,19 +672,20 @@ export function setupPanels(
   }
 
   /**
-   * What Run posts: the request text alone as JSON, or, when the panel holds
-   * images the provider takes, a multipart form of that text and the files.
-   * Returns the body and how many images were left out because the provider is text only.
+   * What Run posts: the request text alone, or, when the panel holds images the
+   * provider takes, that request with the images added as base64 in its
+   * `images` list. Returns the body and how many images were left out because
+   * the provider is text only.
    */
-  function bodyFor(
+  async function bodyFor(
     panel: Panel,
     text: string,
     chosen: ProviderSummary,
-  ): { body: PostBody; omittedImages: number } {
+  ): Promise<{ body: string; omittedImages: number }> {
     const files = panel.attachments.files();
     if (files.length === 0) return { body: text, omittedImages: 0 };
     if (chosen.capabilities.images === false) return { body: text, omittedImages: files.length };
-    return { body: toFormData(text, files), omittedImages: 0 };
+    return { body: await withImages(text, files), omittedImages: 0 };
   }
 
   async function run(panel: Panel): Promise<void> {
@@ -702,13 +703,13 @@ export function setupPanels(
     if (prepared === undefined) {
       return;
     }
-    const { body, omittedImages } = bodyFor(panel, prepared.body, chosen);
-
     setStatus(panel, "");
     setRunning(panel);
     readout.replaceChildren(renderLoading(chosen.displayName));
     wire.replaceChildren();
     try {
+      // Encoding the images happens while the panel already shows that it is running.
+      const { body, omittedImages } = await bodyFor(panel, prepared.body, chosen);
       const result = await askProvider(chosen.id, body);
       readout.replaceChildren(renderResult(prepared.sent, result, omittedImages));
       if (result.kind === "response") wire.replaceChildren(renderWire(result.response));

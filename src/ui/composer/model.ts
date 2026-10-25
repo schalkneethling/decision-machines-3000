@@ -534,15 +534,25 @@ function fanOutIssues(question: QuestionModel, state: Content): Issue[] {
   return [];
 }
 
-/** Every problem in the model, in tree order, so the first one is the first a reader meets. */
-export function findIssues(model: ComposerModel, capabilities: ProviderCapabilities): Issue[] {
+/**
+ * Every problem in the model, in tree order, so the first one is the first a reader meets.
+ * `imageCount` is how many images go with the request; with one or more, the state may be blank.
+ */
+export function findIssues(
+  model: ComposerModel,
+  capabilities: ProviderCapabilities,
+  imageCount = 0,
+): Issue[] {
   const issues: Issue[] = [];
 
-  if (isBlank(model.state)) {
+  if (imageCount === 0 && isBlank(model.state)) {
     issues.push({
       key: STATE_KEY,
       field: "state",
-      message: "The state is empty. Add the text, object, or list to evaluate.",
+      message:
+        capabilities.images === false
+          ? "The state is empty. Add the text, object, or list to evaluate."
+          : "The state is empty. Add the text, object, or list to evaluate, or attach an image.",
     });
   }
 

@@ -127,7 +127,7 @@ describe("sentences", () => {
   it("states the capability for the provider status line, from the capabilities alone", () => {
     expect(imageInputSentence(false)).toBe("Text only, no images.");
     expect(imageInputSentence(limits)).toBe(
-      "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
     );
     expect(
       imageInputSentence({
@@ -143,7 +143,7 @@ describe("sentences", () => {
 
   it("states this instance's caps under the control and whose they are", () => {
     expect(capabilitySentence(openai, openai.capabilities.images as ImageCapabilities)).toBe(
-      "OpenAI Decisions takes up to 8 images, 64 KB each and 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's.",
+      "OpenAI Decisions takes up to 8 images, 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's.",
     );
   });
 });
@@ -747,7 +747,7 @@ describe("provider changes with images attached", () => {
     expect(flagOf(4).hidden).toBe(false);
     expect(flagOf(0).hidden).toBe(true);
     const message =
-      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run.";
+      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run.";
     expect(control.blocked()).toBe(message);
     expect(notice()).toBe(message);
     expect(get(".attachments-notice").dataset.tone).toBe("alert");
@@ -786,7 +786,7 @@ describe("provider changes with images attached", () => {
     control.setProvider(withImages(subq, { maxBytesPerRequest: 32 * KIB }));
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([false, true]);
     expect(control.blocked()).toBe(
-      "1 image is over the limits of SubQ Snap: up to 4 images, 64 KB each and 32 KB in total. Remove the marked image to run.",
+      "1 image is over the limits of SubQ Snap: up to 4 images, 32 KB in total. Remove the marked image to run.",
     );
     control.setProvider(withImages(subq, { maxBytesPerImage: 16 * KIB }));
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([true, true]);

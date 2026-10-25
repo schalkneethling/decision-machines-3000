@@ -143,7 +143,8 @@ function toWireInput(request: WireInput): string | UserMessage[] {
     {
       role: "user",
       content: [
-        { type: "input_text", text },
+        // A blank state is allowed with images, and then only the labels and images are sent.
+        ...(text.trim() === "" ? [] : [{ type: "input_text", text } satisfies TextPart]),
         ...request.images.flatMap((image, index): (TextPart | ImagePart)[] => [
           { type: "input_text", text: imageLabel(image, index) },
           toImagePart(image),

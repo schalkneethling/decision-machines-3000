@@ -4,7 +4,7 @@ import type { ExampleSet, ExampleSetId } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
-import type { ValidDecisionRequest } from "../decision/validate.ts";
+import type { ValidDecisionRequest, ValidationResult } from "../decision/validate.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
 import { createAttachments, toFormData } from "./attachments.ts";
 import { browserRasterizer } from "./shrink-browser.ts";
@@ -166,6 +166,8 @@ function setupPanel(
     onChange: () => {
       if (!panel) return;
       panel.imagesHint.textContent = imagesHintText(attachments.count());
+      // An image added or removed decides whether a blank state is a problem.
+      revalidate(panel);
       onChange();
     },
   });
@@ -247,6 +249,16 @@ function writeJson(panel: Panel): void {
   clearFieldError(panel);
 }
 
+/** How many of the panel's images Run would send: none to a text-only provider. */
+function sentImageCount(panel: Panel): number {
+  return panel.capabilities.images === false ? 0 : panel.attachments.count();
+}
+
+/** Checks `value` as the request the panel would send, with the images it would send. */
+function validateForPanel(panel: Panel, value: unknown): ValidationResult {
+  return validateDecisionRequest(value, panel.capabilities, sentImageCount(panel));
+}
+
 /** Reads the textarea as a valid request, or shows why it is not one. */
 function readJson(panel: Panel): ValidDecisionRequest | undefined {
   const source = panel.field.value;
@@ -258,7 +270,7 @@ function readJson(panel: Panel): ValidDecisionRequest | undefined {
     return undefined;
   }
 
-  const validation = validateDecisionRequest(parsed, panel.capabilities);
+  const validation = validateForPanel(panel, parsed);
   if (!validation.ok) {
     showFieldError(panel, invalidMessage(validation));
     return undefined;
@@ -336,7 +348,7 @@ function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } 
   }
 
   // The tree found nothing wrong; the shared validator has the final word.
-  const validation = validateDecisionRequest(panel.request, panel.capabilities);
+  const validation = validateForPanel(panel, panel.request);
   if (!validation.ok) {
     setStatus(panel, invalidMessage(validation), "alert");
     return undefined;
@@ -345,18 +357,19 @@ function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } 
 }
 
 /**
- * Checks what a panel shows against the limits of a newly selected provider, so
- * a problem the old limits caused goes away, and a new one is shown, without
- * another press of Run. Nothing here moves focus.
+ * Checks what a panel shows against the limits of a newly selected provider, or
+ * against a changed set of images, so a problem the old ones caused goes away,
+ * and a new one is shown, without another press of Run. Nothing here moves focus.
  */
 function revalidate(panel: Panel): void {
   panel.composer.setCapabilities(panel.capabilities);
+  panel.composer.setImageCount(sentImageCount(panel));
 
   if (panel.view === "json") {
     const parsed = tryParse(panel.field.value);
-    // A syntax error stays as it is shown; only validity depends on the provider.
+    // A syntax error stays as it is shown; only validity depends on the provider and images.
     if (!parsed.ok) return;
-    const validation = validateDecisionRequest(parsed.value, panel.capabilities);
+    const validation = validateForPanel(panel, parsed.value);
     if (validation.ok) {
       panel.request = validation.value;
       if (!panel.error.hidden) clearFieldError(panel);
@@ -374,7 +387,7 @@ function revalidate(panel: Panel): void {
     setStatus(panel, issue.message, "alert");
     return;
   }
-  const validation = validateDecisionRequest(panel.request, panel.capabilities);
+  const validation = validateForPanel(panel, panel.request);
   if (validation.ok) {
     setStatus(panel, "");
   } else {
@@ -746,9 +759,7 @@ export function setupPanels(
     panel.field.addEventListener("input", () => {
       markEdited(panel);
       const parsed = tryParse(panel.field.value);
-      const validation = parsed.ok
-        ? validateDecisionRequest(parsed.value, panel.capabilities)
-        : undefined;
+      const validation = parsed.ok ? validateForPanel(panel, parsed.value) : undefined;
       if (validation?.ok) {
         panel.request = validation.value;
         if (!panel.error.hidden) clearFieldError(panel);

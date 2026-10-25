@@ -38,7 +38,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     When the provider changes to SubQ Snap
     Then the accept attribute, the maximum count, and the size limits in the capability line match SubQ Snap
     And the provider status line (#provider-status, the page's single role="status" for provider changes) announces
-      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total."
+      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total."
     # The three panels each have an image control. Announcing the same capability from all three status lines at once
     # would read the sentence three times, so the generic effect of a provider change is announced once, by the provider
     # status line that already announced "Images allowed, up to 4." before this issue. Each panel's own status line
@@ -47,7 +47,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: The capability line states the caps and whose they are
     Given OpenAI Decisions is selected
     When the capability line renders
-    Then it reads "OpenAI Decisions takes up to 8 images, 64 KB each and 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's."
+    Then it reads "OpenAI Decisions takes up to 8 images, 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's."
     # Rewritten from the issue body, which named 4 MiB and 8 MiB. The sentence is built from the capabilities, so the
     # numbers follow the catalog. "Not the provider's" is said for every image provider, because the byte caps are the
     # project's for SubQ Snap too (SubQ documents 4 MiB and 8 MiB).
@@ -215,7 +215,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Given eight images are attached on OpenAI Decisions
     When the provider changes to SubQ Snap (limit 4)
     Then images 5 to 8 are marked "Over the limit" in their list items
-    And the panel's Run button is disabled and the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run."
+    And the panel's Run button is disabled and the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run."
     And the status announces the same
     And after the four are removed, Run is enabled, the notice is empty, and the removal that cleared the block announces
       "Image removed: 5.png. 4 images remain. Your 4 images fit the limits of SubQ Snap."

@@ -1395,6 +1395,30 @@ describe("images", () => {
     expect(get("#noul-hint").textContent).not.toContain("attached");
   });
 
+  it("runs with a blank state once an image is attached, and clears the empty-state alert", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    type(stateField("noul"), "");
+    submit("noul");
+    expect(status("noul").textContent).toBe(
+      "The state is empty. Add the text, object, or list to evaluate, or attach an image.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    attach("noul", png("a.png"));
+    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(1));
+    expect(status("noul").textContent).toBe("");
+    expect(stateField("noul").getAttribute("aria-invalid")).toBeNull();
+
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = fetchMock.mock.calls[0]?.[1]?.body;
+    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
+    expect(JSON.parse(body.get("request") as string).state).toBe("");
+    expect(body.getAll("image")).toHaveLength(1);
+  });
+
   it("keeps the images on a text-only provider, sends JSON without them, and says so in the result", async () => {
     const fetchMock = mockFetch();
     const { selection, choose } = selectionOf(subq);

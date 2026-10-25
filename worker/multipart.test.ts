@@ -889,3 +889,29 @@ describe("image labels (issue #57)", () => {
     expect(text).not.toContain("secret");
   });
 });
+
+describe("a blank state with images", () => {
+  const blankState: Part = ["request", JSON.stringify({ ...question, state: "" })];
+
+  it("is sent to SubQ with the image labels as the state", async () => {
+    const deps = stubDeps(subqReply);
+    const { response } = await send(
+      multipart("subq", [blankState, ["image", file(image("png")), "photo.png"]]),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(upstreamBody(deps).state).toBe("Image 1: photo.png");
+  });
+
+  it("is refused without images, with a message that offers attaching one", async () => {
+    const deps = stubDeps();
+    const { response, body } = await send(multipart("subq", [blankState]), deps);
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe(
+      `"state" is empty. Add the text, object, or list to evaluate, or attach an image.`,
+    );
+    expect(deps.fetch).not.toHaveBeenCalled();
+  });
+});

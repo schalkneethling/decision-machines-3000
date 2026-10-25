@@ -70,6 +70,11 @@ export type Composer = {
   focusIssue(issue: Issue): void;
   /** Reports problems against other limits from now on, and updates the issues already shown. */
   setCapabilities(capabilities: ProviderCapabilities): void;
+  /**
+   * Reports problems for a request sent with `count` images from now on, and
+   * updates the issues already shown. With one or more, the state may be blank.
+   */
+  setImageCount(count: number): void;
 };
 
 /** What the shared and per-question criteria are called in each primitive. */
@@ -122,6 +127,7 @@ function stateHint(model: ComposerModel): string {
 export function createComposer(options: ComposerOptions): Composer {
   const { prefix, announce, onChange } = options;
   let { capabilities } = options;
+  let imageCount = 0;
   let model = options.model;
   const element = create("div", { className: "tree" });
   /** Rows whose issues show; the rest wait until they are edited or Run reveals them. */
@@ -209,7 +215,7 @@ export function createComposer(options: ComposerOptions): Composer {
    * whose messages or invalid fields differ from what they show now.
    */
   function showIssues(): Issue[] {
-    const issues = findIssues(model, capabilities);
+    const issues = findIssues(model, capabilities, imageCount);
     const next = new Map<string, ShownIssues>();
     for (const issue of issues) {
       if (!revealAll && !touched.has(issue.key)) continue;
@@ -692,6 +698,10 @@ export function createComposer(options: ComposerOptions): Composer {
     focusIssue,
     setCapabilities(next) {
       capabilities = next;
+      showIssues();
+    },
+    setImageCount(count) {
+      imageCount = count;
       showIssues();
     },
   };

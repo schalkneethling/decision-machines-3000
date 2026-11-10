@@ -267,7 +267,7 @@ describe("attaching", () => {
     choose(fileOf(pngBytes({ width: 64, height: 48, size: 12 * KIB }), "poster.png", "image/png"));
     await vi.waitFor(() => expect(items()).toHaveLength(1));
     const item = items()[0]!;
-    expect(item.querySelector("img")?.getAttribute("alt")).toBe("poster.png");
+    expect(item.querySelector("img")?.getAttribute("alt")).toBe("");
     expect(item.querySelector("img")?.getAttribute("src")).toBe("blob:test/poster.png");
     expect(item.textContent).toContain("image/png");
     expect(item.textContent).toContain("12 KB");
@@ -393,7 +393,7 @@ describe("attaching", () => {
     expect(paste.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(control.count()).toBe(1));
     expect(control.files()[0]?.name).toBe("pasted-image-1.png");
-    expect(items()[0]?.querySelector("img")?.getAttribute("alt")).toBe("pasted-image-1.png");
+    expect(items()[0]?.querySelector("img")?.getAttribute("alt")).toBe("");
     expect(status()).toBe("Image 1 added: pasted-image-1.png, 2 KB.");
 
     // The generated extension follows the bytes, and the count goes on.
@@ -515,12 +515,14 @@ describe("removing", () => {
     const [first] = items();
     const remove = first?.querySelector<HTMLButtonElement>(".attachment-remove");
     if (!remove) throw new Error("No Remove button.");
-    expect(remove.textContent).toBe("Remove a.png");
+    expect(remove.textContent).toBe("Remove image 1, a.png");
     remove.click();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test/a.png");
     expect(items()).toHaveLength(1);
     expect(control.files().map((file) => file.name)).toEqual(["b.png"]);
-    expect(status()).toBe("Image removed: a.png. 1 image remains.");
+    expect(status()).toBe(
+      "Image removed: a.png. 1 image remains. Image 2 is now image 1. Check questions that mention image numbers.",
+    );
     expect(document.activeElement).toBe(items()[0]?.querySelector(".attachment-remove"));
 
     items()[0]?.querySelector<HTMLButtonElement>(".attachment-remove")?.click();
@@ -857,8 +859,8 @@ describe("edges the review asked for", () => {
     }
     expect(form.querySelector(`label[for="${input().id}"]`)?.textContent).toBe("Choose images");
     expect(focusable.slice(1).map((button) => button.textContent)).toEqual([
-      "Remove a.png",
-      "Remove b.png",
+      "Remove image 1, a.png",
+      "Remove image 2, b.png",
     ]);
   });
 
@@ -872,5 +874,72 @@ describe("edges the review asked for", () => {
     expect(createObjectURL).not.toHaveBeenCalled();
     expect(revokeObjectURL).not.toHaveBeenCalled();
     expect(items().map((item) => item.querySelector("img")?.getAttribute("src"))).toEqual(before);
+  });
+});
+
+describe("numbered images", () => {
+  const labels = () => items().map((item) => item.querySelector(".attachment-number")?.textContent);
+  const removeNames = () =>
+    items().map((item) => item.querySelector(".attachment-remove")?.textContent);
+  const pressRemove = (position: number) =>
+    items()[position]?.querySelector<HTMLButtonElement>(".attachment-remove")?.click();
+
+  it("lists the images in an ordered list labelled Image 1, 2, 3", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png"), png("c.png")]);
+    expect(zone().querySelector(".attachments-list")?.tagName).toBe("OL");
+    expect(labels()).toEqual(["Image 1", "Image 2", "Image 3"]);
+  });
+
+  it("gives thumbnails an empty alt and Remove buttons the number and the file name", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png")]);
+    for (const item of items()) expect(item.querySelector("img")?.getAttribute("alt")).toBe("");
+    expect(removeNames()).toEqual(["Remove image 1, a.png", "Remove image 2, b.png"]);
+  });
+
+  it("says that image 3 is now image 2 when image 2 is removed, and renumbers the items", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png"), png("c.png")]);
+    pressRemove(1);
+    expect(status()).toBe(
+      "Image removed: b.png. 2 images remain. Image 3 is now image 2. Check questions that mention image numbers.",
+    );
+    expect(labels()).toEqual(["Image 1", "Image 2"]);
+    expect(removeNames()).toEqual(["Remove image 1, a.png", "Remove image 2, c.png"]);
+  });
+
+  it("names a range when several images move up", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png"), png("c.png"), png("d.png")]);
+    pressRemove(1);
+    expect(status()).toContain("Images 3 to 4 are now images 2 to 3. Check questions");
+  });
+
+  it("does not mention renumbering when the last image is removed", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png"), png("c.png")]);
+    pressRemove(2);
+    expect(status()).toBe("Image removed: c.png. 2 images remain.");
+    expect(labels()).toEqual(["Image 1", "Image 2"]);
+  });
+
+  it("numbers from 1 again after replace", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png"), png("c.png")]);
+    await control.replace([png("x.png"), png("y.png")]);
+    expect(labels()).toEqual(["Image 1", "Image 2"]);
+    expect(removeNames()).toEqual(["Remove image 1, x.png", "Remove image 2, y.png"]);
+  });
+
+  it("keeps marking over-limit images after a removal", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png"), png("b.png"), png("c.png"), png("d.png")]);
+    control.setProvider(withImages(subq, { maxCount: 2 }));
+    const marks = () => items().map((item) => item.hasAttribute("data-over-limit"));
+    expect(marks()).toEqual([false, false, true, true]);
+    pressRemove(0);
+    expect(marks()).toEqual([false, false, true]);
+    expect(labels()).toEqual(["Image 1", "Image 2", "Image 3"]);
   });
 });

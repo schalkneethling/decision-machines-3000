@@ -52,11 +52,11 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     # numbers follow the catalog. "Not the provider's" is said for every image provider, because the byte caps are the
     # project's for SubQ Snap too (SubQ documents 4 MiB and 8 MiB).
 
-  Scenario: Thumbnails and Remove buttons are named by the file
-    Given an attached image named "poster.png"
+  Scenario: Thumbnails are decorative and Remove buttons are named by the number and the file
+    Given an attached image named "poster.png", the first in the list
     When its list item renders
-    Then its <img> alt is "poster.png"
-    And its Remove button's accessible name is "Remove poster.png"
+    Then its <img> alt is ""
+    And its Remove button's accessible name is "Remove image 1, poster.png"
     And the item shows "image/png", the size as the wire view writes it ("12 KB"), and the pixel dimensions ("64 × 48")
 
   Scenario: Keyboard-only use reaches everything
@@ -157,10 +157,10 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   # --- Removing ----------------------------------------------------------------------------------------------------
 
   Scenario: Removing an image revokes its object URL
-    Given an attached image
-    When its Remove button is pressed
+    Given two attached images, "poster.png" first
+    When the Remove button of "poster.png" is pressed
     Then the list item disappears and URL.revokeObjectURL is called with its preview URL
-    And the status says "Image removed: poster.png. 1 image remains."
+    And the status says "Image removed: poster.png. 1 image remains. Image 2 is now image 1. Check questions that mention image numbers."
     And focus moves to the next Remove button, or to the file input when none is left
 
   # --- Sending -----------------------------------------------------------------------------------------------------

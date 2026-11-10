@@ -18,8 +18,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     When the panels render
     Then no panel holds the film example or the image example
     And each panel's empty-state message is visible
-    And each Run button is disabled
-    And the empty-state message says Run is off until the panel holds a request
+    And each Run button stays enabled, and is described by the empty-state message (issue #95)
     And no status line has announced anything
 
   Scenario: The JSON view agrees with the empty tree
@@ -27,11 +26,11 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     When the JSON view of the Choice panel is opened
     Then the textarea holds {"primitive": "choice", "state": "", "questions": {}} formatted over several lines
 
-  Scenario: Editing an empty panel hides the empty-state message and enables Run
+  Scenario: Editing an empty panel hides the empty-state message and lets Run check the request
     Given a fresh page load with a provider selected
     When the person types into the Noul panel's State field
     Then the empty-state message is hidden
-    And Run is enabled, and pressing it reports the first problem in the status line as it always has
+    And pressing Run lists the request's problems in the panel's error summary and moves focus to it (issue #95)
 
   # --- Loading the film example ----------------------------------------------------------------------------------------
 
@@ -41,7 +40,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Then the panel holds exactly choiceExample, the content of src/decision/examples/film/choice.json
     And the tree and the JSON view agree
     And the status line announces "Film example loaded."
-    And Run is enabled
+    And Run's description says it checks the Choice request and sends it to the selected provider
     And focus is on the State field of the tree
 
   Scenario: Loading the film example while the JSON view is open

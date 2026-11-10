@@ -13,13 +13,15 @@ import type { Attachments } from "./attachments.ts";
 import { imagesCount } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
-import { STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
-import type { ComposerModel, DraftRequest } from "./composer/model.ts";
+import { findIssues, STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
+import type { ComposerModel, DraftRequest, Issue } from "./composer/model.ts";
 import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
 import { createConfirmDialog } from "./confirm-dialog.ts";
 import type { Confirm, Confirmation } from "./confirm-dialog.ts";
 import { create, required } from "./dom.ts";
+import { createErrorSummary } from "./error-summary.ts";
+import type { ErrorSummary, Problem } from "./error-summary.ts";
 import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
 import {
@@ -51,8 +53,14 @@ type Panel = {
   imagesHint: HTMLElement;
   /** The panel's images, which follow the selected provider. */
   attachments: Attachments;
+  /** The image control's file input, which the summary links to when the images stop a run. */
+  imagesInput: HTMLInputElement;
   button: HTMLButtonElement;
   label: HTMLElement;
+  /** The sentence Run's aria-describedby points at once the panel is edited: what Run will send, or why it cannot. */
+  runNote: HTMLElement;
+  /** The box at the top of the panel that lists why the last press of Run sent nothing. */
+  summary: ErrorSummary;
   status: HTMLElement;
   /** The message a panel shows until it is edited or an example is loaded. */
   emptyMessage: HTMLElement;
@@ -71,7 +79,7 @@ type Panel = {
   serialised: string;
   /**
    * True from the start until the person edits the panel or loads an example.
-   * Run is disabled meanwhile, and the empty-state message says why.
+   * Run sends nothing meanwhile, and the empty-state message, which describes Run, says why.
    */
   untouched: boolean;
   /** How many edits the person made since the panel was last loaded; a load asks before replacing any. */
@@ -80,7 +88,7 @@ type Panel = {
   loadedImages: ReadonlySet<File>;
   /** True from a press of a load button until the example is in place; presses meanwhile are dropped. */
   loading: boolean;
-  /** Tells the page that Run may now enable or disable. */
+  /** Tells the page that what Run would send, or why it cannot, may have changed. */
   onChange: () => void;
 };
 
@@ -138,7 +146,7 @@ type PanelSetup = {
   capabilities: ProviderCapabilities;
   /** The provider selected while the panel is built, for the image control's first, silent render. */
   provider: ProviderSummary | undefined;
-  /** Called after any change that may enable or disable Run: the panel's images, or its first edit. */
+  /** Called after any change to what Run would send or why it cannot: the panel's images, or an edit. */
   onChange: () => void;
 };
 
@@ -186,10 +194,11 @@ function setupPanel(
     },
   });
   treeBody.append(composer.element);
+  const name = capitalise(primitive);
 
   panel = {
     primitive,
-    name: capitalise(primitive),
+    name,
     capabilities,
     form,
     field: required(form, "textarea.request-field", HTMLTextAreaElement),
@@ -197,8 +206,14 @@ function setupPanel(
     hintId: hint.id,
     imagesHint,
     attachments,
+    imagesInput: required(form, ".attachments-input", HTMLInputElement),
     button: required(form, ".run", HTMLButtonElement),
     label: required(form, ".run-label", HTMLElement),
+    runNote: required(form, ".run-note", HTMLElement),
+    summary: createErrorSummary(
+      required(form, ".error-summary", HTMLElement),
+      `The ${name} request cannot be sent yet`,
+    ),
     status,
     emptyMessage: required(form, ".panel-empty", HTMLElement),
     loadButtons: {
@@ -226,12 +241,17 @@ function setupPanel(
   return panel;
 }
 
-/** Records an edit the person made: the empty-state message goes, Run may enable, and a load will ask first. */
+/**
+ * Records an edit the person made: the empty-state message goes, a load will
+ * ask first, and the page hears of it, so Run's note and a shown error summary
+ * follow the edit.
+ */
 function markEdited(panel: Panel): void {
   panel.edits += 1;
-  if (!panel.untouched) return;
-  panel.untouched = false;
-  panel.emptyMessage.hidden = true;
+  if (panel.untouched) {
+    panel.untouched = false;
+    panel.emptyMessage.hidden = true;
+  }
   panel.onChange();
 }
 
@@ -259,25 +279,35 @@ function validateForPanel(panel: Panel, value: unknown): ValidationResult {
   return validateDecisionRequest(value, panel.capabilities, sentImageCount(panel));
 }
 
-/** Reads the textarea as a valid request, or shows why it is not one. */
-function readJson(panel: Panel): ValidDecisionRequest | undefined {
+/** The textarea read as a valid request, or why it is not one. Shows nothing. */
+function checkJson(
+  panel: Panel,
+): { ok: true; value: ValidDecisionRequest } | { ok: false; message: string } {
   const source = panel.field.value;
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
   } catch (error) {
-    showFieldError(panel, describeJsonError(source, error));
-    return undefined;
+    return { ok: false, message: describeJsonError(source, error) };
   }
 
   const validation = validateForPanel(panel, parsed);
-  if (!validation.ok) {
-    showFieldError(panel, invalidMessage(validation));
+  if (!validation.ok) return { ok: false, message: invalidMessage(validation) };
+  return { ok: true, value: validation.value };
+}
+
+/**
+ * Reads the textarea as a valid request, or shows why it is not one under the
+ * textarea. Focus moves to the textarea then, unless `focus` is false.
+ */
+function readJson(panel: Panel, focus = true): ValidDecisionRequest | undefined {
+  const checked = checkJson(panel);
+  if (!checked.ok) {
+    showFieldError(panel, checked.message, focus);
     return undefined;
   }
-
   clearFieldError(panel);
-  return validation.value;
+  return checked.value;
 }
 
 /**
@@ -328,70 +358,156 @@ function clearFieldError(panel: Panel): void {
   panel.field.setAttribute("aria-describedby", panel.hintId);
 }
 
+/** What the summary and Run's note say about a panel that is still empty. */
+const EMPTY_PANEL = "Load an example or write a question to run this panel.";
+
+/** A summary link to `element`, which must have an id. */
+function targetOf(element: HTMLElement): NonNullable<Problem["target"]> {
+  return { href: `#${element.id}`, focus: () => element.focus() };
+}
+
 /**
- * What Run sends from the current view, or undefined after showing why it cannot.
- * The JSON view sends its text unchanged, as it always has.
+ * Why no provider can take the request. The summary links to the provider
+ * select while a provider can be chosen there. While the select is disabled,
+ * because the list is loading, failed, or is empty, the provider area says why,
+ * so the problem is listed without a link.
  */
-function prepareRun(panel: Panel): { sent: ValidDecisionRequest; body: string } | undefined {
+function providerProblem(select: HTMLSelectElement | null): Problem {
+  if (select === null || select.disabled) {
+    return {
+      key: "provider",
+      message: "No provider is available yet. The Provider area at the top of the page says why.",
+    };
+  }
+  return {
+    key: "provider",
+    message: "Choose a provider to run this panel.",
+    target: targetOf(select),
+  };
+}
+
+/**
+ * What stops a panel from running before its request is read: nothing to send
+ * yet, no provider, or images that are over the provider's limits or still
+ * being added. Each links to the control that fixes it.
+ */
+function runBlockers(
+  panel: Panel,
+  chosen: ProviderSummary | undefined,
+  providerSelect: HTMLSelectElement | null,
+): Problem[] {
+  const problems: Problem[] = [];
+  if (panel.untouched) {
+    problems.push({ key: "empty", message: EMPTY_PANEL, target: targetOf(panel.loadButtons.film) });
+  }
+  if (chosen === undefined) problems.push(providerProblem(providerSelect));
+  const blocked = panel.attachments.blocked();
+  if (blocked !== undefined) {
+    problems.push({ key: "images", message: blocked, target: targetOf(panel.imagesInput) });
+  }
+  return problems;
+}
+
+/**
+ * The tree's issues as summary problems. Each link moves focus the way Run
+ * always has, through the composer, and names the row's issue slot, which
+ * shows the same message beside the control.
+ */
+function issueProblems(panel: Panel, issues: readonly Issue[]): Problem[] {
+  const seen = new Map<string, number>();
+  return issues.map((issue) => {
+    // Two issues can concern the same control; the count keeps their keys apart.
+    const base = `tree:${issue.key}:${issue.field}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    const slot = panel.composer.element.querySelector<HTMLElement>(
+      `[data-issue-for="${CSS.escape(issue.key)}"]`,
+    );
+    return {
+      key: count === 0 ? base : `${base}:${count}`,
+      message: issue.message,
+      target: {
+        // Every row the composer reports on has a slot; "#" only guards against markup drifting.
+        href: slot === null ? "#" : `#${slot.id}`,
+        focus: () => panel.composer.focusIssue(issue),
+      },
+    };
+  });
+}
+
+/** The JSON view's problem, which links to the textarea. */
+function jsonProblem(panel: Panel, message: string): Problem {
+  return { key: "json", message, target: targetOf(panel.field) };
+}
+
+/** A request the shared validator refuses as a whole, which no one control can fix, so it has no link. */
+function invalidProblem(invalid: { error: string; detail?: string }): Problem {
+  return { key: "request", message: invalidMessage(invalid) };
+}
+
+/** The problems in a panel's request, found without revealing, showing, or focusing anything. */
+function requestProblems(panel: Panel): Problem[] {
   if (panel.view === "json") {
-    const request = readJson(panel);
-    if (request === undefined) return undefined;
+    const checked = checkJson(panel);
+    return checked.ok ? [] : [jsonProblem(panel, checked.message)];
+  }
+  const issues = findIssues(panel.composer.model(), panel.capabilities, sentImageCount(panel));
+  if (issues.length > 0) return issueProblems(panel, issues);
+  const validation = validateForPanel(panel, panel.request);
+  return validation.ok ? [] : [invalidProblem(validation)];
+}
+
+type Prepared =
+  | { ok: true; sent: ValidDecisionRequest; body: string }
+  | { ok: false; problems: Problem[] };
+
+/**
+ * What Run sends from the current view, or the problems that stop it. The
+ * problems are also shown where they are: in the tree's issue slots, or under
+ * the textarea. The JSON view sends its text unchanged, as it always has.
+ * Nothing here moves focus; Run decides where focus goes.
+ */
+function prepareRun(panel: Panel): Prepared {
+  if (panel.view === "json") {
+    const request = readJson(panel, false);
+    if (request === undefined) {
+      return { ok: false, problems: [jsonProblem(panel, panel.error.textContent ?? "")] };
+    }
     panel.request = request;
-    return { sent: request, body: panel.field.value };
+    return { ok: true, sent: request, body: panel.field.value };
   }
 
-  const [issue] = panel.composer.revealIssues();
-  if (issue !== undefined) {
-    setStatus(panel, issue.message, "alert");
-    panel.composer.focusIssue(issue);
-    return undefined;
-  }
+  const issues = panel.composer.revealIssues();
+  if (issues.length > 0) return { ok: false, problems: issueProblems(panel, issues) };
 
   // The tree found nothing wrong; the shared validator has the final word.
   const validation = validateForPanel(panel, panel.request);
-  if (!validation.ok) {
-    setStatus(panel, invalidMessage(validation), "alert");
-    return undefined;
-  }
-  return { sent: validation.value, body: JSON.stringify(validation.value) };
+  if (!validation.ok) return { ok: false, problems: [invalidProblem(validation)] };
+  return { ok: true, sent: validation.value, body: JSON.stringify(validation.value) };
 }
 
 /**
  * Checks what a panel shows against the limits of a newly selected provider, or
- * against a changed set of images, so a problem the old ones caused goes away,
- * and a new one is shown, without another press of Run. Nothing here moves focus.
+ * against a changed set of images, so a problem the old ones caused goes away, and a new one is shown, without
+ * another press of Run. The tree's issue slots and the error under the
+ * textarea follow here; the error summary follows in the caller. Nothing here
+ * moves focus.
  */
 function revalidate(panel: Panel): void {
   panel.composer.setCapabilities(panel.capabilities);
   panel.composer.setImageCount(sentImageCount(panel));
+  if (panel.view !== "json") return;
 
-  if (panel.view === "json") {
-    const parsed = tryParse(panel.field.value);
-    // A syntax error stays as it is shown; only validity depends on the provider and images.
-    if (!parsed.ok) return;
-    const validation = validateForPanel(panel, parsed.value);
-    if (validation.ok) {
-      panel.request = validation.value;
-      if (!panel.error.hidden) clearFieldError(panel);
-      if (panel.status.dataset.tone === "alert") setStatus(panel, "");
-    } else if (!panel.error.hidden) {
-      showFieldError(panel, invalidMessage(validation), false);
-    }
-    return;
-  }
-
-  // In the tree, an alert means Run found a problem; look again with the new limits.
-  if (panel.status.dataset.tone !== "alert") return;
-  const [issue] = panel.composer.revealIssues();
-  if (issue !== undefined) {
-    setStatus(panel, issue.message, "alert");
-    return;
-  }
-  const validation = validateForPanel(panel, panel.request);
+  const parsed = tryParse(panel.field.value);
+  // A syntax error stays as it is shown; only validity depends on the provider and images.
+  if (!parsed.ok) return;
+  const validation = validateForPanel(panel, parsed.value);
   if (validation.ok) {
-    setStatus(panel, "");
-  } else {
-    setStatus(panel, invalidMessage(validation), "alert");
+    panel.request = validation.value;
+    if (!panel.error.hidden) clearFieldError(panel);
+    if (panel.status.dataset.tone === "alert") setStatus(panel, "");
+  } else if (!panel.error.hidden) {
+    showFieldError(panel, invalidMessage(validation), false);
   }
 }
 
@@ -409,6 +525,8 @@ function replaceRequest(panel: Panel, request: ValidDecisionRequest): void {
     panel.untouched = false;
     panel.emptyMessage.hidden = true;
   }
+  // The summary was about the request this one replaces.
+  panel.summary.clear();
   panel.onChange();
 }
 
@@ -515,8 +633,9 @@ export type PanelOptions = {
 /**
  * Wires each panel, which starts empty, to its two example buttons, its Tree
  * and JSON views, and Run, which posts to the shared readout on the provider
- * `selection` holds. Run stays disabled while the selection has no provider
- * and while a panel is still empty.
+ * `selection` holds. Run stays in the tab order whatever the panel holds: its
+ * note says what it will send or why it cannot, and a press that cannot send
+ * lists every reason in the panel's error summary.
  */
 export function setupPanels(
   root: Document,
@@ -531,35 +650,69 @@ export function setupPanels(
   // Until a provider is selected, requests are checked against the default provider's limits.
   const provider = selection.current();
   const capabilities = provider?.capabilities ?? DEFAULT_PROVIDER.capabilities;
+  // Owned by the provider select; read here only to link to it, and to know whether it can take focus.
+  const providerSelect = root.querySelector<HTMLSelectElement>("#provider-select");
   const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
-    setupPanel(form, { capabilities, provider, onChange: updateButtons }),
+    setupPanel(form, { capabilities, provider, onChange: changed }),
   );
   /** The panel whose run is in flight, or undefined between runs. */
   let running: Panel | undefined;
 
+  /** What Run's note says once the panel is edited: what a press will send, or the first reason it will send nothing. */
+  function runNoteText(panel: Panel, chosen: ProviderSummary | undefined): string {
+    if (running === panel) return "Waiting for the answer to this request.";
+    if (running !== undefined) {
+      return `The ${running.name} panel is running. Run is available again once its answer arrives.`;
+    }
+    const [blocker] = runBlockers(panel, chosen, providerSelect);
+    if (blocker !== undefined || chosen === undefined) return blocker?.message ?? "";
+    const count = panel.attachments.count();
+    const sends = `Checks the ${panel.name} request and sends it to ${chosen.displayName}`;
+    if (count === 0) return `${sends}.`;
+    if (chosen.capabilities.images === false) return `${sends} without your ${imagesCount(count)}.`;
+    return `${sends} with ${imagesCount(count)}.`;
+  }
+
   /**
-   * Run is disabled while a run is in flight, while there is no provider, on a
-   * panel that is still empty, and on a panel whose images the selected
-   * provider cannot take, until the excess is removed. The running panel reads
-   * "Running". "Load image example" is hidden unless the selected provider
-   * takes images, because it could only refuse. The state is read here rather
-   * than passed in, so a provider or image change during a run cannot relabel
-   * the buttons.
+   * Run is marked aria-disabled while a run is in flight, in every panel, and
+   * a press then does nothing. It is never `disabled`, so it keeps focus and
+   * its place in the tab order, and its note says why. While a panel is
+   * untouched, its note is hidden and Run is described by the empty-state
+   * message instead, so the page does not say the same thing twice. The
+   * running panel reads "Running". "Load image example" is hidden unless the
+   * selected provider takes images, because it could only refuse. The state is
+   * read here rather than passed in, so a provider or image change during a
+   * run cannot relabel the buttons.
    */
   function updateButtons(): void {
     const chosen = selection.current();
-    const unavailable = chosen === undefined;
     const imagesTaken = chosen !== undefined && chosen.capabilities.images !== false;
     for (const panel of panels) {
       panel.loadButtons.images.hidden = !imagesTaken;
-      panel.button.disabled =
-        running !== undefined ||
-        unavailable ||
-        panel.untouched ||
-        panel.attachments.blocked() !== undefined;
+      if (running === undefined) panel.button.removeAttribute("aria-disabled");
+      else panel.button.setAttribute("aria-disabled", "true");
       panel.label.textContent = panel === running ? "Running" : "Run";
       panel.button.toggleAttribute("data-running", panel === running);
+      panel.runNote.textContent = panel.untouched ? "" : runNoteText(panel, chosen);
+      panel.runNote.hidden = panel.untouched;
+      panel.button.setAttribute(
+        "aria-describedby",
+        panel.untouched ? panel.emptyMessage.id : panel.runNote.id,
+      );
     }
+  }
+
+  /** Drops what a panel's shown error summary lists once it is fixed, and updates what changed. */
+  function refreshSummary(panel: Panel): void {
+    if (!panel.summary.shown()) return;
+    const blockers = runBlockers(panel, selection.current(), providerSelect);
+    panel.summary.update(panel.untouched ? blockers : [...blockers, ...requestProblems(panel)]);
+  }
+
+  /** Follows a change to any panel's request or images. */
+  function changed(): void {
+    updateButtons();
+    for (const panel of panels) refreshSummary(panel);
   }
 
   function setRunning(active: Panel | undefined): void {
@@ -575,9 +728,9 @@ export function setupPanels(
         revalidate(panel);
       }
     }
-    // Each control re-marks its images for the new provider and tells updateButtons through onChange.
+    // Each control re-marks its images for the new provider and tells the page through onChange.
     for (const panel of panels) panel.attachments.setProvider(next);
-    updateButtons();
+    changed();
   });
   updateButtons();
 
@@ -688,21 +841,30 @@ export function setupPanels(
     return { body: await withImages(text, files), omittedImages: 0 };
   }
 
+  /**
+   * Lists every reason a press of Run sent nothing in the panel's error
+   * summary and moves focus to it, which makes a screen reader read it. The
+   * status line is cleared, so the problem is said once. Problems in the
+   * request also stay in their inline issue slots or under the textarea,
+   * where the summary's links lead.
+   */
+  function showProblems(panel: Panel, problems: readonly Problem[]): void {
+    setStatus(panel, "");
+    panel.summary.show(problems);
+    panel.summary.focus();
+  }
+
   async function run(panel: Panel): Promise<void> {
     const chosen = selection.current();
-    // An untouched panel has nothing to send, and its empty-state message says so.
-    if (chosen === undefined || panel.untouched) {
+    const blockers = runBlockers(panel, chosen, providerSelect);
+    // An untouched panel's request is empty, so checking it would only repeat that it is empty.
+    const prepared = panel.untouched ? undefined : prepareRun(panel);
+    if (chosen === undefined || prepared === undefined || !prepared.ok || blockers.length > 0) {
+      const found = prepared?.ok === false ? prepared.problems : [];
+      showProblems(panel, [...blockers, ...found]);
       return;
     }
-    const blocked = panel.attachments.blocked();
-    if (blocked !== undefined) {
-      setStatus(panel, blocked, "alert");
-      return;
-    }
-    const prepared = prepareRun(panel);
-    if (prepared === undefined) {
-      return;
-    }
+    panel.summary.clear();
     setStatus(panel, "");
     setRunning(panel);
     readout.replaceChildren(renderLoading(chosen.displayName));
@@ -716,10 +878,6 @@ export function setupPanels(
       if (result.kind === "response" && result.response.ok) onAnswered?.(result.response);
     } finally {
       setRunning(undefined);
-      // Disabling the focused Run button drops focus to the body; hand it back.
-      if (root.activeElement === null || root.activeElement === root.body) {
-        panel.button.focus({ preventScroll: true });
-      }
     }
   }
 
@@ -736,6 +894,8 @@ export function setupPanels(
       panel.switches[view].addEventListener("click", () => {
         if (switchView(panel, view)) {
           panel.switches[view].focus();
+          // A problem the summary named in the other view is no longer where its link points.
+          refreshSummary(panel);
         }
       });
     }
@@ -770,6 +930,7 @@ export function setupPanels(
 
     panel.form.addEventListener("submit", (event) => {
       event.preventDefault();
+      // Run is aria-disabled meanwhile, so a press, or Enter in a field, does nothing.
       if (running !== undefined) {
         return;
       }

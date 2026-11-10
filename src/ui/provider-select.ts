@@ -28,6 +28,8 @@ export type ProviderSelection = {
    * Undefined whenever `current()` is, and set before listeners hear of a provider.
    */
   host(): HostSummary | undefined;
+  /** The providers the host listed, in list order; empty while the list loads and when it could not be loaded. */
+  providers(): readonly ProviderSummary[];
   /** Calls `listener` with the new `current()` each time it changes. */
   subscribe(listener: (provider: ProviderSummary | undefined) => void): void;
 };
@@ -57,6 +59,15 @@ function optionFor(provider: ProviderSummary): HTMLOptionElement {
     " ",
     create("span", { className: "provider-model", text: provider.model }),
   ]);
+}
+
+/**
+ * What the visible capability line says: "TypeSafe Jev: Text only, no images."
+ * Plain text outside any live region, so it is the same on the first load and
+ * after a change, and only the hidden status line announces a change.
+ */
+function capabilityText(provider: ProviderSummary): string {
+  return `${provider.displayName}: ${imageInputSentence(provider.capabilities.images)}`;
 }
 
 /** An option that stands in for a list that is not there. It cannot be chosen. */
@@ -91,6 +102,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
   const select = required(root, "#provider-select", HTMLSelectElement);
   const problem = required(root, "#provider-problem", HTMLElement);
   const status = required(root, "#provider-status", HTMLElement);
+  const capability = required(root, "#provider-capability", HTMLElement);
   const protectionNotice = required(root, "#protection-notice", HTMLElement);
   const legend = required(root, "#provider-vocabulary", HTMLDetailsElement);
   const legendSummary = required(legend, "summary", HTMLElement);
@@ -130,6 +142,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     select.disabled = true;
     setOptions([placeholderOption(placeholder)]);
     status.textContent = "";
+    capability.textContent = "";
     problem.replaceChildren(...notice);
     renderProtectionNotice(protectionNotice, undefined);
     renderLegend(undefined);
@@ -175,6 +188,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     select.disabled = false;
     for (const option of options) option.selected = option.value === chosen.id;
     renderLegend(chosen);
+    capability.textContent = capabilityText(chosen);
     choose(chosen);
   }
 
@@ -224,7 +238,9 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     if (next === undefined) return;
     storeProvider(next.id);
     // The one announcement of the new image capability; each panel's image control says only what concerns its own images.
+    // The visible capability line says the same sentence, so the status line is visually hidden.
     status.textContent = `Provider set to ${next.displayName}. ${imageInputSentence(next.capabilities.images)}`;
+    capability.textContent = capabilityText(next);
     renderLegend(next);
     choose(next);
   });
@@ -234,6 +250,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
   return {
     current: () => selected,
     host: () => host,
+    providers: () => providers,
     subscribe(listener) {
       listeners.push(listener);
     },

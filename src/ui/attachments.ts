@@ -251,7 +251,8 @@ export function createAttachments(
     list,
     privacy,
   ]);
-  // Kept in the page, empty, so that filling it is announced; the zone may be hidden while it speaks.
+  // Outside the zone, so it stays visible when a text-only provider hides the zone. It is not a live
+  // region: the status line announces the same news on a provider change, and a live region here would say it twice.
   const notice = create("p", { className: "attachments-notice" });
   const status = create("p", { className: "attachments-status", attributes: { role: "status" } });
   host.replaceChildren(zone, notice, status);

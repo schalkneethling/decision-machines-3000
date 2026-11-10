@@ -27,11 +27,33 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     And the input's aria-describedby names only the capability line, which is in the fieldset (issue #97)
     And the fieldset has no aria-describedby, and the privacy note is a visible paragraph inside it (issue #97)
 
-  Scenario: The control leaves the accessibility tree for a text-only provider
+  Scenario: The control stays in the page, unavailable, for a text-only provider
     Given TypeSafe Jev is selected
     When the panel renders
-    Then the fieldset has the hidden attribute
+    Then the fieldset has no hidden attribute and carries data-unavailable
+    And the file input is disabled and has no accept attribute
+    And the instructions, the hint, and the privacy note are hidden, because they describe choosing files
     And nothing is announced
+    # Issue #98: the control used to be hidden here, which hid from a first-time visitor that images exist. It is hidden
+    # only while no provider is selected, because there is nothing true to say yet.
+
+  Scenario: The unavailable control names the selected provider and the providers that take images
+    Given the page received TypeSafe Jev, SubQ Snap, and OpenAI Decisions
+    And TypeSafe Jev is selected
+    When the panel renders
+    Then the control's one sentence reads "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images."
+    And the names come from the provider list the page received, never from the client's code
+    And the sentence is plain text in the fieldset, not in a live region, so the first render announces nothing
+    And the input's aria-describedby names that sentence alone
+    When the list holds no provider that takes images
+    Then the sentence reads "TypeSafe Jev is text only, and no provider on this instance takes images."
+
+  Scenario: A drop on the unavailable control is refused in words
+    Given TypeSafe Jev is selected
+    When a file is dragged over the fieldset
+    Then dragover is cancelled so that the drop reaches the page, and the fieldset is not highlighted
+    When the file is dropped
+    Then nothing is attached and the status says "dropped.png was not added: TypeSafe Jev is text only."
 
   Scenario: The control follows a provider change between two image providers
     Given OpenAI Decisions is selected and the capability line says up to 8 images
@@ -196,7 +218,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: Switching to a text-only provider keeps the images and says so
     Given two images are attached on SubQ Snap
     When the provider changes to TypeSafe Jev
-    Then the fieldset is hidden, the two images stay in the panel's state
+    Then the fieldset stays, unavailable, with the two thumbnails and their Remove buttons still listed
     And a visible notice in the panel says "TypeSafe Jev is text only. Your 2 images are kept and will not be sent."
     And the panel's status says "TypeSafe Jev is text only; your 2 images are kept and will not be sent"
 
@@ -209,7 +231,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: Switching back to an image provider shows the images again
     Given that state
     When the provider changes back to SubQ Snap
-    Then the fieldset is shown with both thumbnails still attached, the notice is empty, and the status says "Image input available again; your 2 images will be sent."
+    Then the fieldset is available again with both thumbnails still attached, the notice is empty, and the status says "Image input available again; your 2 images will be sent."
 
   Scenario: A lower limit marks the excess and blocks Run until it is removed
     Given eight images are attached on OpenAI Decisions

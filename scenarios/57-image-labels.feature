@@ -22,7 +22,8 @@ Feature: Show how to ask about attached images, and label each image for the mod
   Scenario: A text-only provider shows no hint
     Given a text-only provider is selected
     When the panel renders
-    Then the image control, with its hint, is hidden
+    Then the image control stays in the page as unavailable, and its hint is hidden
+    # Issue #98: the hint tells the user to ask about images they can attach, which is untrue while the control is unavailable.
 
   # --- OpenAI --------------------------------------------------------------------------------------------------------
 

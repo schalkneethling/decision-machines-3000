@@ -338,6 +338,25 @@ code {
   border-color: var(--reading);
 }
 
+/* A text-only provider: the control stays, quieter, and its sentence says why and where to go. */
+.attachments-zone[data-unavailable] {
+  border-style: dotted;
+}
+
+.attachments-zone[data-unavailable] .attachments-label {
+  opacity: 0.6;
+}
+
+.attachments-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.attachments-limits:focus-visible {
+  outline: 2px solid var(--reading);
+  outline-offset: 2px;
+}
+
 .attachments-legend {
   padding: 0 0.25rem;
   color: var(--ink-muted);
@@ -705,8 +724,8 @@ code {
   color: inherit;
 }
 
-/* The announcement of a provider change. Empty until the viewer changes the provider. */
-.provider-status {
+/* The selected provider's image capability, always shown. The status line beside it is visually hidden and only announces a change. */
+.provider-capability {
   margin: 0;
   color: var(--ink-muted);
   font-size: var(--size-meta);
@@ -1089,6 +1108,12 @@ textarea.tree-field {
 
 .action-button:hover {
   border-color: var(--ink-muted);
+}
+
+/* "Load image example" on a text-only provider: dimmed like a disabled control, but it still takes focus and presses. */
+.action-button[data-unavailable] {
+  color: var(--ink-muted);
+  border-style: dotted;
 }
 
 .action-button[data-tone="alert"] {

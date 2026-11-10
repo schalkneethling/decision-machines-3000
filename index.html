@@ -50,7 +50,17 @@
           that filling it is announced; CSS collapses it while it is empty.
         -->
         <p id="protection-notice" class="protection-notice" role="status"></p>
-        <p id="provider-status" class="provider-status" role="status"></p>
+        <!--
+          The selected provider's image capability. Plain text, not a live region, so
+          filling it on the first load announces nothing.
+        -->
+        <p id="provider-capability" class="provider-capability"></p>
+        <!--
+          Announces what the viewer causes: a provider change, a Retry. It is visually
+          hidden because the capability line above is what sighted viewers read, and it
+          stays empty on the first load.
+        -->
+        <p id="provider-status" class="visually-hidden" role="status"></p>
         <details id="provider-vocabulary" class="provider-vocabulary" hidden>
           <summary class="provider-vocabulary-summary"></summary>
           <dl class="provider-vocabulary-list"></dl>

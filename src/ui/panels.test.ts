@@ -32,6 +32,8 @@ function selectionOf(initial: ProviderSummary | undefined) {
   const selection: ProviderSelection = {
     current: () => current,
     host: () => (current === undefined ? undefined : { connectionMetrics: false }),
+    // The three providers the catalog lists, as a configured instance would send them.
+    providers: () => (current === undefined ? [] : [typesafe, subq, openai]),
     subscribe: (listener) => listeners.push(listener),
   };
   return {
@@ -355,26 +357,74 @@ describe("the empty start (issue #58)", () => {
   });
 });
 
-describe("offering the image example only where it can load (issue #58)", () => {
-  it("hides it on a text-only provider and when no provider is selected, and keeps the film example", () => {
+describe("the image example on a text-only provider (issues #58 and #98)", () => {
+  it("keeps it visible, unavailable, and focusable on a text-only provider, and hides it only with no provider", () => {
     const { selection, choose } = selectionOf(typesafe);
     setupPanels(document, selection);
     for (const primitive of PRIMITIVES) {
-      expect(loadButton(primitive, "images").hidden).toBe(true);
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      expect(button.hasAttribute("data-unavailable")).toBe(true);
+      // Not `disabled`, so it stays in the tab order and can be pressed.
+      expect(button.disabled).toBe(false);
+      button.focus();
+      expect(document.activeElement).toBe(button);
       expect(loadButton(primitive, "film").hidden).toBe(false);
     }
     choose(undefined);
     for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(true);
   });
 
-  it("shows it on an image provider, and hides it again on a switch to a text-only one", () => {
+  it("shows it as available on an image provider, and marks it unavailable again on a switch to a text-only one", () => {
     const { selection, choose } = selectionOf(subq);
     setupPanels(document, selection);
-    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(false);
+    for (const primitive of PRIMITIVES) {
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+      expect(button.hasAttribute("data-unavailable")).toBe(false);
+    }
     choose(typesafe);
-    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(true);
+    for (const primitive of PRIMITIVES) {
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+    }
     choose(openai);
-    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(false);
+    for (const primitive of PRIMITIVES) {
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+      expect(button.hasAttribute("data-unavailable")).toBe(false);
+    }
+  });
+
+  it("shows each panel's image control as unavailable, naming the providers that take images", () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    for (const primitive of PRIMITIVES) {
+      const zone = get<HTMLFieldSetElement>(
+        `form[data-primitive="${primitive}"] .attachments-zone`,
+      );
+      expect(zone.hidden).toBe(false);
+      expect(zone.hasAttribute("data-unavailable")).toBe(true);
+      expect(get(`#${primitive}-images-limits`).textContent).toBe(
+        "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images.",
+      );
+      expect(get<HTMLInputElement>(`#${primitive}-images-input`).disabled).toBe(true);
+    }
+  });
+
+  it("shows each panel's image control as before on SubQ Snap", () => {
+    setupPanels(document, selectionOf(subq).selection);
+    for (const primitive of PRIMITIVES) {
+      const zone = get<HTMLFieldSetElement>(
+        `form[data-primitive="${primitive}"] .attachments-zone`,
+      );
+      expect(zone.hidden).toBe(false);
+      expect(zone.hasAttribute("data-unavailable")).toBe(false);
+      expect(get<HTMLInputElement>(`#${primitive}-images-input`).disabled).toBe(false);
+    }
   });
 });
 
@@ -493,9 +543,10 @@ describe("loading the image example (issue #58)", () => {
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(sampleBytes("picture-1.png"));
   });
 
-  it("refuses on TypeSafe Jev if its hidden button is pressed anyway, and changes nothing", async () => {
+  it("refuses on TypeSafe Jev when its unavailable button is pressed, names the providers that take images, and changes nothing", async () => {
     const fetchMock = mockFetch();
-    setupPanels(document, selectionOf(typesafe).selection);
+    const { selection } = selectionOf(typesafe);
+    setupPanels(document, selection);
     await loadFilm("choice");
     viewButton("choice", "json").click();
     const before = textarea("choice").value;
@@ -503,7 +554,7 @@ describe("loading the image example (issue #58)", () => {
     loadButton("choice", "images").click();
     await vi.waitFor(() =>
       expect(status("choice").textContent).toBe(
-        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose another provider first.",
+        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first.",
       ),
     );
     expect(status("choice").dataset.tone).toBe("alert");
@@ -511,6 +562,43 @@ describe("loading the image example (issue #58)", () => {
     expect(attachments("choice")).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(viewButton("choice", "json").getAttribute("aria-pressed")).toBe("true");
+    // The page does not switch the provider for the person.
+    expect(selection.current()).toBe(typesafe);
+    // The other panels were not touched.
+    expect(status("noul").textContent).toBe("");
+    expect(status("score").textContent).toBe("");
+  });
+
+  it("asks nothing before it refuses, even when the person has typed into the panel", async () => {
+    const confirmReplace = vi.fn(async () => true);
+    mockFetch();
+    setupPanels(document, selectionOf(typesafe).selection, { confirmReplace });
+    type(stateField("noul"), "my own state");
+    loadButton("noul", "images").click();
+    await vi.waitFor(() =>
+      expect(status("noul").textContent).toContain("TypeSafe Jev is text only."),
+    );
+    expect(confirmReplace).not.toHaveBeenCalled();
+    expect(stateField("noul").value).toBe("my own state");
+  });
+
+  it("says when no provider on the instance takes images", async () => {
+    const fetchMock = mockFetch();
+    const { selection } = selectionOf(typesafe);
+    setupPanels(document, {
+      ...selection,
+      providers: () => [typesafe],
+    });
+    loadButton("noul", "images").click();
+    await vi.waitFor(() =>
+      expect(status("noul").textContent).toBe(
+        "The image example needs a provider that takes images. TypeSafe Jev is text only, and no provider on this instance takes images.",
+      ),
+    );
+    expect(get("#noul-images-limits").textContent).toBe(
+      "TypeSafe Jev is text only, and no provider on this instance takes images.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refuses with no provider if its hidden button is pressed anyway", async () => {
@@ -652,7 +740,7 @@ describe("loading the image example (issue #58)", () => {
     serve();
     await vi.waitFor(() =>
       expect(status("noul").textContent).toBe(
-        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose another provider first.",
+        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first.",
       ),
     );
     expect(emptyMessage("noul").hidden).toBe(false);
@@ -1289,7 +1377,7 @@ describe("run", () => {
     submit("noul");
     const readout = get("#readout-body");
     await vi.waitFor(() => expect(readout.textContent).toContain("a body that is not JSON"));
-    // Only the readout; Run's note names the selected provider on purpose.
+    // Only the readout; Run's note and the image control name the selected provider on purpose.
     expect(readout.textContent).not.toMatch(/Jev|TypeSafe/);
   });
 
@@ -1495,7 +1583,11 @@ describe("images", () => {
     const { selection, choose } = selectionOf(typesafe);
     setupPanels(document, selection);
     for (const primitive of PRIMITIVES) {
-      expect(get(`form[data-primitive="${primitive}"] .attachments-zone`).hidden).toBe(true);
+      expect(
+        get(`form[data-primitive="${primitive}"] .attachments-zone`).hasAttribute(
+          "data-unavailable",
+        ),
+      ).toBe(true);
     }
     choose(subq);
     for (const primitive of PRIMITIVES) {
@@ -1581,7 +1673,9 @@ describe("images", () => {
     await vi.waitFor(() => expect(attachments("noul")).toHaveLength(2));
 
     choose(typesafe);
-    expect(get('form[data-primitive="noul"] .attachments-zone').hidden).toBe(true);
+    expect(
+      get('form[data-primitive="noul"] .attachments-zone').hasAttribute("data-unavailable"),
+    ).toBe(true);
     expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toBe(
       "TypeSafe Jev is text only. Your 2 images are kept and will not be sent.",
     );

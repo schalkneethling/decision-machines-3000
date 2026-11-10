@@ -72,13 +72,18 @@ Feature: A provider select picks which configured provider Run asks
     Then the control is a <select> labelled by a <label for>
     And the options' text content reads "OpenAI Decisions gpt-6-luna", with a space between name and model
 
-  Scenario: The status line is silent on page load
+  Scenario: The status line is silent on page load, and the capability line states the capability
     When the page load completes without user action
     Then the role="status" line is empty
+    And the capability line (#provider-capability, plain text, not a live region) reads "<name>: " followed by the image capability sentence, for example "TypeSafe Jev: Text only, no images."
+    # Issue #98: nothing stated the capability until the first change, so a visitor on TypeSafe Jev never learned that
+    # images exist. The capability line is not a live region, so filling it announces nothing and no timing is involved.
 
   Scenario: A user change is announced
     When the user changes the provider to SubQ Snap
     Then the role="status" line reads "Provider set to SubQ Snap." followed by the image capability sentence
+    And the capability line reads "SubQ Snap: " followed by the same sentence
+    # The status line is visually hidden, so sighted viewers read the capability once, and screen readers hear it once.
     And the choice is stored
 
   Scenario: The vocabulary legend follows the selected provider
@@ -102,7 +107,7 @@ Feature: A provider select picks which configured provider Run asks
     And the role="status" line reads "Loading providers…"
     And pressing Retry again sends no second request
     When the list arrives
-    Then the status line is empty and focus moves to the select
+    Then the status line is empty, the capability line states the selected provider's capability, and focus moves to the select
 
   Scenario: A Retry that ends in the missing-key 503 moves focus to the setup notice
     Given the list failed to load and the user presses Retry

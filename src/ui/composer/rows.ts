@@ -137,6 +137,16 @@ export function textField(ctx: RowContext, options: TextFieldOptions): HTMLDivEl
 
   const description = describedBy(ctx.prefix, options.key, [readingId, hintId], options.hasIssues);
   if (description !== "") input.setAttribute("aria-describedby", description);
+  if (input instanceof HTMLInputElement) {
+    // A single-line field submits its form when Enter is pressed (HTML's implicit
+    // submission), and the panel form's submit runs the request, which spends
+    // provider credit. Cancelling the keydown stops that. The Run button is
+    // unaffected, and a textarea keeps Enter for new lines. Enter that confirms
+    // an input-method composition is left alone so the composition still commits.
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) event.preventDefault();
+    });
+  }
   input.addEventListener("input", () => {
     options.onInput(input.value);
     if (reading) updateReadingHint(reading, input.value);

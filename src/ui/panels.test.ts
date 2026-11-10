@@ -1515,3 +1515,68 @@ describe("images", () => {
     expect(runButton("noul").hasAttribute("data-running")).toBe(false);
   });
 });
+
+describe("Enter in a request field does not run the request (issue #93)", () => {
+  /** Presses Enter in `field` and returns whether the browser's default action was cancelled. */
+  function pressEnter(field: HTMLElement, isComposing = false): boolean {
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      isComposing,
+      bubbles: true,
+      cancelable: true,
+    });
+    field.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  // Browsers submit a form from Enter in a text input as that key's default action, and
+  // cancelling the keydown cancels it. happy-dom does not implement implicit submission,
+  // so these tests check that the default is cancelled and that no request is posted.
+  it("cancels Enter in a question's Id field and posts nothing", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    const idField = get<HTMLInputElement>('form[data-primitive="noul"] input[data-control="id"]');
+    const answerBefore = get("#readout-body").innerHTML;
+    expect(pressEnter(idField)).toBe(true);
+    await settled();
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+    expect(get("#readout-body").innerHTML).toBe(answerBefore);
+  });
+
+  it("cancels Enter in an option's name field in the Choice panel and posts nothing", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("choice");
+    const optionName = get<HTMLInputElement>(
+      'form[data-primitive="choice"] input[data-control="name"]',
+    );
+    expect(pressEnter(optionName)).toBe(true);
+    await settled();
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("leaves Enter alone in a textarea, so it still inserts a new line", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    expect(pressEnter(stateField("noul"))).toBe(false);
+    await settled();
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("leaves Enter that confirms an input-method composition alone", async () => {
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    const idField = get<HTMLInputElement>('form[data-primitive="noul"] input[data-control="id"]');
+    expect(pressEnter(idField, true)).toBe(false);
+  });
+
+  it("still posts when Run is activated", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    runButton("noul").click();
+    await vi.waitFor(() => expect(decideCalls(fetchMock)).toHaveLength(1));
+  });
+});

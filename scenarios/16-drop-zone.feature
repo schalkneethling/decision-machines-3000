@@ -215,9 +215,10 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Given eight images are attached on OpenAI Decisions
     When the provider changes to SubQ Snap (limit 4)
     Then images 5 to 8 are marked "Over the limit" in their list items
-    And the panel's Run button is disabled and the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run."
+    And the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run."
     And the status announces the same
-    And after the four are removed, Run is enabled, the notice is empty, and the removal that cleared the block announces
+    And Run's description says the same, and pressing Run posts nothing and lists it in the panel's error summary, linked to the file input (issue #95)
+    And after the four are removed, the summary and the notice are empty, Run's description says what it will send, and the removal that cleared the block announces
       "Image removed: 5.png. 4 images remain. Your 4 images fit the limits of SubQ Snap."
     # The marking is by the images that fit so far, the per-image cap, and the running total, so it also covers a
     # provider whose byte caps are lower. A new image is judged against the images that will be sent, not the marked ones.

@@ -259,7 +259,7 @@ describe("the capability line (issue #98)", () => {
     answerProviders(listed(typesafe, subq));
     await load();
     expect(capability().textContent).toBe(
-      "SubQ Snap: Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "SubQ Snap: Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
     );
     expect(get("#provider-status").textContent).toBe("");
   });
@@ -269,10 +269,10 @@ describe("the capability line (issue #98)", () => {
     await load();
     change("openai");
     expect(capability().textContent).toBe(
-      "OpenAI Decisions: Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "OpenAI Decisions: Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
     );
     expect(get("#provider-status").textContent).toBe(
-      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
     );
     change("typesafe");
     expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");

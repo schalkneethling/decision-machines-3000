@@ -345,6 +345,7 @@ code {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
+    "thumb number"
     "thumb name"
     "thumb meta"
     "thumb shrunk"
@@ -367,6 +368,14 @@ code {
   object-fit: cover;
   background: var(--well);
   border-radius: 2px;
+}
+
+.attachment-number {
+  grid-area: number;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+  font-variant-numeric: tabular-nums;
 }
 
 .attachment-name {

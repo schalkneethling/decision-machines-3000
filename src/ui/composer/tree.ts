@@ -38,6 +38,7 @@ import {
   issueSlot,
   levelList,
   meaningList,
+  moveHint,
   movableRow,
   optionList,
   previousFocus,
@@ -538,7 +539,6 @@ export function createComposer(options: ComposerOptions): Composer {
       label: "Id",
       value: question.id,
       slug: true,
-      hint: "For your code only. The model never sees the id.",
       className: "field-id",
       onInput: (value) => {
         question.id = value;
@@ -594,7 +594,7 @@ export function createComposer(options: ComposerOptions): Composer {
         issueSlot(prefix, question.key),
       ]),
     ]);
-    movableRow(row, move);
+    movableRow(row, move, { up, down });
     return row;
   }
 
@@ -670,12 +670,33 @@ export function createComposer(options: ComposerOptions): Composer {
   /* Whole tree */
 
   function render(): void {
+    const moveId = elementId(prefix, QUESTIONS_KEY, "move-hint");
+    // The shortcut needs two or more questions to move between, so its hint appears only then.
+    const canMove = model.questions.length >= 2;
     const branch = create("ul", {
       className: "tree-branch",
-      attributes: { "aria-label": "Shared criteria and questions" },
+      attributes: {
+        "aria-label": "Shared criteria and questions",
+        ...(canMove ? { "aria-describedby": moveId } : {}),
+      },
     });
     branch.append(sharedNode(), ...model.questions.map(questionNode), addQuestionNode());
-    element.replaceChildren(stateNode(), branch);
+    // Said once for the panel, not under every question's Id field, and only while there is an Id field to describe.
+    const idHint =
+      model.questions.length === 0
+        ? []
+        : [
+            create("p", {
+              className: "tree-hint",
+              text: "Question ids are for your code only. The model never sees them.",
+            }),
+          ];
+    element.replaceChildren(
+      stateNode(),
+      ...idHint,
+      ...(canMove ? [moveHint(moveId, "question")] : []),
+      branch,
+    );
     collectReferences();
     showIssues();
   }

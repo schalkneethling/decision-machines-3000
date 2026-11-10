@@ -24,8 +24,8 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Then it is a <fieldset> whose first child is <legend>Images</legend>
     And it has no hidden attribute
     And it holds a visible <input type="file" multiple> whose accept attribute is "image/png,image/jpeg,image/webp"
-    And the input's aria-describedby names the instructions and the capability line, both of which are in the fieldset
-    And the fieldset's own aria-describedby points at the privacy note (MDN: fieldset has the implicit role "group")
+    And the input's aria-describedby names only the capability line, which is in the fieldset (issue #97)
+    And the fieldset has no aria-describedby, and the privacy note is a visible paragraph inside it (issue #97)
 
   Scenario: The control leaves the accessibility tree for a text-only provider
     Given TypeSafe Jev is selected
@@ -52,18 +52,18 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     # numbers follow the catalog. "Not the provider's" is said for every image provider, because the byte caps are the
     # project's for SubQ Snap too (SubQ documents 4 MiB and 8 MiB).
 
-  Scenario: Thumbnails and Remove buttons are named by the file
-    Given an attached image named "poster.png"
+  Scenario: Thumbnails are decorative and Remove buttons are named by the number and the file
+    Given an attached image named "poster.png", the first in the list
     When its list item renders
-    Then its <img> alt is "poster.png"
-    And its Remove button's accessible name is "Remove poster.png"
+    Then its <img> alt is ""
+    And its Remove button's accessible name is "Remove image 1, poster.png"
     And the item shows "image/png", the size as the wire view writes it ("12 KB"), and the pixel dimensions ("64 × 48")
 
   Scenario: Keyboard-only use reaches everything
     Given two attached images
     When the user tabs through the control
     Then the file-input button and each Remove button are focusable and labelled
-    And the instructions are read with the input through aria-describedby
+    And the instructions are visible next to the input, but are not part of its aria-describedby (issue #97)
 
   Scenario: The privacy note is visible under the control
     Given an image provider is selected
@@ -157,10 +157,10 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   # --- Removing ----------------------------------------------------------------------------------------------------
 
   Scenario: Removing an image revokes its object URL
-    Given an attached image
-    When its Remove button is pressed
+    Given two attached images, "poster.png" first
+    When the Remove button of "poster.png" is pressed
     Then the list item disappears and URL.revokeObjectURL is called with its preview URL
-    And the status says "Image removed: poster.png. 1 image remains."
+    And the status says "Image removed: poster.png. 1 image remains. Image 2 is now image 1. Check questions that mention image numbers."
     And focus moves to the next Remove button, or to the file input when none is left
 
   # --- Sending -----------------------------------------------------------------------------------------------------
@@ -215,9 +215,10 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Given eight images are attached on OpenAI Decisions
     When the provider changes to SubQ Snap (limit 4)
     Then images 5 to 8 are marked "Over the limit" in their list items
-    And the panel's Run button is disabled and the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run."
+    And the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run."
     And the status announces the same
-    And after the four are removed, Run is enabled, the notice is empty, and the removal that cleared the block announces
+    And Run's description says the same, and pressing Run posts nothing and lists it in the panel's error summary, linked to the file input (issue #95)
+    And after the four are removed, the summary and the notice are empty, Run's description says what it will send, and the removal that cleared the block announces
       "Image removed: 5.png. 4 images remain. Your 4 images fit the limits of SubQ Snap."
     # The marking is by the images that fit so far, the per-image cap, and the running total, so it also covers a
     # provider whose byte caps are lower. A new image is judged against the images that will be sent, not the marked ones.

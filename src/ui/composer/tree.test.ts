@@ -119,6 +119,31 @@ describe("tree structure", () => {
     expect(harness.all(".option-row")).toHaveLength(7);
   });
 
+  it("says what the id is for once per panel, and no Id field is described by it", () => {
+    const harness = mount(noulExample);
+    const keys = questionKeys(harness);
+    const sentence = "Question ids are for your code only. The model never sees them.";
+    expect(keys.length).toBe(4);
+    const hints = harness.all(".tree-hint").filter((hint) => hint.textContent === sentence);
+    expect(hints).toHaveLength(1);
+    expect(hints[0]?.closest(".tree-branch")).toBeNull();
+    for (const key of keys) {
+      const description = harness.get(control(key, "id")).getAttribute("aria-describedby") ?? "";
+      for (const id of description.split(" ")) {
+        expect(document.getElementById(id)?.textContent).not.toBe(sentence);
+      }
+    }
+  });
+
+  it("leaves out the id hint when the panel has no questions", () => {
+    const harness = mount(noulExample);
+    harness.composer.setModel({ ...harness.composer.model(), questions: [] });
+    expect(harness.all(".field-id")).toHaveLength(0);
+    expect(harness.all(".tree-hint").map((hint) => hint.textContent)).not.toContain(
+      "Question ids are for your code only. The model never sees them.",
+    );
+  });
+
   it("labels every text field and select", () => {
     const harness = mount(scoreExample);
     for (const field of harness.all("input, textarea, select")) {
@@ -146,7 +171,7 @@ describe("tree structure", () => {
     const hint = harness.get("#test-shared-levels-hint");
     expect(hint.textContent).toBe("Levels are numbered from 0, as the model reports them.");
     expect(harness.get(".level-row").closest("ul")?.getAttribute("aria-describedby")).toBe(
-      "test-shared-levels-hint",
+      "test-shared-levels-hint test-shared-levels-move-hint",
     );
   });
 
@@ -166,10 +191,16 @@ describe("tree structure", () => {
 
     const hints = harness.all(".level-group > .tree-hint");
     const ids = hints.map((hint) => hint.id);
-    expect(ids).toEqual(["test-shared-levels-hint", `test-${question}-levels-hint`]);
+    expect(ids).toEqual([
+      "test-shared-levels-hint",
+      "test-shared-levels-move-hint",
+      `test-${question}-levels-hint`,
+      `test-${question}-levels-move-hint`,
+    ]);
     for (const id of ids) {
       expect(document.querySelectorAll(`#${id}`)).toHaveLength(1);
-      expect(document.querySelector(`[aria-describedby="${id}"]`)?.tagName).toBe("UL");
+      // A list may name several hints, so the id is one token of its aria-describedby.
+      expect(document.querySelector(`[aria-describedby~="${id}"]`)?.tagName).toBe("UL");
     }
   });
 
@@ -360,6 +391,135 @@ describe("add, remove, and move", () => {
     const names = harness.all(`.option-row [data-control="name"]`);
     expect(names).toHaveLength(8);
     expect(document.activeElement).toBe(names.at(-1));
+  });
+});
+
+describe("the Alt + Arrow move shortcut", () => {
+  it("names it on each question's Move up and Move down buttons, and hints at it above the question list", () => {
+    const harness = mount(noulExample);
+    const keys = questionKeys(harness);
+    expect(keys.length).toBeGreaterThanOrEqual(2);
+    for (const key of keys) {
+      expect(harness.get(control(key, "up")).getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp");
+      expect(harness.get(control(key, "down")).getAttribute("aria-keyshortcuts")).toBe(
+        "Alt+ArrowDown",
+      );
+    }
+    // Only the move buttons carry the shortcut, two per question.
+    expect(document.querySelectorAll("[aria-keyshortcuts]")).toHaveLength(keys.length * 2);
+
+    const hint = harness.get("#test-questions-move-hint");
+    expect(hint.textContent).toBe("Press Alt and an arrow key to move the focused question.");
+    expect(hint.className).toBe("tree-hint");
+    expect(
+      harness
+        .get("ul[aria-label='Shared criteria and questions']")
+        .getAttribute("aria-describedby"),
+    ).toBe("test-questions-move-hint");
+  });
+
+  it("names it on each score level's Move up and Move down buttons, and hints at it above the level list", () => {
+    const harness = mount(scoreExample);
+    const rows = harness.all(".level-row");
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    for (const row of rows) {
+      expect(row.querySelector('[data-control="up"]')?.getAttribute("aria-keyshortcuts")).toBe(
+        "Alt+ArrowUp",
+      );
+      expect(row.querySelector('[data-control="down"]')?.getAttribute("aria-keyshortcuts")).toBe(
+        "Alt+ArrowDown",
+      );
+    }
+    // Questions carry the same two buttons, so they are counted too.
+    const movable = rows.length + questionKeys(harness).length;
+    expect(document.querySelectorAll("[aria-keyshortcuts]")).toHaveLength(movable * 2);
+
+    const hint = harness.get("#test-shared-levels-move-hint");
+    expect(hint.textContent).toBe("Press Alt and an arrow key to move the focused level.");
+    expect(hint.className).toBe("tree-hint");
+  });
+
+  it("names it on the levels of a question's own list too", () => {
+    const harness = mount(scoreExample);
+    const [question] = questionKeys(harness);
+    harness.get<HTMLButtonElement>(control(question!, "override")).click();
+    const own = harness.get(`#test-${question}-levels-move-hint`);
+    const list = own.parentElement?.querySelector("ul");
+    expect(list?.getAttribute("aria-describedby")).toBe(
+      `test-${question}-levels-hint test-${question}-levels-move-hint`,
+    );
+    for (const row of list?.querySelectorAll(".level-row") ?? []) {
+      expect(row.querySelector('[data-control="down"]')?.getAttribute("aria-keyshortcuts")).toBe(
+        "Alt+ArrowDown",
+      );
+    }
+  });
+});
+
+describe("the move hints need two or more rows to move between", () => {
+  const QUESTIONS_LIST = "ul[aria-label='Shared criteria and questions']";
+
+  it("shows no question hint with one question, and points nothing at it, but keeps the buttons' shortcuts", () => {
+    const harness = mount({ ...noulExample, questions: { only: { instructions: "Is it good?" } } });
+    const [only] = questionKeys(harness);
+    expect(document.querySelector("#test-questions-move-hint")).toBeNull();
+    expect(document.querySelector(QUESTIONS_LIST)?.hasAttribute("aria-describedby")).toBe(false);
+    expect(harness.get(control(only!, "up")).getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp");
+    expect(harness.get(control(only!, "down")).getAttribute("aria-keyshortcuts")).toBe(
+      "Alt+ArrowDown",
+    );
+  });
+
+  it("shows no question hint on an empty list", () => {
+    mount({ ...noulExample, questions: {} });
+    expect(document.querySelector("#test-questions-move-hint")).toBeNull();
+    expect(document.querySelector(QUESTIONS_LIST)?.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("shows the question hint when a second question is added, and drops it when one is left", () => {
+    const harness = mount({ ...noulExample, questions: { only: { instructions: "Is it good?" } } });
+    harness.get<HTMLButtonElement>(control("questions", "add")).click();
+    expect(harness.get("#test-questions-move-hint").textContent).toBe(
+      "Press Alt and an arrow key to move the focused question.",
+    );
+    expect(document.querySelector(QUESTIONS_LIST)?.getAttribute("aria-describedby")).toBe(
+      "test-questions-move-hint",
+    );
+
+    const [, added] = questionKeys(harness);
+    harness.get<HTMLButtonElement>(control(added!, "remove")).click();
+    expect(document.querySelector("#test-questions-move-hint")).toBeNull();
+    expect(document.querySelector(QUESTIONS_LIST)?.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("shows no levels hint with one level, and points the list only at its numbering hint", () => {
+    const harness = mount(scoreExample);
+    const [first, ...rest] = levelKeys(harness);
+    for (const key of rest) harness.get<HTMLButtonElement>(control(key!, "remove")).click();
+    expect(levelKeys(harness)).toEqual([first]);
+
+    expect(document.querySelector("#test-shared-levels-move-hint")).toBeNull();
+    expect(harness.get(".level-row").closest("ul")?.getAttribute("aria-describedby")).toBe(
+      "test-shared-levels-hint",
+    );
+    expect(harness.get(control(first!, "up")).getAttribute("aria-keyshortcuts")).toBe(
+      "Alt+ArrowUp",
+    );
+    expect(harness.get(control(first!, "down")).getAttribute("aria-keyshortcuts")).toBe(
+      "Alt+ArrowDown",
+    );
+  });
+
+  it("shows the levels hint again when a second level is added", () => {
+    const harness = mount(scoreExample);
+    const [first, ...rest] = levelKeys(harness);
+    for (const key of rest) harness.get<HTMLButtonElement>(control(key!, "remove")).click();
+    harness.get<HTMLButtonElement>(control("shared", "add")).click();
+    expect(levelKeys(harness)).toHaveLength(2);
+    expect(levelKeys(harness)[0]).toBe(first);
+    expect(harness.get("#test-shared-levels-move-hint").textContent).toBe(
+      "Press Alt and an arrow key to move the focused level.",
+    );
   });
 });
 

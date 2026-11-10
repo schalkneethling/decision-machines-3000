@@ -41,7 +41,15 @@ function runButtons(): HTMLButtonElement[] {
   return [...document.querySelectorAll<HTMLButtonElement>("form[data-primitive] .run")];
 }
 
-/** Loads the film example into every panel, since an empty panel keeps its Run disabled (issue #58). */
+/** The sentence a Run button's aria-describedby points at: what it will send, or why it cannot. */
+function runNote(button: HTMLButtonElement): string {
+  return document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+}
+
+const NO_PROVIDER =
+  "No provider is available yet. The Provider area at the top of the page says why.";
+
+/** Loads the film example into every panel, since an empty panel's Run sends nothing (issues #58 and #95). */
 async function loadFilmExamples(): Promise<void> {
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     'form[data-primitive] .load-example[data-example="film"]',
@@ -290,22 +298,33 @@ describe("an instance with no provider key", () => {
     expect(providerSelect().getAttribute("aria-describedby")).toBe("provider-problem");
   });
 
-  it("disables the select and every Run button", async () => {
+  it("disables the select, and every Run button says no provider is available and sends nothing", async () => {
     const fetchMock = answerProviders(missingKeys());
     const selection = setupProviderSelect(document);
     setupPanels(document, selection);
     await vi.waitFor(() => expect(get("#provider-problem").textContent).not.toBe(""));
+    await loadFilmExamples();
     expect(providerSelect().disabled).toBe(true);
     expect(selection.current()).toBeUndefined();
     expect(runButtons()).toHaveLength(3);
-    for (const button of runButtons()) expect(button.disabled).toBe(true);
+    // Run stays reachable by keyboard and says why it cannot run (issue #95).
+    for (const button of runButtons()) {
+      expect(button.disabled).toBe(false);
+      expect(runNote(button)).toBe(NO_PROVIDER);
+    }
+    get("form[data-primitive='noul']").dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    // The select cannot take focus, so the summary names the problem without a link.
+    expect(get("#noul-summary").textContent).toContain(NO_PROVIDER);
+    expect(get("#noul-summary").querySelector("a")).toBeNull();
     // Only the list was requested: no decide call could have been made.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("a list that could not be loaded", () => {
-  it("says so and offers Retry, with the select and Run disabled", async () => {
+  it("says so and offers Retry, with the select disabled and Run saying why it cannot run", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -319,7 +338,12 @@ describe("a list that could not be loaded", () => {
       "The list of providers could not be loaded.",
     );
     expect(providerSelect().disabled).toBe(true);
-    for (const button of runButtons()) expect(button.disabled).toBe(true);
+    // Loaded, so the missing provider is the first reason each Run gives.
+    await loadFilmExamples();
+    for (const button of runButtons()) {
+      expect(button.disabled).toBe(false);
+      expect(runNote(button)).toBe(NO_PROVIDER);
+    }
   });
 
   it("treats a failure that is not the missing-key 503 as a failed load", async () => {
@@ -337,7 +361,7 @@ describe("a list that could not be loaded", () => {
     const selection = setupProviderSelect(document);
     setupPanels(document, selection);
     await vi.waitFor(() => expect(get(".provider-retry")).toBeTruthy());
-    // The panels start empty, which also disables Run; an example makes them runnable.
+    // The panels start empty, which also stops Run; an example makes them runnable.
     await loadFilmExamples();
 
     get(".provider-retry").click();
@@ -345,7 +369,9 @@ describe("a list that could not be loaded", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(optionTexts()).toEqual(["TypeSafe Jev jev-1.13.0", "SubQ Snap subq-snap-preview"]);
     expect(get("#provider-problem").textContent).toBe("");
-    for (const button of runButtons()) expect(button.disabled).toBe(false);
+    for (const button of runButtons()) {
+      expect(runNote(button)).toMatch(/^Checks the \w+ request and sends it to TypeSafe Jev\.$/);
+    }
     expect(document.activeElement).toBe(providerSelect());
     // A retry that succeeds is not a user's choice, so it announces nothing.
     expect(get("#provider-status").textContent).toBe("");

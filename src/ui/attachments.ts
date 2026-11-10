@@ -228,21 +228,31 @@ export function createAttachments(
       type: "file",
       id: ids.input,
       multiple: "",
-      "aria-describedby": `${ids.instructions} ${ids.hint} ${ids.limits}`,
+      // Only the limits, because they change with the provider. The instructions and the hint stay visible but are not read on focus.
+      "aria-describedby": ids.limits,
     },
   });
-  const list = create("ul", { className: "attachments-list", attributes: { role: "list" } });
+  // The order carries meaning (image 1, image 2), so this is an ordered list. `role="list"` stays because
+  // Safari and VoiceOver drop list semantics from a list styled with `list-style: none`, as this one is.
+  const list = create("ol", { className: "attachments-list", attributes: { role: "list" } });
   const privacy = create("p", {
     className: "attachments-privacy",
     text: PRIVACY_NOTE,
     attributes: { id: ids.privacy },
   });
-  const zone = create(
-    "fieldset",
-    { className: "attachments-zone", attributes: { "aria-describedby": ids.privacy } },
-    [legend, instructions, hint, limits, label, input, list, privacy],
-  );
-  // Kept in the page, empty, so that filling it is announced; the zone may be hidden while it speaks.
+  // The privacy note stays a visible paragraph and does not describe the fieldset, so it is not read on every focus.
+  const zone = create("fieldset", { className: "attachments-zone" }, [
+    legend,
+    instructions,
+    hint,
+    limits,
+    label,
+    input,
+    list,
+    privacy,
+  ]);
+  // Outside the zone, so it stays visible when a text-only provider hides the zone. It is not a live
+  // region: the status line announces the same news on a provider change, and a live region here would say it twice.
   const notice = create("p", { className: "attachments-notice" });
   const status = create("p", { className: "attachments-status", attributes: { role: "status" } });
   host.replaceChildren(zone, notice, status);
@@ -273,6 +283,30 @@ export function createAttachments(
   function setNotice(text: string, tone: "note" | "alert" = "note"): void {
     notice.textContent = text;
     notice.dataset.tone = tone;
+  }
+
+  /** Writes "Image N" into each item, so the labels and the Remove names match the order the model reads. */
+  function numberItems(): void {
+    attachments.forEach((attachment, index) => {
+      const number = index + 1;
+      const label = attachment.element.querySelector(".attachment-number");
+      if (label instanceof HTMLElement) label.textContent = `Image ${number}`;
+      const hidden = attachment.element.querySelector(".attachment-remove .visually-hidden");
+      if (hidden instanceof HTMLElement)
+        hidden.textContent = ` image ${number}, ${attachment.file.name}`;
+    });
+  }
+
+  /**
+   * The sentence for a removal that moved later images up, or an empty string when the last image went.
+   * `index` is the removed image's place, so the images now at `index` and after were one number higher.
+   */
+  function renumberSentence(index: number): string {
+    const moved = attachments.length - index;
+    if (moved <= 0) return "";
+    const check = " Check questions that mention image numbers.";
+    if (moved === 1) return ` Image ${index + 2} is now image ${index + 1}.${check}`;
+    return ` Images ${index + 2} to ${attachments.length + 1} are now images ${index + 1} to ${attachments.length}.${check}`;
   }
 
   /** The over-limit marks for the selected provider, and how many images carry one. */
@@ -344,6 +378,7 @@ export function createAttachments(
     attachments.splice(index, 1);
     URL.revokeObjectURL(attachment.previewUrl);
     attachment.element.remove();
+    numberItems();
     const blocked = render();
     // The pressed Remove is gone; hand focus to the next one, or back to the input.
     const next = attachments[index] ?? attachments.at(-1);
@@ -354,7 +389,7 @@ export function createAttachments(
         : `${imagesCount(attachments.length)} remain${attachments.length === 1 ? "s" : ""}.`;
     const freed =
       wasBlocked && blocked === undefined && attachments.length > 0 ? ` ${fitSentence()}.` : "";
-    announce(`Image removed: ${attachment.file.name}. ${remain}${freed}`);
+    announce(`Image removed: ${attachment.file.name}. ${remain}${freed}${renumberSentence(index)}`);
     onChange?.();
   }
 
@@ -365,14 +400,16 @@ export function createAttachments(
     const remove = create(
       "button",
       { className: "text-button attachment-remove", attributes: { type: "button" } },
-      ["Remove ", create("span", { className: "visually-hidden", text: listed.file.name })],
+      ["Remove", create("span", { className: "visually-hidden" })],
     );
     remove.addEventListener("click", onRemove);
     return create("li", { className: "attachment" }, [
       create("img", {
         className: "attachment-thumb",
-        attributes: { src: listed.previewUrl, alt: listed.file.name },
+        // Empty on purpose: the number label and the file name beside it already name the image.
+        attributes: { src: listed.previewUrl, alt: "" },
       }),
+      create("span", { className: "attachment-number" }),
       create("span", { className: "attachment-name", text: listed.file.name }),
       create("span", {
         className: "attachment-meta",
@@ -487,6 +524,7 @@ export function createAttachments(
     };
     attachments.push(attachment);
     list.append(attachment.element);
+    numberItems();
     render();
     onChange?.();
     const shrunk =

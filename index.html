@@ -237,8 +237,10 @@
             <span class="run-label warm-label">Warm connection</span>
             <span class="run-sizer" aria-hidden="true">Warm connection</span>
           </button>
-          <output id="warm-status" class="warm-status" for="keep-alive"></output>
+          <span id="warm-status" class="warm-status"></span>
         </form>
+        <!-- Written only at the start, the end, and a failure of a warm, so a screen reader hears those and not each tick. -->
+        <span id="warm-announcer" class="visually-hidden" role="status"></span>
         <div id="readout-body" class="readout-body" aria-live="polite">
           <p class="readout-status">Run a panel to see the answer.</p>
         </div>

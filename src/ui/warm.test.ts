@@ -39,64 +39,82 @@ function manualRepeat() {
   };
 }
 
+/** What the countdown showed and announced, in order. */
+function recordedOutput() {
+  const shown: string[] = [];
+  const announced: string[] = [];
+  return {
+    shown,
+    announced,
+    output: {
+      show: (text: string) => shown.push(text),
+      announce: (text: string) => announced.push(text),
+    },
+  };
+}
+
 describe("createCountdown", () => {
-  it("starts with the lead and the keep-alive, then counts down each second", () => {
+  it("starts with the lead and the keep-alive, shown and announced, then counts down each second", () => {
     const clock = manualRepeat();
-    const texts: string[] = [];
-    const countdown = createCountdown((text) => texts.push(text), clock.repeat);
+    const { shown, announced, output } = recordedOutput();
+    const countdown = createCountdown(output, clock.repeat);
 
     countdown.start(4, "Connection warmed in 950 ms.");
-    expect(texts).toEqual(["Connection warmed in 950 ms. Warm for 4 s."]);
+    expect(shown).toEqual(["Connection warmed in 950 ms. Warm for 4 s."]);
+    expect(announced).toEqual(["Connection warmed in 950 ms. Warm for 4 s."]);
 
     clock.advance();
-    expect(texts.at(-1)).toBe("Warm for 3 s.");
+    expect(shown.at(-1)).toBe("Warm for 3 s.");
     expect(countdown.remaining).toBe(3);
+    expect(announced).toHaveLength(1);
   });
 
-  it("ends cold and stops ticking", () => {
+  it("ends cold and stops ticking, announcing only the start and the end", () => {
     const clock = manualRepeat();
-    const texts: string[] = [];
-    const countdown = createCountdown((text) => texts.push(text), clock.repeat);
+    const { shown, announced, output } = recordedOutput();
+    const countdown = createCountdown(output, clock.repeat);
 
     countdown.start(4);
     clock.advance(4);
-    expect(texts).toEqual([
+    expect(shown).toEqual([
       "Warm for 4 s.",
       "Warm for 3 s.",
       "Warm for 2 s.",
       "Warm for 1 s.",
       COLD_TEXT,
     ]);
-    expect(texts.at(-1)).toBe("Connection is cold again.");
+    expect(announced).toEqual(["Warm for 4 s.", COLD_TEXT]);
     expect(countdown.remaining).toBe(0);
     expect(clock.running).toBe(false);
   });
 
   it("restarts from the full keep-alive, cancelling the running count", () => {
     const clock = manualRepeat();
-    const texts: string[] = [];
-    const countdown = createCountdown((text) => texts.push(text), clock.repeat);
+    const { shown, announced, output } = recordedOutput();
+    const countdown = createCountdown(output, clock.repeat);
 
     countdown.start(30);
     clock.advance(10);
-    expect(texts.at(-1)).toBe("Warm for 20 s.");
+    expect(shown.at(-1)).toBe("Warm for 20 s.");
 
     countdown.start(30);
     expect(clock.cancelled).toBe(1);
-    expect(texts.at(-1)).toBe("Warm for 30 s.");
+    expect(shown.at(-1)).toBe("Warm for 30 s.");
+    expect(announced).toEqual(["Warm for 30 s.", "Warm for 30 s."]);
     clock.advance();
-    expect(texts.at(-1)).toBe("Warm for 29 s.");
+    expect(shown.at(-1)).toBe("Warm for 29 s.");
+    expect(announced).toHaveLength(2);
   });
 
   it("stops without changing the text", () => {
     const clock = manualRepeat();
-    const texts: string[] = [];
-    const countdown = createCountdown((text) => texts.push(text), clock.repeat);
+    const { shown, output } = recordedOutput();
+    const countdown = createCountdown(output, clock.repeat);
 
     countdown.start(4);
     countdown.stop();
     clock.advance();
-    expect(texts).toEqual(["Warm for 4 s."]);
+    expect(shown).toEqual(["Warm for 4 s."]);
     expect(clock.running).toBe(false);
   });
 });
@@ -143,8 +161,34 @@ function warmForm(): HTMLFormElement {
   return get<HTMLFormElement>("form.warm");
 }
 
-function output(): HTMLOutputElement {
-  return get<HTMLOutputElement>("#warm-status");
+function statusLine(): HTMLElement {
+  return get("#warm-status");
+}
+
+function announcer(): HTMLElement {
+  return get("#warm-announcer");
+}
+
+/**
+ * Collects the text each write to the live region adds, as a screen reader
+ * would hear it. `take` returns the writes since the last call. Records are
+ * handed to the callback during an `await`, so both paths feed the same list.
+ */
+function watchAnnouncer() {
+  const writes: string[] = [];
+  const collect = (records: MutationRecord[]) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) writes.push(node.textContent ?? "");
+    }
+  };
+  const observer = new MutationObserver(collect);
+  observer.observe(announcer(), { childList: true, characterData: true, subtree: true });
+  return {
+    take(): string[] {
+      collect(observer.takeRecords());
+      return writes.splice(0);
+    },
+  };
 }
 
 function submitWarm(): void {
@@ -193,11 +237,15 @@ describe("the keep-alive options", () => {
     expect(select.value).toBe("4");
   });
 
-  it("are labelled, and the status is an output, so the countdown is announced politely", () => {
+  it("are labelled, the countdown is plain readable text and not a live region, and a visually hidden live region speaks", () => {
     setupWarm(document, selectionOf(typesafe).selection, manualRepeat().repeat);
 
-    expect(output().tagName).toBe("OUTPUT");
     expect(get("label[for=keep-alive]").textContent).toBe("Keep warm for");
+    expect(statusLine().hasAttribute("role")).toBe(false);
+    expect(statusLine().hasAttribute("aria-live")).toBe(false);
+    expect(statusLine().hasAttribute("aria-hidden")).toBe(false);
+    expect(announcer().getAttribute("role")).toBe("status");
+    expect(announcer().classList.contains("visually-hidden")).toBe(true);
   });
 });
 
@@ -298,13 +346,13 @@ describe("the warm button", () => {
 
     resolveFetch(jsonResponse(warmed()));
     await vi.waitFor(() => {
-      expect(output().value).toBe("Connection warmed in 950 ms. Warm for 30 s.");
+      expect(statusLine().textContent).toBe("Connection warmed in 950 ms. Warm for 30 s.");
     });
     expect(button.disabled).toBe(false);
     expect(get(".warm-label").textContent).toBe("Warm the TypeSafe Jev connection");
 
     clock.advance();
-    expect(output().value).toBe("Warm for 29 s.");
+    expect(statusLine().textContent).toBe("Warm for 29 s.");
   });
 
   it("warms the newly selected provider after the selection changes", async () => {
@@ -336,7 +384,8 @@ describe("the warm button", () => {
     choose(subq);
 
     expect(clock.running).toBe(false);
-    expect(output().value).toBe("");
+    expect(statusLine().textContent).toBe("");
+    expect(announcer().textContent).toBe("");
   });
 
   /** A fetch whose answers the test hands over one at a time, in the order the requests went out. */
@@ -402,7 +451,7 @@ describe("the warm button", () => {
     held.answerNext(jsonResponse(warmed()));
 
     await vi.waitFor(() => {
-      expect(output().value).toBe("Connection warmed in 950 ms. Warm for 30 s.");
+      expect(statusLine().textContent).toBe("Connection warmed in 950 ms. Warm for 30 s.");
     });
     expect(get<HTMLButtonElement>(".warm-button").disabled).toBe(false);
   });
@@ -427,7 +476,7 @@ describe("the warm button", () => {
     resolveFetch(jsonResponse(warmed()));
 
     await vi.waitFor(() => expect(get<HTMLButtonElement>(".warm-button").disabled).toBe(false));
-    expect(output().value).toBe("");
+    expect(statusLine().textContent).toBe("");
     expect(clock.running).toBe(false);
   });
 
@@ -440,9 +489,11 @@ describe("the warm button", () => {
     submitWarm();
 
     await vi.waitFor(() => {
-      expect(output().value).toBe("Could not warm the connection. Could not reach TypeSafe Jev.");
+      expect(statusLine().textContent).toBe(
+        "Could not warm the connection. Could not reach TypeSafe Jev.",
+      );
     });
-    expect(output().dataset.tone).toBe("alert");
+    expect(statusLine().dataset.tone).toBe("alert");
   });
 
   it("says when the warm endpoint answers with a body that is not JSON", async () => {
@@ -454,10 +505,86 @@ describe("the warm button", () => {
     submitWarm();
 
     await vi.waitFor(() => {
-      expect(output().value).toBe(
+      expect(statusLine().textContent).toBe(
         "Could not warm the connection. The warm endpoint answered with HTTP 502 and a body that is not JSON.",
       );
     });
+  });
+});
+
+describe("what a screen reader hears", () => {
+  it("is one sentence when a warm succeeds", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(warmed())),
+    );
+    const clock = manualRepeat();
+    setupWarm(document, selectionOf(typesafe).selection, clock.repeat);
+    const heard = watchAnnouncer();
+
+    submitWarm();
+
+    await vi.waitFor(() => expect(clock.running).toBe(true));
+    expect(heard.take()).toEqual(["Connection warmed in 950 ms. Warm for 30 s."]);
+  });
+
+  it("changes the visible countdown on each tick, and the live region not at all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(warmed())),
+    );
+    const clock = manualRepeat();
+    setupWarm(document, selectionOf(typesafe).selection, clock.repeat);
+    const heard = watchAnnouncer();
+    submitWarm();
+    await vi.waitFor(() => expect(clock.running).toBe(true));
+    heard.take();
+
+    clock.advance(5);
+
+    expect(statusLine().textContent).toBe("Warm for 25 s.");
+    expect(heard.take()).toEqual([]);
+  });
+
+  it("announces the end once, when the count reaches zero", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(warmed({ keepAliveSeconds: 4 }))),
+    );
+    const clock = manualRepeat();
+    setupWarm(document, selectionOf(typesafe).selection, clock.repeat);
+    const heard = watchAnnouncer();
+    submitWarm();
+    await vi.waitFor(() => expect(clock.running).toBe(true));
+    expect(heard.take()).toEqual(["Connection warmed in 950 ms. Warm for 4 s."]);
+
+    clock.advance(3);
+    expect(heard.take()).toEqual([]);
+
+    clock.advance(1);
+    expect(statusLine().textContent).toBe(COLD_TEXT);
+    expect(heard.take()).toEqual([COLD_TEXT]);
+
+    clock.advance(5);
+    expect(heard.take()).toEqual([]);
+  });
+
+  it("announces a failed warm, and shows it in the alert tone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ ok: false, error: "Could not reach TypeSafe Jev." }, 502)),
+    );
+    setupWarm(document, selectionOf(typesafe).selection, manualRepeat().repeat);
+    const heard = watchAnnouncer();
+    submitWarm();
+
+    await vi.waitFor(() => {
+      expect(statusLine().textContent).toBe(
+        "Could not warm the connection. Could not reach TypeSafe Jev.",
+      );
+    });
+    expect(heard.take()).toEqual(["Could not warm the connection. Could not reach TypeSafe Jev."]);
+    expect(statusLine().dataset.tone).toBe("alert");
   });
 });
 
@@ -474,8 +601,19 @@ describe("noteAnswered", () => {
 
     warm.noteAnswered(answeredOverWarmConnection);
 
-    expect(output().value).toBe("Warm for 60 s.");
+    expect(statusLine().textContent).toBe("Warm for 60 s.");
     expect(clock.running).toBe(true);
+  });
+
+  it("announces the restart once, as its start sentence", () => {
+    const clock = manualRepeat();
+    const warm = setupWarm(document, selectionOf(typesafe).selection, clock.repeat);
+    const heard = watchAnnouncer();
+
+    warm.noteAnswered(answeredOverWarmConnection);
+    clock.advance(5);
+
+    expect(heard.take()).toEqual(["Warm for 60 s."]);
   });
 
   it("ignores a run on another provider, and one from a host without connection fields", () => {
@@ -485,7 +623,7 @@ describe("noteAnswered", () => {
     warm.noteAnswered(answeredOverWarmConnection);
     warm.noteAnswered({ ...noulResponse, provider: "subq" });
 
-    expect(output().value).toBe("");
+    expect(statusLine().textContent).toBe("");
     expect(clock.running).toBe(false);
   });
 });

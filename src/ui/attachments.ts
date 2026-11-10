@@ -145,9 +145,9 @@ export const PRIVACY_NOTE =
   "The Worker does not store them. The provider may keep what it receives under its own terms. " +
   "Do not upload images you are not allowed to share with that company.";
 
-/** Says how to ask about the pictures: the model reads them with the state and questions, and numbers them in list order. */
+/** Says how to ask about the pictures: the model reads them with the request's `state` and questions, and numbers them in list order. */
 export const ASK_ABOUT_IMAGES =
-  "Ask about the images in the state or a question, for example \u201cWhat does image 1 show?\u201d " +
+  "Ask about the images in what the model reads or in a question, for example \u201cWhat does image 1 show?\u201d " +
   "The first image in the list is image 1, the next is image 2, and so on.";
 
 /** `64 × 48`, or "size unknown" when the header did not say. */

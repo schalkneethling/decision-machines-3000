@@ -23,42 +23,42 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
 
   Scenario: The JSON view agrees with the empty tree
     Given a fresh page load
-    When the JSON view of the Choice panel is opened
+    When the JSON view of the "Pick one option" panel is opened
     Then the textarea holds {"primitive": "choice", "state": "", "questions": {}} formatted over several lines
 
   Scenario: Editing an empty panel hides the empty-state message and lets Run check the request
     Given a fresh page load with a provider selected
-    When the person types into the Noul panel's State field
+    When the person types into the "Yes or no" panel's "What the model reads" field
     Then the empty-state message is hidden
     And pressing Run lists the request's problems in the panel's error summary and moves focus to it (issue #95)
 
   # --- Loading the film example ----------------------------------------------------------------------------------------
 
-  Scenario: Loading the film example into an empty Choice panel
-    Given an empty Choice panel
+  Scenario: Loading the film example into an empty "Pick one option" panel
+    Given an empty "Pick one option" panel
     When "Load film example" is pressed
     Then the panel holds exactly choiceExample, the content of src/decision/examples/film/choice.json
     And the tree and the JSON view agree
     And the status line announces "Film example loaded."
-    And Run's description says it checks the Choice request and sends it to the selected provider
-    And focus is on the State field of the tree
+    And Run's description says it checks the "Pick one option" request and sends it to the selected provider
+    And focus is on the "What the model reads" field of the tree
 
   Scenario: Loading the film example while the JSON view is open
-    Given an empty Noul panel showing its JSON view
+    Given an empty "Yes or no" panel showing its JSON view
     When "Load film example" is pressed
     Then the textarea holds the film example as formatted JSON
     And focus is on the textarea
 
   # --- Loading the image example ---------------------------------------------------------------------------------------
 
-  Scenario: Loading the image example into an empty Noul panel on SubQ
-    Given an empty Noul panel with SubQ Snap selected
+  Scenario: Loading the image example into an empty "Yes or no" panel on SubQ
+    Given an empty "Yes or no" panel with SubQ Snap selected
     When "Load image example" is pressed
-    Then the panel holds the image example's state and questions for Noul
+    Then the panel holds the image example's state and questions for "Yes or no"
     And its four sample pictures are fetched and attached through the image control, in order, as picture-1.png, picture-2.png, picture-3.png, and picture-4.png
     And the panel's status line announces "Image example loaded."
     And that is the only announcement: the image control adds the pictures without announcing each one
-    And focus is on the State field of the tree
+    And focus is on the "What the model reads" field of the tree
 
   Scenario: The sample pictures' names do not give the answers away
     Given the model reads each image's file name in its label, such as "Image 1: picture-1.png" (#57)
@@ -73,7 +73,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   Scenario: A second press while an example is loading
     Given "Load image example" was pressed and the pictures are still being fetched
     When either load button in that panel is pressed again
-    Then nothing new starts, and the status line says "An example is still loading into the Noul panel."
+    Then nothing new starts, and the status line says "An example is still loading into the Yes or no panel."
     And a picture that does not arrive within ten seconds ends the load with the could-not-be-loaded message
 
   Scenario: The image example stays visible on a text-only provider, marked unavailable
@@ -107,26 +107,26 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     And nothing is replaced
 
   Scenario: Loading an example over images the person attached asks first
-    Given a Noul panel with one image the person attached, and SubQ Snap selected
+    Given a "Yes or no" panel with one image the person attached, and SubQ Snap selected
     When "Load image example" is pressed
-    Then the confirmation asks "Load the image example into the Noul panel?"
+    Then the confirmation asks "Load the image example into the Yes or no panel?"
     And it says "This removes the image you attached. You cannot undo this."
     When the person agrees
     Then the person's image is removed and the four sample pictures take its place
 
   Scenario: The film example removes attached images too
-    Given a Choice panel with the person's own state and one image they attached
+    Given a "Pick one option" panel with the person's own state and one image they attached
     When "Load film example" is pressed and the person agrees
     Then the panel holds the film example and no images
 
   Scenario: An image still being added counts as the person's
-    Given a Noul panel in which the person's image is still being read or shrunk
+    Given a "Yes or no" panel in which the person's image is still being read or shrunk
     When "Load film example" is pressed
     Then the load waits for the image to arrive, and then asks "This removes the image you attached. You cannot undo this."
     And an image added after the load has started to swap the pictures lands after the samples and is never taken for one of them
 
   Scenario: A sample picture that cannot be fetched
-    Given an empty Score panel with OpenAI Decisions selected, and one sample picture's request fails
+    Given an empty "Score on a scale" panel with OpenAI Decisions selected, and one sample picture's request fails
     When "Load image example" is pressed
     Then the status line says the sample pictures could not be loaded
     And the panel is unchanged: it is still empty, and no image is attached
@@ -134,32 +134,32 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   # --- Protecting edits ------------------------------------------------------------------------------------------------
 
   Scenario: The confirmation is a modal dialog that says there is no undo
-    Given a Noul panel in which the person has typed into the State field
+    Given a "Yes or no" panel in which the person has typed into the "What the model reads" field
     When "Load film example" is pressed
     Then a dialog opens with showModal(), so the rest of the page is inert
-    And its heading asks "Load the film example into the Noul panel?"
+    And its heading asks "Load the film example into the Yes or no panel?"
     And its message says "This replaces your request. You cannot undo this."
     And focus starts on "Keep my request", so pressing Enter keeps the request
 
   Scenario: Loading over edits asks first, and cancelling keeps them
-    Given a Noul panel in which the person has typed into the State field
+    Given a "Yes or no" panel in which the person has typed into the "What the model reads" field
     When "Load film example" is pressed and the person presses "Keep my request" or Escape
     Then the panel is unchanged
     And the status line announces "Nothing loaded. Your request and images are kept."
 
   Scenario: Loading over edits asks first, and agreeing replaces them
-    Given a Noul panel in which the person has typed into the State field
+    Given a "Yes or no" panel in which the person has typed into the "What the model reads" field
     When "Load film example" is pressed and the person agrees
     Then the panel holds the film example
     And the status line announces "Film example loaded."
 
   Scenario: Loading over an unedited example does not ask
-    Given a Noul panel holding the film example, untouched since it was loaded
+    Given a "Yes or no" panel holding the film example, untouched since it was loaded
     When "Load image example" is pressed on an image provider
     Then no question is asked, and the image example replaces the film example
 
   Scenario: The image example's own pictures go without asking
-    Given a Score panel holding the image example and its four sample pictures, untouched since it was loaded
+    Given a "Score on a scale" panel holding the image example and its four sample pictures, untouched since it was loaded
     When "Load film example" is pressed
     Then no question is asked, and the sample pictures are removed with the rest of the example
 

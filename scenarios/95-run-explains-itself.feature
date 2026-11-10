@@ -22,10 +22,10 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
     And no note shows under Run, so the page does not say the same thing twice
 
   Scenario: Run in a ready panel says what it will send
-    Given the Noul panel holds the film example, two images are attached, and SubQ Snap is selected
-    Then Run's description says "Checks the Noul request and sends it to SubQ Snap with 2 images."
+    Given the "Yes or no" panel holds the film example, two images are attached, and SubQ Snap is selected
+    Then Run's description says "Checks the Yes or no request and sends it to SubQ Snap with 2 images."
     When the provider changes to TypeSafe Jev, which is text only
-    Then Run's description says "Checks the Noul request and sends it to TypeSafe Jev without your 2 images."
+    Then Run's description says "Checks the Yes or no request and sends it to TypeSafe Jev without your 2 images."
 
   # --- Pressing Run when nothing can be sent -------------------------------------------------------------------------
 
@@ -33,7 +33,7 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
     Given an untouched panel
     When the person presses Run
     Then nothing is posted
-    And an error summary appears at the top of the panel, headed "The Noul request cannot be sent yet"
+    And an error summary appears at the top of the panel, headed "The Yes or no request cannot be sent yet"
     And it lists "Load an example or write a question to run this panel.", linked to "Load film example"
     And focus moves to the summary
     When the person follows the link
@@ -89,7 +89,7 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
     And a problem that appears while the person edits is not added until Run is pressed again
 
   Scenario: A provider change updates a listed limit in place
-    Given the summary lists "at most 10" levels for a Score request
+    Given the summary lists "at most 10" levels for a "Score on a scale" request
     When the provider changes to one whose limit is 6
     Then the summary lists "at most 6" instead
     And focus stays where it was
@@ -103,11 +103,11 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
   # --- While a run is in flight --------------------------------------------------------------------------------------
 
   Scenario: Run is aria-disabled, not disabled, while a run is in flight
-    Given the Noul panel's run is in flight
+    Given the "Yes or no" panel's run is in flight
     Then every panel's Run has aria-disabled="true" and is not disabled
     And the pressed Run keeps focus
     And its description says "Waiting for the answer to this request."
-    And the other panels' Run descriptions say "The Noul panel is running. Run is available again once its answer arrives."
+    And the other panels' Run descriptions say "The Yes or no panel is running. Run is available again once its answer arrives."
     And a press of any Run meanwhile does nothing
     # aria-disabled keeps the button focused and in the tab order, so focus is not dropped to the page body and the
     # description can say why the press is ignored. The provider select's Retry button already works this way.

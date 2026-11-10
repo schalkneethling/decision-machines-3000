@@ -245,7 +245,7 @@ describe("markup", () => {
     createAttachments(mount(), { prefix: "noul-images", provider: openai, providers });
     const hint = get("#noul-images-hint");
     expect(hint.textContent).toBe(ASK_ABOUT_IMAGES);
-    expect(hint.textContent).toContain("state or a question");
+    expect(hint.textContent).toContain("what the model reads or in a question");
     expect(hint.textContent).toContain("What does image 1 show?");
     expect(zone().contains(hint)).toBe(true);
     expect(input().getAttribute("aria-describedby")).not.toContain(hint.id);

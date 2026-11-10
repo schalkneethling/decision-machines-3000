@@ -442,7 +442,7 @@ describe("a list that could not be loaded", () => {
     expect(optionTexts()).toEqual(["TypeSafe Jev jev-1.13.0", "SubQ Snap subq-snap-preview"]);
     expect(get("#provider-problem").textContent).toBe("");
     for (const button of runButtons()) {
-      expect(runNote(button)).toMatch(/^Checks the \w+ request and sends it to TypeSafe Jev\.$/);
+      expect(runNote(button)).toMatch(/^Checks the .+ request and sends it to TypeSafe Jev\.$/);
     }
     expect(document.activeElement).toBe(providerSelect());
     // A retry that succeeds is not a user's choice, so it announces nothing.
@@ -522,7 +522,7 @@ describe("a list that could not be loaded", () => {
 });
 
 describe("Run follows the select", () => {
-  it("posts the Score panel to the selected provider's decide route", async () => {
+  it('posts the "Score on a scale" panel to the selected provider\'s decide route', async () => {
     const fetchMock = answerProviders(listed(typesafe, subq));
     const selection = setupProviderSelect(document);
     setupPanels(document, selection);

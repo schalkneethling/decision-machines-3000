@@ -31,17 +31,17 @@ Feature: A provider select picks which configured provider Run asks
 
   Scenario: Run goes to the selected provider
     Given the user selects SubQ Snap
-    When Run is pressed on the Score panel
+    When Run is pressed on the "Score on a scale" panel
     Then the POST goes to /api/decide/subq
     And the loading text says "Asking SubQ Snap…"
 
   Scenario: A provider change re-checks a panel's alert against the new limits
-    Given a Score request with 11 levels
+    Given a "Score on a scale" request with 11 levels
     And the selected provider's scoreLevels.max is 10
     And the panel's error summary lists a problem about the number of levels (issue #95)
     When the provider changes to one with no scoreLevels.max
     Then the summary drops the problem
-    And Run's description says it checks the Score request and sends it to the new provider
+    And Run's description says it checks the "Score on a scale" request and sends it to the new provider
 
   Scenario: An instance with no provider key shows a setup notice
     Given /api/providers answers 503 because no provider key is set
@@ -124,7 +124,7 @@ Feature: A provider select picks which configured provider Run asks
   Scenario: Live check across all three providers in Chrome or Edge, then in Firefox
     Given all three provider keys are configured
     When, in Chrome or Edge, the user chooses TypeSafe Jev, SubQ Snap, and OpenAI Decisions in turn
-    And presses Run on the Noul, Choice, and Score panels for each one (nine runs in all)
+    And presses Run on the "Yes or no", "Pick one option", and "Score on a scale" panels for each one (nine runs in all)
     Then each request's server log line shows /api/decide/{provider} for the selected provider with status 200
     And each result sentence names the selected provider
     And the selection persists across a reload

@@ -158,7 +158,9 @@ export function looksLikeJson(text: string): boolean {
 
 /** The hint for a field whose text looks like JSON. */
 export function readingHint(value: Content): string {
-  return typeof value === "string" ? "Read as text." : "Read as JSON.";
+  return typeof value === "string"
+    ? "The page reads this as text."
+    : "The page reads this as JSON.";
 }
 
 /** Top-level keys of the state whose value is a list, in state order. */
@@ -509,7 +511,7 @@ function fanOutIssues(question: QuestionModel, state: Content): Issue[] {
       {
         key: question.key,
         field: "fanOut",
-        message: `The state has no list called "${path}". Pick a list from the state or ask once.`,
+        message: `What the model reads has no list called "${path}". Pick one of its lists, or ask once.`,
       },
     ];
   }
@@ -518,7 +520,7 @@ function fanOutIssues(question: QuestionModel, state: Content): Issue[] {
       {
         key: question.key,
         field: "fanOut",
-        message: `The list "${path}" in the state is empty, so nothing would be asked. Add items or ask once.`,
+        message: `The list "${path}" in what the model reads is empty, so nothing would be asked. Add items or ask once.`,
       },
     ];
   }
@@ -542,7 +544,8 @@ export function findIssues(model: ComposerModel, capabilities: ProviderCapabilit
     issues.push({
       key: STATE_KEY,
       field: "state",
-      message: "The state is empty. Add the text, object, or list to evaluate.",
+      message:
+        "What the model reads is empty. Add the text, object, or list your questions are about.",
     });
   }
 

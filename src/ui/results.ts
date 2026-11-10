@@ -24,7 +24,7 @@ export type ProviderRun = {
 };
 
 export type Result = {
-  /** The question type as the page names its panel: "Noul", "Choice", or "Score". */
+  /** The question type's plain name, as its panel heading shows it: "Yes or no". */
   questionType: string;
   /** When the run started. */
   at: Date;
@@ -51,14 +51,14 @@ function providerNames(runs: ProviderRun[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
 }
 
-/** "Choice on SubQ Snap at 14:32:05", with the time in a `<time>` element. */
+/** "Pick one option: SubQ Snap at 14:32:05", with the time in a `<time>` element. */
 export function renderResultHeading(result: Result): HTMLHeadingElement {
   const time = create("time", {
     text: formatTime(result.at),
     attributes: { datetime: result.at.toISOString() },
   });
   return create("h3", { className: "result-title" }, [
-    `${result.questionType} on ${providerNames(result.runs)} at `,
+    `${result.questionType}: ${providerNames(result.runs)} at `,
     time,
   ]);
 }
@@ -78,9 +78,9 @@ export function renderResultArticle(result: Result): HTMLElement {
   ]);
 }
 
-/** What the live region says once a run's answers arrive: "Choice on SubQ Snap: 4 answers." */
+/** What the live region says once a run's answers arrive: "Pick one option: SubQ Snap gave 4 answers." */
 export function answersSentence(questionType: string, provider: string, count: number): string {
-  return `${questionType} on ${provider}: ${count} ${count === 1 ? "answer" : "answers"}.`;
+  return `${questionType}: ${provider} gave ${count} ${count === 1 ? "answer" : "answers"}.`;
 }
 
 /** What the live region says while a run waits, naming the provider it was sent to. */

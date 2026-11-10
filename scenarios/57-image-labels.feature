@@ -16,7 +16,7 @@ Feature: Show how to ask about attached images, and label each image for the mod
   Scenario: The control tells the user to refer to the images
     Given an image provider is selected
     When the panel's image control renders
-    Then its instructions say to ask about the images in the state or a question, for example "What does image 1 show?"
+    Then its instructions say to ask about the images in what the model reads or in a question, for example "What does image 1 show?"
     And that line is visible in the control, but its id is not part of the file input's aria-describedby (issue #97)
 
   Scenario: A text-only provider shows no hint

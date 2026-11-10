@@ -250,7 +250,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: Manual, the live round trip
     Given "vp dev --port 5199 --strictPort" is running with SUBQ_API_KEY set, and the page is open in Chrome
     And two PNG or JPEG files under 64 KiB are at hand (for example, "sips -Z 200 photo.jpg --out small.jpg" makes one)
-    When SubQ Snap is chosen and the two files are chosen through the Noul panel's "Choose images" button
+    When SubQ Snap is chosen and the two files are chosen through the "Yes or no" panel's "Choose images" button
     Then two thumbnails appear with type, size, and dimensions, and the panel status says "Image 1 added …" then "Image 2 added …"
     When Run is pressed
     Then the Network panel shows a request to /api/decide/subq with Content-Type "multipart/form-data; boundary=…" set by Chrome

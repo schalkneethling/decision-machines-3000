@@ -91,7 +91,7 @@ Feature: The warm-connection demo runs on the Node dev host and follows the sele
   #  4. Choose 30 s and press the button. Check that POST /api/warm/typesafe answers
   #     200 with "connection": "new" and "keepAliveSeconds": 30, and that the status
   #     line reads "Connection warmed in N ms. Warm for 30 s." and counts down.
-  #  5. Within 30 s, press Run on the Noul panel. The readout's sentence ends with
+  #  5. Within 30 s, press Run on the "Yes or no" panel. The readout's sentence ends with
   #     "over the warm connection." and the countdown restarts at 30 s.
   #  6. Wait until the status line reads "Connection is cold again.", run again, and
   #     check the sentence now ends with "over a new connection."

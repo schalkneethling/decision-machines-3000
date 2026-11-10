@@ -32,43 +32,43 @@ Feature: The image limit notice is announced once, and the Alt + Arrow move shor
   # --- The Alt + Arrow move shortcut ----------------------------------------------------------------------------------
 
   Scenario: Each question's move buttons name the shortcut
-    Given a Noul panel with four questions
+    Given a "Yes or no" panel with four questions
     Then each question's Move up button has aria-keyshortcuts "Alt+ArrowUp"
     And each question's Move down button has aria-keyshortcuts "Alt+ArrowDown"
     And no other control on the page has aria-keyshortcuts
     # The values follow the WAI-ARIA definition of aria-keyshortcuts: modifiers first, joined to the key name with "+".
 
   Scenario: The questions list shows a hint that names the shortcut when it has two or more questions
-    Given a Noul panel with four questions
+    Given a "Yes or no" panel with four questions
     Then the questions list shows the hint "Press Alt and an arrow key to move the focused question." in the tree's hint style
     And the list's aria-describedby includes the hint's id, so a screen reader reads the hint on entering the list
 
   Scenario: The questions list shows no hint with one question or none
-    Given a Noul panel with one question, or with no questions
+    Given a "Yes or no" panel with one question, or with no questions
     Then the questions list shows no move hint
     And the list has no aria-describedby pointing at a hint
     And the question's Move up and Move down buttons still carry their aria-keyshortcuts values, when there is one question
     # With one question there is nothing to move past, so the sentence would describe something that cannot happen.
 
   Scenario: The hint appears and disappears as questions are added and removed
-    Given a Noul panel with one question
+    Given a "Yes or no" panel with one question
     When the person adds a question
     Then the questions list shows the move hint, and its aria-describedby names it
     When the person removes a question, leaving one
     Then the move hint is gone, and the list has no aria-describedby
 
   Scenario: Each score level's move buttons name the shortcut
-    Given a Score panel with four shared levels, and one question that has levels of its own
+    Given a "Score on a scale" panel with four shared levels, and one question that has levels of its own
     Then each level's Move up button has aria-keyshortcuts "Alt+ArrowUp", and each level's Move down button has aria-keyshortcuts "Alt+ArrowDown"
     And the shared levels list and the question's own levels list each show the hint "Press Alt and an arrow key to move the focused level."
 
   Scenario: A levels list with one level shows no move hint
-    Given a Score panel whose shared levels are reduced to one level
+    Given a "Score on a scale" panel whose shared levels are reduced to one level
     Then the shared levels list shows no move hint, and its aria-describedby names only the numbering hint
     And the level's Move up and Move down buttons still carry their aria-keyshortcuts values
 
   Scenario: The shortcut still moves the focused question
-    Given a Noul panel with four questions, and focus in the Id field of the first question
+    Given a "Yes or no" panel with four questions, and focus in the Id field of the first question
     When Alt and ArrowDown are pressed
     Then the first question moves down one place
     And focus stays in its Id field

@@ -216,7 +216,7 @@ describe("fan-out", () => {
 
     fanOut.fanOut = "reviews";
     expect(messages(model)).toEqual([
-      `The state has no list called "reviews". Pick a list from the state or ask once.`,
+      `What the model reads has no list called "reviews". Pick one of its lists, or ask once.`,
     ]);
 
     model.state = { films: [] };

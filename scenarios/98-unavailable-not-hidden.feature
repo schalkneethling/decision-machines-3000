@@ -17,9 +17,9 @@ Feature: Image features show as unavailable on a text-only provider, instead of 
   Scenario: Pressing "Load image example" on TypeSafe Jev loads nothing and says why
     Given TypeSafe Jev is selected
     And "Load image example" is visible in each panel, with aria-disabled="true", and it takes focus
-    When "Load image example" is pressed in the Noul panel
+    When "Load image example" is pressed in the "Yes or no" panel
     Then nothing is loaded and no sample picture is fetched
-    And the Noul panel's status line says "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first."
+    And the "Yes or no" panel's status line says "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first."
     And the provider is still TypeSafe Jev
     # The page does not switch the provider. The choice changes all three panels, the stored preference, and which
     # company receives the person's data, so the person makes it, and the sentence tells them which providers to choose.

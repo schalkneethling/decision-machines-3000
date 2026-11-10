@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Run Noul, Choice, and Score requests against a decision model and read the probabilities it returns."
+      content="Ask a decision model yes-or-no, pick-one, and score questions, and read the probabilities it returns."
     />
     <meta name="color-scheme" content="dark light" />
     <title>DecisionMachines3000</title>
@@ -68,14 +68,23 @@
       </div>
 
       <section class="panel" aria-labelledby="noul-title">
-        <h2 id="noul-title" class="panel-name">Noul</h2>
+        <!--
+          The h2 holds only the plain name, so the section's name and a list of
+          headings stay short. The API term is the next line in the hgroup, so a
+          screen reader reads it straight after the heading. src/ui/panels.ts
+          fills it from the vocabulary legend, because this markup names no provider.
+        -->
+        <hgroup class="panel-heading">
+          <h2 id="noul-title" class="panel-name">Yes or no</h2>
+          <p class="panel-api-term"></p>
+        </hgroup>
         <p class="panel-description">
-          The probability that a yes/no statement about the state is true.
+          How likely a yes-or-no statement is to be true, judged from what the model reads.
         </p>
         <form class="panel-form" data-primitive="noul" novalidate>
           <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
           <div id="noul-summary" class="error-summary" tabindex="-1"></div>
-          <div class="examples" role="group" aria-label="Examples for Noul">
+          <div class="examples" role="group" aria-label="Examples for Yes or no">
             <button
               id="noul-load-film"
               class="action-button load-example"
@@ -89,9 +98,10 @@
             </button>
           </div>
           <p id="noul-empty" class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question.
+            This panel is empty. Load an example above, or write what the model reads and a
+            question.
           </p>
-          <div class="view-switch" role="group" aria-label="Edit the Noul request as">
+          <div class="view-switch" role="group" aria-label="Edit the Yes or no request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
               Tree
             </button>
@@ -101,7 +111,7 @@
           </div>
           <div class="tree-view" data-view-body="tree"></div>
           <div class="json-view" data-view-body="json" hidden>
-            <label class="visually-hidden" for="noul-request">Noul request as JSON</label>
+            <label class="visually-hidden" for="noul-request">Yes or no request as JSON</label>
             <textarea
               id="noul-request"
               class="request-field"
@@ -114,7 +124,8 @@
             ></textarea>
             <p id="noul-error" class="field-error" hidden></p>
             <p id="noul-hint" class="hint">
-              JSON. Questions without their own criteria use the request's criteria.
+              JSON, with the API's own keys. Questions without their own <code>criteria</code> use
+              the <code>criteria</code> at the top of the request.
             </p>
           </div>
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
@@ -129,14 +140,17 @@
       </section>
 
       <section class="panel" aria-labelledby="choice-title">
-        <h2 id="choice-title" class="panel-name">Choice</h2>
+        <hgroup class="panel-heading">
+          <h2 id="choice-title" class="panel-name">Pick one option</h2>
+          <p class="panel-api-term"></p>
+        </hgroup>
         <p class="panel-description">
           One option from a fixed set, with a probability for every option.
         </p>
         <form class="panel-form" data-primitive="choice" novalidate>
           <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
           <div id="choice-summary" class="error-summary" tabindex="-1"></div>
-          <div class="examples" role="group" aria-label="Examples for Choice">
+          <div class="examples" role="group" aria-label="Examples for Pick one option">
             <button
               id="choice-load-film"
               class="action-button load-example"
@@ -150,9 +164,10 @@
             </button>
           </div>
           <p id="choice-empty" class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question.
+            This panel is empty. Load an example above, or write what the model reads and a
+            question.
           </p>
-          <div class="view-switch" role="group" aria-label="Edit the Choice request as">
+          <div class="view-switch" role="group" aria-label="Edit the Pick one option request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
               Tree
             </button>
@@ -162,7 +177,9 @@
           </div>
           <div class="tree-view" data-view-body="tree"></div>
           <div class="json-view" data-view-body="json" hidden>
-            <label class="visually-hidden" for="choice-request">Choice request as JSON</label>
+            <label class="visually-hidden" for="choice-request"
+              >Pick one option request as JSON</label
+            >
             <textarea
               id="choice-request"
               class="request-field"
@@ -175,7 +192,8 @@
             ></textarea>
             <p id="choice-error" class="field-error" hidden></p>
             <p id="choice-hint" class="hint">
-              JSON. Questions without their own criteria use the request's criteria.
+              JSON, with the API's own keys. Questions without their own <code>criteria</code> use
+              the <code>criteria</code> at the top of the request.
             </p>
           </div>
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
@@ -190,14 +208,17 @@
       </section>
 
       <section class="panel" aria-labelledby="score-title">
-        <h2 id="score-title" class="panel-name">Score</h2>
+        <hgroup class="panel-heading">
+          <h2 id="score-title" class="panel-name">Score on a scale</h2>
+          <p class="panel-api-term"></p>
+        </hgroup>
         <p class="panel-description">
           A position on ordered levels you describe, with a probability for each level.
         </p>
         <form class="panel-form" data-primitive="score" novalidate>
           <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
           <div id="score-summary" class="error-summary" tabindex="-1"></div>
-          <div class="examples" role="group" aria-label="Examples for Score">
+          <div class="examples" role="group" aria-label="Examples for Score on a scale">
             <button
               id="score-load-film"
               class="action-button load-example"
@@ -211,9 +232,10 @@
             </button>
           </div>
           <p id="score-empty" class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question.
+            This panel is empty. Load an example above, or write what the model reads and a
+            question.
           </p>
-          <div class="view-switch" role="group" aria-label="Edit the Score request as">
+          <div class="view-switch" role="group" aria-label="Edit the Score on a scale request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
               Tree
             </button>
@@ -223,7 +245,9 @@
           </div>
           <div class="tree-view" data-view-body="tree"></div>
           <div class="json-view" data-view-body="json" hidden>
-            <label class="visually-hidden" for="score-request">Score request as JSON</label>
+            <label class="visually-hidden" for="score-request"
+              >Score on a scale request as JSON</label
+            >
             <textarea
               id="score-request"
               class="request-field"
@@ -236,7 +260,8 @@
             ></textarea>
             <p id="score-error" class="field-error" hidden></p>
             <p id="score-hint" class="hint">
-              JSON. Questions without their own criteria use the request's criteria.
+              JSON, with the API's own keys. Questions without their own <code>criteria</code> use
+              the <code>criteria</code> at the top of the request.
             </p>
           </div>
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
@@ -279,7 +304,7 @@
         <!-- Written only at the start, the end, and a failure of a warm, so a screen reader hears those and not each tick. -->
         <span id="warm-announcer" class="visually-hidden" role="status"></span>
         <!--
-          The live region says one short sentence per run, such as "Choice on SubQ Snap: 4 answers.",
+          The live region says one short sentence per run, such as "Pick one option: SubQ Snap gave 4 answers.",
           and not the answers themselves, which stay readable in the list below. A failure is announced
           by its own role="alert" inside its result. src/ui/results.ts fills all of this.
         -->

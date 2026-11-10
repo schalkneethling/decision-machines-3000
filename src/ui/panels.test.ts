@@ -10,7 +10,7 @@ import { fileOf, pngBytes } from "./fixtures/images.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 import type { ProviderSelection } from "./provider-select.ts";
-import { capitalise } from "./text.ts";
+import { QUESTION_TYPE_NAMES } from "./question-types.ts";
 
 const page = readFileSync(resolve(import.meta.dirname, "../../index.html"), "utf8");
 // The page's own module script is left out: the test calls setupPanels itself.
@@ -217,6 +217,48 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("plain names (issue #103)", () => {
+  const apiTerms = {
+    noul: "API term: noul in TypeSafe Jev and SubQ Snap, predicate in OpenAI Decisions.",
+    choice: "API term: choice in every provider.",
+    score: "API term: score in every provider.",
+  } as const;
+
+  it("heads each panel with the plain name only, and puts the API term on the next line", () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    for (const primitive of PRIMITIVES) {
+      const section = form(primitive).closest("section");
+      const heading = get(`#${primitive}-title`);
+      expect(heading.textContent).toBe(QUESTION_TYPE_NAMES[primitive]);
+      // The section is named by the heading alone, so the API term adds no noise to it.
+      expect(section?.getAttribute("aria-labelledby")).toBe(heading.id);
+      const term = heading.nextElementSibling;
+      expect(heading.parentElement?.tagName).toBe("HGROUP");
+      expect(term?.className).toBe("panel-api-term");
+      expect(term?.textContent).toBe(apiTerms[primitive]);
+      expect(term?.querySelector("code")?.textContent).toBe(primitive);
+    }
+  });
+
+  it("keeps the API's own keys in the JSON view and its hint", async () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    for (const primitive of PRIMITIVES) {
+      const hint = get(`#${primitive}-hint`);
+      expect([...hint.querySelectorAll("code")].map((code) => code.textContent)).toEqual([
+        "criteria",
+        "criteria",
+      ]);
+    }
+    await loadFilm("noul");
+    viewButton("noul", "json").click();
+    expect(Object.keys(JSON.parse(textarea("noul").value) as object)).toEqual([
+      "primitive",
+      "state",
+      "questions",
+    ]);
+  });
+});
+
 describe("the empty start (issue #58)", () => {
   it("opens every panel empty, with the message shown, Run reachable and described, and nothing announced", () => {
     setupPanels(document, selectionOf(typesafe).selection);
@@ -262,7 +304,7 @@ describe("the empty start (issue #58)", () => {
     expect(summary("noul").hasAttribute("role")).toBe(false);
     expect(summary("noul").getAttribute("tabindex")).toBe("-1");
     expect(summary("noul").querySelector("h3")?.textContent).toBe(
-      "The Noul request cannot be sent yet",
+      "The Yes or no request cannot be sent yet",
     );
     expect(summaryItems("noul")).toEqual([{ text: EMPTY_PANEL, href: "#noul-load-film" }]);
     expect(document.activeElement).toBe(summary("noul"));
@@ -283,7 +325,7 @@ describe("the empty start (issue #58)", () => {
     // Once edited, Run is described by its own note, which is now shown.
     expect(runButton("noul").getAttribute("aria-describedby")).toBe("noul-run-note");
     expect(get("#noul-run-note").hidden).toBe(false);
-    expect(runNote("noul")).toBe("Checks the Noul request and sends it to TypeSafe Jev.");
+    expect(runNote("noul")).toBe("Checks the Yes or no request and sends it to TypeSafe Jev.");
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(summaryItems("noul")).toEqual([
@@ -300,7 +342,9 @@ describe("the empty start (issue #58)", () => {
     viewButton("score", "json").click();
     type(textarea("score"), `{"primitive": "score"`);
     expect(emptyMessage("score").hidden).toBe(true);
-    expect(runNote("score")).toBe("Checks the Score request and sends it to TypeSafe Jev.");
+    expect(runNote("score")).toBe(
+      "Checks the Score on a scale request and sends it to TypeSafe Jev.",
+    );
   });
 
   it("drops the empty-panel problem from a shown summary once the panel is edited, without moving focus", () => {
@@ -336,14 +380,12 @@ describe("the empty start (issue #58)", () => {
 
   it("puts both load buttons in a labelled group before the view switch", () => {
     setupPanels(document, selectionOf(typesafe).selection);
-    for (const [primitive, name] of [
-      ["noul", "Noul"],
-      ["choice", "Choice"],
-      ["score", "Score"],
-    ] as const) {
+    for (const primitive of PRIMITIVES) {
       const group = get(`form[data-primitive="${primitive}"] .examples`);
       expect(group.getAttribute("role")).toBe("group");
-      expect(group.getAttribute("aria-label")).toBe(`Examples for ${name}`);
+      expect(group.getAttribute("aria-label")).toBe(
+        `Examples for ${QUESTION_TYPE_NAMES[primitive]}`,
+      );
       const buttons = [...group.querySelectorAll("button")];
       expect(buttons.map((button) => button.textContent?.trim())).toEqual([
         "Load film example",
@@ -438,7 +480,9 @@ describe("loading the film example (issue #58)", () => {
     setupPanels(document, selectionOf(typesafe).selection);
     await loadFilm("choice");
     expect(emptyMessage("choice").hidden).toBe(true);
-    expect(runNote("choice")).toBe("Checks the Choice request and sends it to TypeSafe Jev.");
+    expect(runNote("choice")).toBe(
+      "Checks the Pick one option request and sends it to TypeSafe Jev.",
+    );
     expect(status("choice").dataset.tone).toBe("note");
     expect(
       [...form("choice").querySelectorAll<HTMLInputElement>('[data-control="id"]')].map(
@@ -452,7 +496,7 @@ describe("loading the film example (issue #58)", () => {
     expectDescribedByEmptyMessage("noul");
   });
 
-  it("puts focus on the State field of the loaded tree", async () => {
+  it('puts focus on the "What the model reads" field of the loaded tree', async () => {
     setupPanels(document, selectionOf(typesafe).selection);
     await loadFilm("score");
     expect(document.activeElement).toBe(stateField("score"));
@@ -474,7 +518,7 @@ describe("loading the film example (issue #58)", () => {
     await loadFilm("noul");
     expect(runNote("noul")).toBe(NO_PROVIDER);
     choose(typesafe);
-    expect(runNote("noul")).toBe("Checks the Noul request and sends it to TypeSafe Jev.");
+    expect(runNote("noul")).toBe("Checks the Yes or no request and sends it to TypeSafe Jev.");
   });
 });
 
@@ -516,7 +560,7 @@ describe("loading the image example (issue #58)", () => {
     expect(get('form[data-primitive="noul"] .attachments-status').textContent).toBe("");
     expect(emptyMessage("noul").hidden).toBe(true);
     expect(runNote("noul")).toBe(
-      "Checks the Noul request and sends it to SubQ Snap with 4 images.",
+      "Checks the Yes or no request and sends it to SubQ Snap with 4 images.",
     );
     expect(document.activeElement).toBe(stateField("noul"));
 
@@ -641,7 +685,7 @@ describe("loading the image example (issue #58)", () => {
       expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the image example into the Noul panel?",
+      title: "Load the image example into the Yes or no panel?",
       message: "This removes the image you attached. You cannot undo this.",
     });
     expect(attachmentNames("noul")).toEqual(["mine.png"]);
@@ -659,7 +703,7 @@ describe("loading the image example (issue #58)", () => {
     loadButton("noul", "images").click();
     await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the image example into the Noul panel?",
+      title: "Load the image example into the Yes or no panel?",
       message: "This removes the 2 images you attached. You cannot undo this.",
     });
     expect(attachmentNames("noul")).toEqual([
@@ -679,7 +723,7 @@ describe("loading the image example (issue #58)", () => {
 
     await loadFilm("choice");
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the film example into the Choice panel?",
+      title: "Load the film example into the Pick one option panel?",
       message:
         "This replaces your request and removes the image you attached. You cannot undo this.",
     });
@@ -713,7 +757,7 @@ describe("loading the image example (issue #58)", () => {
       expect(status("score").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the film example into the Score panel?",
+      title: "Load the film example into the Score on a scale panel?",
       message: "This removes the image you attached. You cannot undo this.",
     });
     expect(attachments("score")).toHaveLength(5);
@@ -762,7 +806,9 @@ describe("loading the image example (issue #58)", () => {
     loadButton("noul", "images").click();
     await settled();
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(status("noul").textContent).toBe("An example is still loading into the Noul panel.");
+    expect(status("noul").textContent).toBe(
+      "An example is still loading into the Yes or no panel.",
+    );
     serve();
     await vi.waitFor(() => expect(status("noul").textContent).toBe("Image example loaded."));
     expect(attachments("noul")).toHaveLength(4);
@@ -840,7 +886,7 @@ describe("loading the image example (issue #58)", () => {
       expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the film example into the Noul panel?",
+      title: "Load the film example into the Yes or no panel?",
       message: "This removes the image you attached. You cannot undo this.",
     });
     expect(attachmentNames("noul")).toEqual(["slow.png"]);
@@ -858,7 +904,7 @@ describe("loading the image example (issue #58)", () => {
     await loadFilm("noul");
     expect(confirmReplace).toHaveBeenCalledOnce();
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the film example into the Noul panel?",
+      title: "Load the film example into the Yes or no panel?",
       message: "This removes the image you attached. You cannot undo this.",
     });
     expect(attachments("noul")).toHaveLength(0);
@@ -868,7 +914,7 @@ describe("loading the image example (issue #58)", () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("noul");
-    expect(runNote("noul")).toBe("Checks the Noul request and sends it to SubQ Snap.");
+    expect(runNote("noul")).toBe("Checks the Yes or no request and sends it to SubQ Snap.");
 
     const adding = attachOwnHeld("noul", "slow.png");
     await settled();
@@ -884,7 +930,9 @@ describe("loading the image example (issue #58)", () => {
     await settled();
     // The problem went away, so the summary drops it.
     expect(summary("noul").childElementCount).toBe(0);
-    expect(runNote("noul")).toBe("Checks the Noul request and sends it to SubQ Snap with 1 image.");
+    expect(runNote("noul")).toBe(
+      "Checks the Yes or no request and sends it to SubQ Snap with 1 image.",
+    );
     submit("noul");
     await vi.waitFor(() => expect(decideCalls(fetchMock)).toHaveLength(1));
   });
@@ -923,7 +971,7 @@ describe("protecting edits (issue #58)", () => {
       expect(status("noul").textContent).toBe("Nothing loaded. Your request and images are kept."),
     );
     expect(confirmReplace).toHaveBeenCalledWith({
-      title: "Load the film example into the Noul panel?",
+      title: "Load the film example into the Yes or no panel?",
       message: "This replaces your request. You cannot undo this.",
     });
     expect(stateField("noul").value).toBe("My own review.");
@@ -1014,7 +1062,7 @@ describe("protecting edits (issue #58)", () => {
       expect(dialog().getAttribute("aria-labelledby")).toBe("replace-dialog-title");
       expect(dialog().getAttribute("aria-describedby")).toBe("replace-dialog-message");
       expect(get("#replace-dialog-title").textContent).toBe(
-        "Load the film example into the Noul panel?",
+        "Load the film example into the Yes or no panel?",
       );
       expect(get("#replace-dialog-message").textContent).toBe(
         "This replaces your request. You cannot undo this.",
@@ -1075,7 +1123,7 @@ describe("protecting edits (issue #58)", () => {
     textarea("noul").value = JSON.stringify(noulExample);
     viewButton("noul", "tree").click();
     expect(viewButton("noul", "tree").getAttribute("aria-pressed")).toBe("true");
-    expect(runNote("noul")).toBe("Checks the Noul request and sends it to TypeSafe Jev.");
+    expect(runNote("noul")).toBe("Checks the Yes or no request and sends it to TypeSafe Jev.");
     loadButton("noul", "film").click();
     await vi.waitFor(() => expect(confirmReplace).toHaveBeenCalledOnce());
   });
@@ -1385,7 +1433,7 @@ describe("run", () => {
     submit("noul");
     await vi.waitFor(() => expect(document.body.textContent).toContain("a body that is not JSON"));
     const [result] = results();
-    expect(result?.querySelector("h3")?.textContent).toMatch(/^Noul on TypeSafe Jev at /);
+    expect(result?.querySelector("h3")?.textContent).toMatch(/^Yes or no: TypeSafe Jev at /);
     result?.querySelector("h3")?.remove();
     // Only the result list; Run's note and the image control name the selected provider on purpose.
     expect(get("#results-list").textContent).not.toMatch(/Jev|TypeSafe/);
@@ -1428,7 +1476,7 @@ describe("the result list (issue #100)", () => {
     expect(get("#results-status").textContent).toBe("");
   });
 
-  it("names Noul, TypeSafe Jev, and the time in the heading of the first result", async () => {
+  it("names the question type, TypeSafe Jev, and the time in the heading of the first result", async () => {
     answerAsEachProvider();
     const before = Date.now();
     setupPanels(document, selectionOf(typesafe).selection);
@@ -1436,7 +1484,7 @@ describe("the result list (issue #100)", () => {
     submit("noul");
     await vi.waitFor(() => expect(results()).toHaveLength(1));
     const [result] = results();
-    expect(heading(result)).toMatch(/^Noul on TypeSafe Jev at \d{2}:\d{2}:\d{2}$/);
+    expect(heading(result)).toMatch(/^Yes or no: TypeSafe Jev at \d{2}:\d{2}:\d{2}$/);
     const time = result?.querySelector("h3 time");
     const at = Date.parse(time?.getAttribute("datetime") ?? "");
     expect(at).toBeGreaterThanOrEqual(before - 1000);
@@ -1457,8 +1505,8 @@ describe("the result list (issue #100)", () => {
     submit("noul");
     await vi.waitFor(() => expect(results()).toHaveLength(2));
     expect(results().map(heading)).toEqual([
-      expect.stringMatching(/^Noul on SubQ Snap at /),
-      expect.stringMatching(/^Noul on TypeSafe Jev at /),
+      expect.stringMatching(/^Yes or no: SubQ Snap at /),
+      expect.stringMatching(/^Yes or no: TypeSafe Jev at /),
     ]);
     expect(results().map((result) => result.querySelector(".reading-meta")?.textContent)).toEqual([
       expect.stringMatching(/^Answered by SubQ Snap /),
@@ -1475,7 +1523,7 @@ describe("the result list (issue #100)", () => {
     await loadFilm("noul");
     submit("noul");
     await vi.waitFor(() => expect(results()).toHaveLength(1));
-    expect(get("#results-status").textContent).toBe("Noul on SubQ Snap: 4 answers.");
+    expect(get("#results-status").textContent).toBe("Yes or no: SubQ Snap gave 4 answers.");
   });
 
   it("keeps each result's wire view closed until the person opens it", async () => {
@@ -1563,7 +1611,7 @@ describe("provider selection", () => {
     expect(summary("noul").childElementCount).toBe(0);
     for (const primitive of PRIMITIVES) {
       expect(runNote(primitive)).toBe(
-        `Checks the ${capitalise(primitive)} request and sends it to TypeSafe Jev.`,
+        `Checks the ${QUESTION_TYPE_NAMES[primitive]} request and sends it to TypeSafe Jev.`,
       );
     }
 
@@ -1594,7 +1642,7 @@ describe("provider selection", () => {
 
     choose(unlimited);
     expect(summary("score").childElementCount).toBe(0);
-    expect(runNote("score")).toBe("Checks the Score request and sends it to SubQ Snap.");
+    expect(runNote("score")).toBe("Checks the Score on a scale request and sends it to SubQ Snap.");
   });
 
   it("clears the JSON view's error when the new provider accepts the request", () => {
@@ -1613,7 +1661,7 @@ describe("provider selection", () => {
     choose(unlimited);
     expect(get("#score-error").hidden).toBe(true);
     expect(status("score").textContent).toBe("");
-    expect(runNote("score")).toBe("Checks the Score request and sends it to SubQ Snap.");
+    expect(runNote("score")).toBe("Checks the Score on a scale request and sends it to SubQ Snap.");
     expect(document.activeElement).toBe(elsewhere);
   });
 
@@ -1808,7 +1856,7 @@ describe("images", () => {
     // The other panels hold no images, so they say nothing.
     expect(get('form[data-primitive="choice"] .attachments-status').textContent).toBe("");
     expect(runNote("noul")).toBe(
-      "Checks the Noul request and sends it to TypeSafe Jev without your 2 images.",
+      "Checks the Yes or no request and sends it to TypeSafe Jev without your 2 images.",
     );
 
     submit("noul");
@@ -1836,7 +1884,7 @@ describe("images", () => {
     attach("noul", ...Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`)));
     await vi.waitFor(() => expect(attachments("noul")).toHaveLength(8));
     expect(runNote("noul")).toBe(
-      "Checks the Noul request and sends it to OpenAI Decisions with 8 images.",
+      "Checks the Yes or no request and sends it to OpenAI Decisions with 8 images.",
     );
 
     choose(subq);
@@ -1844,7 +1892,7 @@ describe("images", () => {
     expect(overLimit).toContain("Remove the 4 marked images to run.");
     expect(runNote("noul")).toBe(overLimit);
     // Another panel's blocked images never stop this one's Run.
-    expect(runNote("choice")).toBe("Checks the Choice request and sends it to SubQ Snap.");
+    expect(runNote("choice")).toBe("Checks the Pick one option request and sends it to SubQ Snap.");
     expect(attachments("noul").filter((item) => item.hasAttribute("data-over-limit"))).toHaveLength(
       4,
     );
@@ -1863,7 +1911,7 @@ describe("images", () => {
     expect(attachments("noul")).toHaveLength(4);
     expect(summary("noul").childElementCount).toBe(0);
     expect(runNote("noul")).toBe(
-      "Checks the Noul request and sends it to SubQ Snap with 4 images.",
+      "Checks the Yes or no request and sends it to SubQ Snap with 4 images.",
     );
     expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toBe("");
   });
@@ -1921,7 +1969,7 @@ describe("images", () => {
     expect(document.activeElement).toBe(runButton("noul"));
     expect(runNote("noul")).toBe("Waiting for the answer to this request.");
     expect(runNote("choice")).toBe(
-      "The Noul panel is running. Run is available again once its answer arrives.",
+      "The Yes or no panel is running. Run is available again once its answer arrives.",
     );
     // A press meanwhile does nothing: no second request, and no summary.
     submit("choice");
@@ -1934,7 +1982,7 @@ describe("images", () => {
     expect(runButton("noul").hasAttribute("aria-disabled")).toBe(false);
     expect(document.activeElement).toBe(runButton("noul"));
     expect(runNote("choice")).toBe(
-      "Checks the Choice request and sends it to SubQ Snap with 1 image.",
+      "Checks the Pick one option request and sends it to SubQ Snap with 1 image.",
     );
   });
 });
@@ -1967,7 +2015,7 @@ describe("Enter in a request field does not run the request (issue #93)", () => 
     expect(get("#results-list").innerHTML).toBe(answerBefore);
   });
 
-  it("cancels Enter in an option's name field in the Choice panel and posts nothing", async () => {
+  it('cancels Enter in an option\'s name field in the "Pick one option" panel and posts nothing', async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("choice");

@@ -119,6 +119,31 @@ describe("tree structure", () => {
     expect(harness.all(".option-row")).toHaveLength(7);
   });
 
+  it("says what the id is for once per panel, and no Id field is described by it", () => {
+    const harness = mount(noulExample);
+    const keys = questionKeys(harness);
+    const sentence = "Question ids are for your code only. The model never sees them.";
+    expect(keys.length).toBe(4);
+    const hints = harness.all(".tree-hint").filter((hint) => hint.textContent === sentence);
+    expect(hints).toHaveLength(1);
+    expect(hints[0]?.closest(".tree-branch")).toBeNull();
+    for (const key of keys) {
+      const description = harness.get(control(key, "id")).getAttribute("aria-describedby") ?? "";
+      for (const id of description.split(" ")) {
+        expect(document.getElementById(id)?.textContent).not.toBe(sentence);
+      }
+    }
+  });
+
+  it("leaves out the id hint when the panel has no questions", () => {
+    const harness = mount(noulExample);
+    harness.composer.setModel({ ...harness.composer.model(), questions: [] });
+    expect(harness.all(".field-id")).toHaveLength(0);
+    expect(harness.all(".tree-hint").map((hint) => hint.textContent)).not.toContain(
+      "Question ids are for your code only. The model never sees them.",
+    );
+  });
+
   it("labels every text field and select", () => {
     const harness = mount(scoreExample);
     for (const field of harness.all("input, textarea, select")) {

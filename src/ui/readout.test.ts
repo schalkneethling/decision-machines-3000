@@ -14,7 +14,6 @@ import {
   metadataSentence,
   questionText,
   renderError,
-  renderLoading,
   renderNonJson,
   renderResponse,
   renderUnreachable,
@@ -41,7 +40,7 @@ describe("renderResponse for Noul", () => {
   });
 
   it("uses the sent instructions as each question and turns backticks into code", () => {
-    const headings = readout.querySelectorAll("h3");
+    const headings = readout.querySelectorAll("h4");
     expect(headings).toHaveLength(4);
     expect(headings[0]?.textContent).toBe("Does the reviewer recommend watching the film?");
     expect(headings[1]?.querySelector("code")?.textContent).toBe("review");
@@ -185,10 +184,6 @@ describe("renderResponse for a failure", () => {
 });
 
 describe("status renderers", () => {
-  it("shows the loading sentence", () => {
-    expect(renderLoading("SubQ Snap").textContent).toBe("Asking SubQ Snap…");
-  });
-
   it("says the endpoint could not be reached, without assuming how the app is served", () => {
     const alert = renderUnreachable("Failed to fetch");
     expect(alert.getAttribute("role")).toBe("alert");
@@ -259,7 +254,6 @@ describe("provider-neutral copy", () => {
       answers: { recommends: { type: "refusal" } },
     };
     const rendered = [
-      renderLoading("the selected provider"),
       renderResponse(noulExample, { ...noulResponse, ...model }),
       renderResponse(choiceExample, { ...choiceResponse, ...model }),
       renderResponse(scoreExample, { ...scoreResponse, ...model }),
@@ -310,7 +304,7 @@ describe("renderResponse for a refusal", () => {
       "The model declined to answer this question.",
     ]);
     expect(readout.querySelectorAll(".bar, .bars, .score-track")).toHaveLength(0);
-    expect(texts(readout, "h3")).toHaveLength(1);
+    expect(texts(readout, "h4")).toHaveLength(1);
   });
 
   it("is a response the client accepts", () => {

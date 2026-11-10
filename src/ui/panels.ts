@@ -24,13 +24,8 @@ import { createErrorSummary } from "./error-summary.ts";
 import type { ErrorSummary, Problem } from "./error-summary.ts";
 import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
-import {
-  renderError,
-  renderLoading,
-  renderNonJson,
-  renderResponse,
-  renderUnreachable,
-} from "./readout.ts";
+import { renderError, renderNonJson, renderResponse, renderUnreachable } from "./readout.ts";
+import { answersSentence, setupResults } from "./results.ts";
 import { fetchSampleImages } from "./sample-images.ts";
 import { capitalise } from "./text.ts";
 import { renderWire } from "./wire-view.ts";
@@ -583,7 +578,7 @@ function replaceQuestion(panel: Panel, set: ExampleSet, losses: Losses): Confirm
 }
 
 /** `omittedImages` is how many attached images the run left out because the provider is text only. */
-function renderResult(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
+function renderOutcome(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
   switch (result.kind) {
     case "response":
       return renderResponse(sent, result.response, omittedImages);
@@ -624,19 +619,17 @@ export type PanelOptions = {
 
 /**
  * Wires each panel, which starts empty, to its two example buttons, its Tree
- * and JSON views, and Run, which posts to the shared readout on the provider
- * `selection` holds. Run stays in the tab order whatever the panel holds: its
- * note says what it will send or why it cannot, and a press that cannot send
- * lists every reason in the panel's error summary.
+ * and JSON views, and Run, which posts on the provider `selection` holds and
+ * adds what came back to the shared result list. Run stays in the tab order
+ * whatever the panel holds: its note says what it will send or why it cannot,
+ * and a press that cannot send lists every reason in the panel's error summary.
  */
 export function setupPanels(
   root: Document,
   selection: ProviderSelection,
   { onAnswered, confirmReplace }: PanelOptions = {},
 ): void {
-  const readout = required(root, "#readout-body", HTMLElement);
-  // Outside the live region, so the JSON is never announced.
-  const wire = required(root, "#wire-body", HTMLElement);
+  const results = setupResults(root);
   const confirm =
     confirmReplace ?? createConfirmDialog(required(root, "#replace-dialog", HTMLDialogElement));
   // Until a provider is selected, requests are checked against the default provider's limits.
@@ -722,7 +715,6 @@ export function setupPanels(
 
   function setRunning(active: Panel | undefined): void {
     running = active;
-    readout.setAttribute("aria-busy", String(running !== undefined));
     updateButtons();
   }
 
@@ -877,13 +869,34 @@ export function setupPanels(
     panel.summary.clear();
     setStatus(panel, "");
     setRunning(panel);
-    readout.replaceChildren(renderLoading(chosen.displayName));
-    wire.replaceChildren();
+    // The result is labelled with what ran and when it started, and never marked out
+    // of date: the panel or the provider may change later, and the label still says what this was.
+    const at = new Date();
+    const provider = chosen.displayName;
+    results.waiting(provider);
     try {
       const result = await askProvider(chosen.id, body);
-      readout.replaceChildren(renderResult(prepared.sent, result, omittedImages));
-      if (result.kind === "response") wire.replaceChildren(renderWire(result.response));
-      if (result.kind === "response" && result.response.ok) onAnswered?.(result.response);
+      const reading = renderOutcome(prepared.sent, result, omittedImages);
+      const wire = result.kind === "response" ? renderWire(result.response) : undefined;
+      const answered =
+        result.kind === "response" && result.response.ok ? result.response : undefined;
+      // A failure's alert speaks for itself, so the live region then says nothing more.
+      results.add(
+        { questionType: panel.name, at, runs: [{ provider, reading, wire }] },
+        answered === undefined
+          ? ""
+          : answersSentence(panel.name, provider, Object.keys(answered.answers).length),
+      );
+      if (answered !== undefined) onAnswered?.(answered);
+    } catch (error) {
+      const reading = renderError(
+        "Something went wrong while showing the answer.",
+        error instanceof Error ? error.message : undefined,
+      );
+      results.add(
+        { questionType: panel.name, at, runs: [{ provider, reading, wire: undefined }] },
+        "",
+      );
     } finally {
       setRunning(undefined);
     }
@@ -944,13 +957,12 @@ export function setupPanels(
       if (running !== undefined) {
         return;
       }
+      // run adds its own failures to the result list; what reaches here failed before anything was sent.
       run(panel).catch((error: unknown) => {
-        wire.replaceChildren();
-        readout.replaceChildren(
-          renderError(
-            "Something went wrong while showing the answer.",
-            error instanceof Error ? error.message : undefined,
-          ),
+        setStatus(
+          panel,
+          `Something went wrong while running the ${panel.name} panel${error instanceof Error ? `: ${error.message}` : "."}`,
+          "alert",
         );
       });
     });

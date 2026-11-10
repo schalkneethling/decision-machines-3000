@@ -810,6 +810,7 @@ code {
 .provider-retry:focus-visible,
 .provider-vocabulary-summary:focus-visible,
 .raw-summary:focus-visible,
+.results-title:focus-visible,
 .view-option:focus-visible,
 .tree-field:focus-visible,
 .text-button:focus-visible,
@@ -1169,6 +1170,61 @@ textarea.tree-field {
   color: var(--ink-muted);
 }
 
+/* The Results heading, with Clear results beside it while there are results */
+.results-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-block-end: 1rem;
+}
+
+.results-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--size-title);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+/* Newest first; a rule separates each result from the earlier one below it */
+.results-list {
+  display: grid;
+  gap: 2rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results-item + .results-item {
+  padding-block-start: 2rem;
+  border-block-start: 1px solid var(--line);
+}
+
+.result,
+.result-runs,
+.result-run {
+  display: grid;
+  gap: 1.5rem;
+  min-inline-size: 0;
+}
+
+.result-title {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  font-weight: 500;
+  line-height: var(--leading-meta);
+  letter-spacing: 0.02em;
+}
+
+.result-title time {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 .readout-error {
   display: grid;
   gap: 0.25rem;
@@ -1344,15 +1400,7 @@ textarea.tree-field {
   border-radius: 2px;
 }
 
-/* The wire view sits below the live region and is empty until a run finishes */
-.wire-body {
-  margin-block-start: 1.5rem;
-}
-
-.wire-body:empty {
-  display: none;
-}
-
+/* The wire view closes each result, below its reading */
 .wire-view {
   display: grid;
   gap: 1.5rem;
@@ -1387,9 +1435,9 @@ textarea.tree-field {
   font-size: inherit;
 }
 
-/* Motion answers the run: the readout fades its new content in */
+/* Motion answers the run: each new result fades in */
 @media (prefers-reduced-motion: no-preference) {
-  .readout-body > * {
+  .results-item {
     animation: readout-in 150ms ease-out;
   }
 }

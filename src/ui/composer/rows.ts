@@ -199,12 +199,17 @@ export function rowActions(...buttons: HTMLButtonElement[]): HTMLDivElement {
 
 /**
  * Lets alt+ArrowUp and alt+ArrowDown move `row` when focus is inside it and not
- * inside a nested movable row.
+ * inside a nested movable row. The row's Move up and Move down buttons name
+ * those shortcuts in aria-keyshortcuts, set here so the names and the listener
+ * cannot drift apart.
  */
 export function movableRow(
   row: HTMLLIElement,
   move: (step: -1 | 1, control: FocusTarget | undefined) => void,
+  buttons: { up: HTMLButtonElement; down: HTMLButtonElement },
 ): void {
+  buttons.up.setAttribute("aria-keyshortcuts", "Alt+ArrowUp");
+  buttons.down.setAttribute("aria-keyshortcuts", "Alt+ArrowDown");
   row.dataset.movable = "";
   row.addEventListener("keydown", (event) => {
     if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
@@ -213,6 +218,18 @@ export function movableRow(
     event.preventDefault();
     const { for: key, control } = target.dataset;
     move(event.key === "ArrowUp" ? -1 : 1, key && control ? { key, control } : undefined);
+  });
+}
+
+/**
+ * The visible line that names the Alt + Arrow shortcut above a list of movable
+ * rows. `noun` is what the rows hold, such as "question" or "level".
+ */
+export function moveHint(id: string, noun: string): HTMLParagraphElement {
+  return create("p", {
+    className: "tree-hint",
+    text: `Press Alt and an arrow key to move the focused ${noun}.`,
+    attributes: { id },
   });
 }
 
@@ -336,9 +353,15 @@ export function levelList(
   labelledBy: string,
 ): HTMLDivElement {
   const hintId = elementId(ctx.prefix, ownerKey, "levels-hint");
+  const moveId = elementId(ctx.prefix, ownerKey, "levels-move-hint");
+  // The shortcut needs two or more levels to move between, so its hint appears only then.
+  const canMove = criteria.levels.length >= 2;
   const list = create("ul", {
     className: "tree-branch tree-rows",
-    attributes: { "aria-labelledby": labelledBy, "aria-describedby": hintId },
+    attributes: {
+      "aria-labelledby": labelledBy,
+      "aria-describedby": canMove ? `${hintId} ${moveId}` : hintId,
+    },
   });
   criteria.levels.forEach((level, index) => {
     list.append(levelRow(ctx, ownerKey, criteria, level, index));
@@ -349,6 +372,7 @@ export function levelList(
       text: "Levels are numbered from 0, as the model reports them.",
       attributes: { id: hintId },
     }),
+    ...(canMove ? [moveHint(moveId, "level")] : []),
     list,
   ]);
 }
@@ -415,7 +439,7 @@ function levelRow(
     { className: "tree-row level-row", attributes: { "data-row": level.key } },
     [field, rowActions(up, down, remove), issueSlot(ctx.prefix, level.key)],
   );
-  movableRow(row, move);
+  movableRow(row, move, { up, down });
   return row;
 }
 

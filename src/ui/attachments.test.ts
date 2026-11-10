@@ -73,6 +73,13 @@ function items(): HTMLLIElement[] {
   return [...document.querySelectorAll<HTMLLIElement>(".attachment")];
 }
 
+/** The class of each live region (role="status" or aria-live) whose text includes `text`. A screen reader announces a message from each one. */
+function liveRegionsSaying(text: string): string[] {
+  return [...document.querySelectorAll<HTMLElement>("[role='status'], [aria-live]")]
+    .filter((region) => (region.textContent ?? "").includes(text))
+    .map((region) => region.className);
+}
+
 /** Chooses `files` through the file input, as a viewer would. */
 function choose(...files: File[]): void {
   const transfer = new DataTransfer();
@@ -801,6 +808,27 @@ describe("provider changes with images attached", () => {
     control.setProvider(typesafe);
     expect(control.blocked()).toBeUndefined();
     expect(items().some((item) => item.hasAttribute("data-over-limit"))).toBe(false);
+  });
+
+  it("announces the over-limit message exactly once, in the status line, and not again in the notice beside it", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: openai });
+    await control.add(Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
+    control.setProvider(subq);
+    const message =
+      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run.";
+    expect(notice()).toBe(message);
+    expect(status()).toBe(message);
+    expect(get(".attachments-notice").hasAttribute("role")).toBe(false);
+    expect(get(".attachments-notice").hasAttribute("aria-live")).toBe(false);
+    expect(liveRegionsSaying(message)).toEqual(["attachments-status"]);
+  });
+
+  it("announces a text-only change exactly once, in the status line, and not again in the notice beside it", async () => {
+    const control = createAttachments(mount(), { prefix: "noul-images", provider: subq });
+    await control.add([png("a.png", 4 * KIB)]);
+    control.setProvider(typesafe);
+    expect(notice()).toBe("TypeSafe Jev is text only. Your 1 image is kept and will not be sent.");
+    expect(liveRegionsSaying("TypeSafe Jev is text only")).toEqual(["attachments-status"]);
   });
 
   it("refuses to add while no provider is selected", async () => {

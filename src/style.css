@@ -198,6 +198,46 @@ code {
   line-height: var(--leading-meta);
 }
 
+/*
+ * The error summary at the top of each panel: why Run cannot send the request,
+ * with one link per problem. It takes no room while it lists nothing.
+ */
+.error-summary {
+  grid-column: 1 / -1;
+}
+
+.error-summary:empty {
+  display: none;
+}
+
+.error-summary:not(:empty) {
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--alert);
+  border-radius: var(--radius-well);
+}
+
+.error-summary-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--size-body);
+  font-weight: 600;
+  line-height: var(--leading-body);
+}
+
+.error-summary-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--alert);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+}
+
+.error-summary-list a {
+  color: inherit;
+}
+
 /* The example buttons at the top of each panel, and the empty-state message that points at them */
 .examples {
   display: flex;
@@ -464,14 +504,27 @@ code {
   cursor: pointer;
 }
 
-/* Off while empty, without a provider, or blocked by images; the running panel's button shows progress */
-.run:disabled {
+/*
+ * Off while a run is in flight; the running panel's button shows progress. The
+ * panels mark Run aria-disabled so it keeps focus; the warm form disables its own.
+ */
+.run:disabled,
+.run[aria-disabled="true"] {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
 .run[data-running] {
   cursor: progress;
+}
+
+/* The sentence Run's aria-describedby points at: what Run will send, or why it cannot */
+.run-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
 }
 
 .run-label,
@@ -734,6 +787,7 @@ code {
 .attachments-input:focus-visible,
 .run:focus-visible,
 .provider-problem:focus-visible,
+.error-summary:focus-visible,
 .provider-retry:focus-visible,
 .provider-vocabulary-summary:focus-visible,
 .raw-summary:focus-visible,

@@ -63,17 +63,23 @@
           The probability that a yes/no statement about the state is true.
         </p>
         <form class="panel-form" data-primitive="noul" novalidate>
+          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
+          <div id="noul-summary" class="error-summary" tabindex="-1"></div>
           <div class="examples" role="group" aria-label="Examples for Noul">
-            <button class="action-button load-example" type="button" data-example="film">
+            <button
+              id="noul-load-film"
+              class="action-button load-example"
+              type="button"
+              data-example="film"
+            >
               Load film example
             </button>
             <button class="action-button load-example" type="button" data-example="images">
               Load image example
             </button>
           </div>
-          <p class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question. Run is off
-            until the panel holds a request.
+          <p id="noul-empty" class="panel-empty">
+            This panel is empty. Load an example above, or write a state and a question.
           </p>
           <div class="view-switch" role="group" aria-label="Edit the Noul request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
@@ -104,10 +110,11 @@
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
           <p id="noul-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit">
+          <button class="run" type="submit" aria-describedby="noul-empty">
             <span class="run-label">Run</span>
             <span class="run-sizer" aria-hidden="true">Running</span>
           </button>
+          <p id="noul-run-note" class="run-note" hidden></p>
         </form>
       </section>
 
@@ -117,17 +124,23 @@
           One option from a fixed set, with a probability for every option.
         </p>
         <form class="panel-form" data-primitive="choice" novalidate>
+          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
+          <div id="choice-summary" class="error-summary" tabindex="-1"></div>
           <div class="examples" role="group" aria-label="Examples for Choice">
-            <button class="action-button load-example" type="button" data-example="film">
+            <button
+              id="choice-load-film"
+              class="action-button load-example"
+              type="button"
+              data-example="film"
+            >
               Load film example
             </button>
             <button class="action-button load-example" type="button" data-example="images">
               Load image example
             </button>
           </div>
-          <p class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question. Run is off
-            until the panel holds a request.
+          <p id="choice-empty" class="panel-empty">
+            This panel is empty. Load an example above, or write a state and a question.
           </p>
           <div class="view-switch" role="group" aria-label="Edit the Choice request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
@@ -158,10 +171,11 @@
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
           <p id="choice-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit">
+          <button class="run" type="submit" aria-describedby="choice-empty">
             <span class="run-label">Run</span>
             <span class="run-sizer" aria-hidden="true">Running</span>
           </button>
+          <p id="choice-run-note" class="run-note" hidden></p>
         </form>
       </section>
 
@@ -171,17 +185,23 @@
           A position on ordered levels you describe, with a probability for each level.
         </p>
         <form class="panel-form" data-primitive="score" novalidate>
+          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
+          <div id="score-summary" class="error-summary" tabindex="-1"></div>
           <div class="examples" role="group" aria-label="Examples for Score">
-            <button class="action-button load-example" type="button" data-example="film">
+            <button
+              id="score-load-film"
+              class="action-button load-example"
+              type="button"
+              data-example="film"
+            >
               Load film example
             </button>
             <button class="action-button load-example" type="button" data-example="images">
               Load image example
             </button>
           </div>
-          <p class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question. Run is off
-            until the panel holds a request.
+          <p id="score-empty" class="panel-empty">
+            This panel is empty. Load an example above, or write a state and a question.
           </p>
           <div class="view-switch" role="group" aria-label="Edit the Score request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
@@ -212,10 +232,11 @@
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
           <p id="score-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit">
+          <button class="run" type="submit" aria-describedby="score-empty">
             <span class="run-label">Run</span>
             <span class="run-sizer" aria-hidden="true">Running</span>
           </button>
+          <p id="score-run-note" class="run-note" hidden></p>
         </form>
       </section>
 

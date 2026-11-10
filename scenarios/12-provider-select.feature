@@ -38,10 +38,10 @@ Feature: A provider select picks which configured provider Run asks
   Scenario: A provider change re-checks a panel's alert against the new limits
     Given a Score request with 11 levels
     And the selected provider's scoreLevels.max is 10
-    And the panel shows an alert about the number of levels
+    And the panel's error summary lists a problem about the number of levels (issue #95)
     When the provider changes to one with no scoreLevels.max
-    Then the panel's alert clears
-    And Run is enabled
+    Then the summary drops the problem
+    And Run's description says it checks the Score request and sends it to the new provider
 
   Scenario: An instance with no provider key shows a setup notice
     Given /api/providers answers 503 because no provider key is set
@@ -50,15 +50,16 @@ Feature: A provider select picks which configured provider Run asks
     And the notice links the deployment guide
     And the notice is announced to assistive technology as an alert
     And the select is disabled
-    And every Run button is disabled
+    And every Run button stays enabled, and its description says no provider is available yet (issue #95)
+    And pressing Run lists that in the panel's error summary, without a link, because the select cannot take focus
 
   Scenario: A failed fetch can be retried
     Given the fetch for /api/providers fails
     When the page loads
     Then a note says the list of providers could not be loaded
-    And the select and every Run button are disabled
+    And the select is disabled, and every Run button's description says no provider is available yet
     When the user presses Retry and the list loads
-    Then the select is enabled with the providers and the Run buttons are enabled
+    Then the select is enabled with the providers, and each loaded panel's Run description says what it will send
 
   Scenario: Retry that fails again keeps the note and the focus on Retry
     Given the fetch for /api/providers fails

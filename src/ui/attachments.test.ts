@@ -190,7 +190,7 @@ describe("toFormData", () => {
 });
 
 describe("markup", () => {
-  it("is a fieldset with a legend, a visible labelled file input, linked instructions, and the privacy note", () => {
+  it("is a fieldset with a legend, a visible labelled file input described by the limits, and the privacy note", () => {
     const form = mount();
     createAttachments(form, { prefix: "noul-images", provider: subq });
     const fieldset = zone();
@@ -202,28 +202,24 @@ describe("markup", () => {
     expect(input().hidden).toBe(false);
     expect(input().getAttribute("accept")).toBe("image/png,image/jpeg,image/webp");
     expect(get("label.attachments-label").getAttribute("for")).toBe(input().id);
-    const described = (input().getAttribute("aria-describedby") ?? "").split(" ");
-    expect(described).toEqual([
-      "noul-images-instructions",
-      "noul-images-hint",
-      "noul-images-limits",
-    ]);
-    for (const id of described) expect(fieldset.querySelector(`#${id}`)).not.toBeNull();
+    expect(input().getAttribute("aria-describedby")).toBe("noul-images-limits");
+    expect(fieldset.querySelector("#noul-images-limits")).not.toBeNull();
     expect(get("#noul-images-limits").textContent).toBe(capabilitySentence(subq, limits));
-    expect(fieldset.getAttribute("aria-describedby")).toBe("noul-images-privacy");
+    expect(fieldset.hasAttribute("aria-describedby")).toBe(false);
+    expect(fieldset.contains(get("#noul-images-privacy"))).toBe(true);
     expect(get("#noul-images-privacy").textContent).toBe(PRIVACY_NOTE);
     expect(get(".attachments-status").getAttribute("role")).toBe("status");
     expect(status()).toBe("");
   });
 
-  it("tells the user to ask about the images, and the hint is part of the input's description", () => {
+  it("tells the user to ask about the images, and the hint is visible but does not describe the input", () => {
     createAttachments(mount(), { prefix: "noul-images", provider: openai });
     const hint = get("#noul-images-hint");
     expect(hint.textContent).toBe(ASK_ABOUT_IMAGES);
     expect(hint.textContent).toContain("state or a question");
     expect(hint.textContent).toContain("What does image 1 show?");
     expect(zone().contains(hint)).toBe(true);
-    expect(input().getAttribute("aria-describedby")?.split(" ")).toContain(hint.id);
+    expect(input().getAttribute("aria-describedby")).not.toContain(hint.id);
     expect(zone().hidden).toBe(false);
   });
 

@@ -24,8 +24,8 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Then it is a <fieldset> whose first child is <legend>Images</legend>
     And it has no hidden attribute
     And it holds a visible <input type="file" multiple> whose accept attribute is "image/png,image/jpeg,image/webp"
-    And the input's aria-describedby names the instructions and the capability line, both of which are in the fieldset
-    And the fieldset's own aria-describedby points at the privacy note (MDN: fieldset has the implicit role "group")
+    And the input's aria-describedby names only the capability line, which is in the fieldset (issue #97)
+    And the fieldset has no aria-describedby, and the privacy note is a visible paragraph inside it (issue #97)
 
   Scenario: The control leaves the accessibility tree for a text-only provider
     Given TypeSafe Jev is selected
@@ -63,7 +63,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Given two attached images
     When the user tabs through the control
     Then the file-input button and each Remove button are focusable and labelled
-    And the instructions are read with the input through aria-describedby
+    And the instructions are visible next to the input, but are not part of its aria-describedby (issue #97)
 
   Scenario: The privacy note is visible under the control
     Given an image provider is selected

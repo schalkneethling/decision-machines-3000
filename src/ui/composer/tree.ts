@@ -532,7 +532,6 @@ export function createComposer(options: ComposerOptions): Composer {
       label: "Id",
       value: question.id,
       slug: true,
-      hint: "For your code only. The model never sees the id.",
       className: "field-id",
       onInput: (value) => {
         question.id = value;
@@ -669,7 +668,17 @@ export function createComposer(options: ComposerOptions): Composer {
       attributes: { "aria-label": "Shared criteria and questions" },
     });
     branch.append(sharedNode(), ...model.questions.map(questionNode), addQuestionNode());
-    element.replaceChildren(stateNode(), branch);
+    // Said once for the panel, not under every question's Id field, and only while there is an Id field to describe.
+    const idHint =
+      model.questions.length === 0
+        ? []
+        : [
+            create("p", {
+              className: "tree-hint",
+              text: "Question ids are for your code only. The model never sees them.",
+            }),
+          ];
+    element.replaceChildren(stateNode(), ...idHint, branch);
     collectReferences();
     showIssues();
   }

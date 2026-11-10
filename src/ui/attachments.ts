@@ -228,7 +228,8 @@ export function createAttachments(
       type: "file",
       id: ids.input,
       multiple: "",
-      "aria-describedby": `${ids.instructions} ${ids.hint} ${ids.limits}`,
+      // Only the limits, because they change with the provider. The instructions and the hint stay visible but are not read on focus.
+      "aria-describedby": ids.limits,
     },
   });
   // The order carries meaning (image 1, image 2), so this is an ordered list. `role="list"` stays because
@@ -239,11 +240,17 @@ export function createAttachments(
     text: PRIVACY_NOTE,
     attributes: { id: ids.privacy },
   });
-  const zone = create(
-    "fieldset",
-    { className: "attachments-zone", attributes: { "aria-describedby": ids.privacy } },
-    [legend, instructions, hint, limits, label, input, list, privacy],
-  );
+  // The privacy note stays a visible paragraph and does not describe the fieldset, so it is not read on every focus.
+  const zone = create("fieldset", { className: "attachments-zone" }, [
+    legend,
+    instructions,
+    hint,
+    limits,
+    label,
+    input,
+    list,
+    privacy,
+  ]);
   // Kept in the page, empty, so that filling it is announced; the zone may be hidden while it speaks.
   const notice = create("p", { className: "attachments-notice" });
   const status = create("p", { className: "attachments-status", attributes: { role: "status" } });

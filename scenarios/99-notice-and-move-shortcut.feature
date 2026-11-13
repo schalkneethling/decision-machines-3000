@@ -33,6 +33,8 @@ Feature: The image limit notice is announced once, and the Alt + Arrow move shor
 
   Scenario: Each question's move buttons name the shortcut
     Given a "Yes or no" panel with four questions
+    # Since the redesign these buttons sit behind each row's More button, and still carry the shortcuts
+    # (scenarios/102-one-request.feature).
     Then each question's Move up button has aria-keyshortcuts "Alt+ArrowUp"
     And each question's Move down button has aria-keyshortcuts "Alt+ArrowDown"
     And no other control on the page has aria-keyshortcuts

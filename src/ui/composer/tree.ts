@@ -39,10 +39,12 @@ import {
   jsonKeyNote,
   levelList,
   meaningList,
+  moreActions,
   moveHint,
   movableRow,
   optionList,
   previousFocus,
+  revealInMenu,
   rowActions,
   textButton,
   textField,
@@ -176,6 +178,7 @@ export function createComposer(options: ComposerOptions): Composer {
         `[data-for="${CSS.escape(key)}"][data-control="${CSS.escape(control)}"]`,
       );
       if (found && !(found instanceof HTMLButtonElement && found.disabled)) {
+        revealInMenu(found);
         found.focus();
         return;
       }
@@ -597,7 +600,14 @@ export function createComposer(options: ComposerOptions): Composer {
         instructions,
         ...(fanOut ? [fanOut] : []),
         questionCriteria(question),
-        rowActions(up, down, remove),
+        moreActions(
+          elementId(prefix, question.key, "more"),
+          question.key,
+          name(),
+          up,
+          down,
+          remove,
+        ),
         issueSlot(prefix, question.key),
       ]),
     ]);

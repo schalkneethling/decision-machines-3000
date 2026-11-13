@@ -412,6 +412,74 @@ describe("add, remove, and move", () => {
   });
 });
 
+describe("the More actions on each question and level", () => {
+  function toggle(harness: Harness, key: string): HTMLButtonElement {
+    return harness.get<HTMLButtonElement>(control(key, "more"));
+  }
+
+  function menuOf(harness: Harness, key: string): HTMLElement {
+    return harness.get(`#${toggle(harness, key).getAttribute("aria-controls") ?? ""}`);
+  }
+
+  it("puts Move up, Move down, and Remove behind one closed More button per question", () => {
+    const harness = mount(noulExample);
+    const [first] = questionKeys(harness);
+    const more = toggle(harness, first!);
+    expect(more.textContent).toBe("More actions for question recommends");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    const menu = menuOf(harness, first!);
+    expect(menu.hidden).toBe(true);
+    expect([...menu.querySelectorAll("button")].map((button) => button.dataset.control)).toEqual([
+      "up",
+      "down",
+      "remove",
+    ]);
+    // One More per question and per level row; nothing else in a closed row is a move or remove button.
+    expect(harness.all(".more-toggle")).toHaveLength(questionKeys(harness).length);
+  });
+
+  it("opens and closes with the button, and Escape inside it closes it and returns focus to More", () => {
+    const harness = mount(noulExample);
+    const [first] = questionKeys(harness);
+    const more = toggle(harness, first!);
+    more.click();
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(menuOf(harness, first!).hidden).toBe(false);
+    const down = harness.get<HTMLButtonElement>(control(first!, "down"));
+    down.focus();
+    down.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(menuOf(harness, first!).hidden).toBe(true);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(more);
+    more.click();
+    more.click();
+    expect(menuOf(harness, first!).hidden).toBe(true);
+  });
+
+  it("keeps the moved row's actions open and focused after Move down, so it can move again", () => {
+    const harness = mount(noulExample);
+    const [first, second] = questionKeys(harness);
+    toggle(harness, first!).click();
+    harness.get<HTMLButtonElement>(control(first!, "down")).click();
+    expect(questionKeys(harness).slice(0, 2)).toEqual([second, first]);
+    expect(document.activeElement).toBe(harness.get(control(first!, "down")));
+    expect(toggle(harness, first!).getAttribute("aria-expanded")).toBe("true");
+    expect(menuOf(harness, first!).hidden).toBe(false);
+  });
+
+  it("does the same for score levels", () => {
+    const harness = mount(scoreExample);
+    const [, second] = levelKeys(harness);
+    const more = toggle(harness, second!);
+    expect(more.textContent).toBe("More actions for level 1");
+    more.click();
+    harness.get<HTMLButtonElement>(control(second!, "up")).click();
+    expect(levelKeys(harness)[0]).toBe(second);
+    // Moved to the top, its Move up is disabled, so focus falls to its description.
+    expect(document.activeElement).toBe(harness.get(control(second!, "description")));
+  });
+});
+
 describe("the Alt + Arrow move shortcut", () => {
   it("names it on each question's Move up and Move down buttons, and hints at it above the question list", () => {
     const harness = mount(noulExample);

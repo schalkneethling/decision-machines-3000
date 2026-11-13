@@ -224,10 +224,62 @@ export function rowActions(...buttons: HTMLButtonElement[]): HTMLDivElement {
 }
 
 /**
+ * Puts a row's actions behind one "More" button. It is a disclosure, not an
+ * ARIA menu: once open, the actions are ordinary buttons in the tab order, so
+ * they need no arrow-key handling of their own, and Alt + Arrow still moves the
+ * row from any field in it. Closed, the row costs one tab stop instead of one
+ * per action. Escape inside the open actions closes them and returns focus to
+ * More. `context` names the row for assistive technology: "More actions for
+ * question recommends". `id` is the id of the box that holds the actions.
+ */
+export function moreActions(
+  id: string,
+  key: string,
+  context: string,
+  ...buttons: HTMLButtonElement[]
+): HTMLDivElement {
+  const toggle = create(
+    "button",
+    {
+      className: "text-button more-toggle",
+      attributes: { type: "button", "aria-expanded": "false", "aria-controls": id },
+    },
+    ["More", visuallyHidden(` actions for ${context}`)],
+  );
+  tag(toggle, key, "more");
+  const menu = create("div", { className: "row-actions row-menu", attributes: { id } }, buttons);
+  menu.hidden = true;
+  const setOpen = (open: boolean): void => {
+    menu.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  toggle.addEventListener("click", () => setOpen(toggle.getAttribute("aria-expanded") !== "true"));
+  menu.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    setOpen(false);
+    toggle.focus();
+  });
+  return create("div", { className: "row-more" }, [toggle, menu]);
+}
+
+/**
+ * Opens the "More" actions that hold `control`, if any, so it can take focus.
+ * After a Move up or Move down, focus returns to the same button on the moved
+ * row, which is rendered with its actions closed.
+ */
+export function revealInMenu(control: HTMLElement): void {
+  const menu = control.closest<HTMLElement>(".row-menu");
+  if (menu === null || menu.hidden === false) return;
+  menu.hidden = false;
+  menu.parentElement?.querySelector(".more-toggle")?.setAttribute("aria-expanded", "true");
+}
+
+/**
  * Lets alt+ArrowUp and alt+ArrowDown move `row` when focus is inside it and not
- * inside a nested movable row. The row's Move up and Move down buttons name
- * those shortcuts in aria-keyshortcuts, set here so the names and the listener
- * cannot drift apart.
+ * inside a nested movable row. The row's Move up and Move down buttons, behind
+ * its "More" button, name those shortcuts in aria-keyshortcuts, set here so the
+ * names and the listener cannot drift apart.
  */
 export function movableRow(
   row: HTMLLIElement,
@@ -463,7 +515,11 @@ function levelRow(
   const row = create(
     "li",
     { className: "tree-row level-row", attributes: { "data-row": level.key } },
-    [field, rowActions(up, down, remove), issueSlot(ctx.prefix, level.key)],
+    [
+      field,
+      moreActions(elementId(ctx.prefix, level.key, "more"), level.key, levelName, up, down, remove),
+      issueSlot(ctx.prefix, level.key),
+    ],
   );
   movableRow(row, move, { up, down });
   return row;

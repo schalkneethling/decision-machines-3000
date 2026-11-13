@@ -88,3 +88,28 @@ Feature: One request with a question type choice, instead of three panels
     Then the borders of fields, the JSON textarea, the example buttons, and the question type options use --control-edge
     And --control-edge has at least 3:1 contrast against the surface and the well in both color schemes, as WCAG 2.2's 1.4.11 asks
     # Before, they used --line, about 1.3:1 in the dark scheme.
+
+  # --- Fewer buttons per question ---------------------------------------------------------------------------------------
+
+  # Decision (owner, 2026-11-13): the per-question buttons were most of the page's tab stops, so Move up, Move down,
+  # and Remove go behind one "More" button per question and per score level. Alt and an arrow key still move a row
+  # from any field in it (scenarios/99-notice-and-move-shortcut.feature).
+
+  Scenario: Each question's and level's actions are behind one More button
+    Given the "Yes or no" film example is loaded
+    Then each question has one "More" button, named "More actions for question <id>", with aria-expanded="false"
+    And its Move up, Move down, and Remove buttons are hidden until it is pressed
+    # A disclosure, not an ARIA menu: once open, the actions are ordinary buttons in the tab order.
+
+  Scenario: Escape closes the actions
+    Given a question's actions are open and focus is on Move down
+    When the person presses Escape
+    Then the actions close and focus returns to "More"
+
+  Scenario: A moved row keeps its actions open
+    Given a question's actions are open
+    When the person presses Move down
+    Then the question moves down, its actions are still open, and focus is on its Move down button
+
+  Scenario: Text buttons are large enough to hit
+    Then every text button, such as "More", "Add question", and "Remove option", is at least 44px tall

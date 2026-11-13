@@ -41,7 +41,15 @@ function runButtons(): HTMLButtonElement[] {
   return [...document.querySelectorAll<HTMLButtonElement>("form[data-primitive] .run")];
 }
 
-/** Loads the film example into every panel, since an empty panel keeps its Run disabled (issue #58). */
+/** The sentence a Run button's aria-describedby points at: what it will send, or why it cannot. */
+function runNote(button: HTMLButtonElement): string {
+  return document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+}
+
+const NO_PROVIDER =
+  "No provider is available yet. The Provider area at the top of the page says why.";
+
+/** Loads the film example into every panel, since an empty panel's Run sends nothing (issues #58 and #95). */
 async function loadFilmExamples(): Promise<void> {
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     'form[data-primitive] .load-example[data-example="film"]',
@@ -115,6 +123,14 @@ describe("the list", () => {
       "typesafe",
       "subq",
     ]);
+  });
+
+  it("hands the listed providers to the panels, empty until the list loads", async () => {
+    answerProviders(listed(typesafe, subq));
+    const selection = setupProviderSelect(document);
+    expect(selection.providers()).toEqual([]);
+    await vi.waitFor(() => expect(selection.providers()).toHaveLength(2));
+    expect(selection.providers().map((provider) => provider.id)).toEqual(["typesafe", "subq"]);
   });
 
   it("asks GET /api/providers once", async () => {
@@ -222,6 +238,70 @@ describe("the stored choice", () => {
   });
 });
 
+describe("the capability line (issue #98)", () => {
+  const capability = () => get("#provider-capability");
+
+  it("is in the page empty, and is plain text, not a live region", () => {
+    expect(capability().textContent).toBe("");
+    expect(capability().hasAttribute("role")).toBe(false);
+    expect(capability().hasAttribute("aria-live")).toBe(false);
+  });
+
+  it("states a text-only provider's capability on the first load, with nothing announced", async () => {
+    answerProviders(listed(typesafe, subq));
+    await load();
+    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
+    expect(get("#provider-status").textContent).toBe("");
+  });
+
+  it("states a stored image provider's capability on the first load", async () => {
+    localStorage.setItem(STORAGE_KEY, "subq");
+    answerProviders(listed(typesafe, subq));
+    await load();
+    expect(capability().textContent).toBe(
+      "SubQ Snap: Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    expect(get("#provider-status").textContent).toBe("");
+  });
+
+  it("follows every change, and the status line announces the same capability sentence", async () => {
+    answerProviders(listed(typesafe, subq, openai));
+    await load();
+    change("openai");
+    expect(capability().textContent).toBe(
+      "OpenAI Decisions: Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    expect(get("#provider-status").textContent).toBe(
+      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    change("typesafe");
+    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
+    expect(get("#provider-status").textContent).toBe(
+      "Provider set to TypeSafe Jev. Text only, no images.",
+    );
+  });
+
+  it("is the line sighted viewers read, because the status line is visually hidden", () => {
+    expect(get("#provider-status").classList.contains("visually-hidden")).toBe(true);
+    expect(capability().classList.contains("visually-hidden")).toBe(false);
+  });
+
+  it("is filled after a Retry, and cleared when no provider is available", async () => {
+    answerProviders(Response.json({ ok: false, error: "No." }, { status: 500 }), listed(typesafe));
+    await load();
+    expect(capability().textContent).toBe("");
+    get(".provider-retry").click();
+    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
+    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
+  });
+
+  it("stays empty when the instance has no provider key", async () => {
+    answerProviders(missingKeys());
+    await load();
+    expect(capability().textContent).toBe("");
+  });
+});
+
 describe("the status line", () => {
   it("is empty after the page loads without user action", async () => {
     localStorage.setItem(STORAGE_KEY, "subq");
@@ -236,7 +316,7 @@ describe("the status line", () => {
     await load();
     change("subq");
     expect(get("#provider-status").textContent).toBe(
-      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
     );
     change("typesafe");
     expect(get("#provider-status").textContent).toBe(
@@ -244,7 +324,7 @@ describe("the status line", () => {
     );
     change("openai");
     expect(get("#provider-status").textContent).toBe(
-      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
     );
   });
 });
@@ -290,22 +370,33 @@ describe("an instance with no provider key", () => {
     expect(providerSelect().getAttribute("aria-describedby")).toBe("provider-problem");
   });
 
-  it("disables the select and every Run button", async () => {
+  it("disables the select, and every Run button says no provider is available and sends nothing", async () => {
     const fetchMock = answerProviders(missingKeys());
     const selection = setupProviderSelect(document);
     setupPanels(document, selection);
     await vi.waitFor(() => expect(get("#provider-problem").textContent).not.toBe(""));
+    await loadFilmExamples();
     expect(providerSelect().disabled).toBe(true);
     expect(selection.current()).toBeUndefined();
     expect(runButtons()).toHaveLength(3);
-    for (const button of runButtons()) expect(button.disabled).toBe(true);
+    // Run stays reachable by keyboard and says why it cannot run (issue #95).
+    for (const button of runButtons()) {
+      expect(button.disabled).toBe(false);
+      expect(runNote(button)).toBe(NO_PROVIDER);
+    }
+    get("form[data-primitive='noul']").dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    // The select cannot take focus, so the summary names the problem without a link.
+    expect(get("#noul-summary").textContent).toContain(NO_PROVIDER);
+    expect(get("#noul-summary").querySelector("a")).toBeNull();
     // Only the list was requested: no decide call could have been made.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("a list that could not be loaded", () => {
-  it("says so and offers Retry, with the select and Run disabled", async () => {
+  it("says so and offers Retry, with the select disabled and Run saying why it cannot run", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -319,7 +410,12 @@ describe("a list that could not be loaded", () => {
       "The list of providers could not be loaded.",
     );
     expect(providerSelect().disabled).toBe(true);
-    for (const button of runButtons()) expect(button.disabled).toBe(true);
+    // Loaded, so the missing provider is the first reason each Run gives.
+    await loadFilmExamples();
+    for (const button of runButtons()) {
+      expect(button.disabled).toBe(false);
+      expect(runNote(button)).toBe(NO_PROVIDER);
+    }
   });
 
   it("treats a failure that is not the missing-key 503 as a failed load", async () => {
@@ -337,7 +433,7 @@ describe("a list that could not be loaded", () => {
     const selection = setupProviderSelect(document);
     setupPanels(document, selection);
     await vi.waitFor(() => expect(get(".provider-retry")).toBeTruthy());
-    // The panels start empty, which also disables Run; an example makes them runnable.
+    // The panels start empty, which also stops Run; an example makes them runnable.
     await loadFilmExamples();
 
     get(".provider-retry").click();
@@ -345,7 +441,9 @@ describe("a list that could not be loaded", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(optionTexts()).toEqual(["TypeSafe Jev jev-1.13.0", "SubQ Snap subq-snap-preview"]);
     expect(get("#provider-problem").textContent).toBe("");
-    for (const button of runButtons()) expect(button.disabled).toBe(false);
+    for (const button of runButtons()) {
+      expect(runNote(button)).toMatch(/^Checks the \w+ request and sends it to TypeSafe Jev\.$/);
+    }
     expect(document.activeElement).toBe(providerSelect());
     // A retry that succeeds is not a user's choice, so it announces nothing.
     expect(get("#provider-status").textContent).toBe("");

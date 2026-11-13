@@ -50,7 +50,17 @@
           that filling it is announced; CSS collapses it while it is empty.
         -->
         <p id="protection-notice" class="protection-notice" role="status"></p>
-        <p id="provider-status" class="provider-status" role="status"></p>
+        <!--
+          The selected provider's image capability. Plain text, not a live region, so
+          filling it on the first load announces nothing.
+        -->
+        <p id="provider-capability" class="provider-capability"></p>
+        <!--
+          Announces what the viewer causes: a provider change, a Retry. It is visually
+          hidden because the capability line above is what sighted viewers read, and it
+          stays empty on the first load.
+        -->
+        <p id="provider-status" class="visually-hidden" role="status"></p>
         <details id="provider-vocabulary" class="provider-vocabulary" hidden>
           <summary class="provider-vocabulary-summary"></summary>
           <dl class="provider-vocabulary-list"></dl>
@@ -63,17 +73,23 @@
           The probability that a yes/no statement about the state is true.
         </p>
         <form class="panel-form" data-primitive="noul" novalidate>
+          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
+          <div id="noul-summary" class="error-summary" tabindex="-1"></div>
           <div class="examples" role="group" aria-label="Examples for Noul">
-            <button class="action-button load-example" type="button" data-example="film">
+            <button
+              id="noul-load-film"
+              class="action-button load-example"
+              type="button"
+              data-example="film"
+            >
               Load film example
             </button>
             <button class="action-button load-example" type="button" data-example="images">
               Load image example
             </button>
           </div>
-          <p class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question. Run is off
-            until the panel holds a request.
+          <p id="noul-empty" class="panel-empty">
+            This panel is empty. Load an example above, or write a state and a question.
           </p>
           <div class="view-switch" role="group" aria-label="Edit the Noul request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
@@ -104,10 +120,11 @@
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
           <p id="noul-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit">
+          <button class="run" type="submit" aria-describedby="noul-empty">
             <span class="run-label">Run</span>
             <span class="run-sizer" aria-hidden="true">Running</span>
           </button>
+          <p id="noul-run-note" class="run-note" hidden></p>
         </form>
       </section>
 
@@ -117,17 +134,23 @@
           One option from a fixed set, with a probability for every option.
         </p>
         <form class="panel-form" data-primitive="choice" novalidate>
+          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
+          <div id="choice-summary" class="error-summary" tabindex="-1"></div>
           <div class="examples" role="group" aria-label="Examples for Choice">
-            <button class="action-button load-example" type="button" data-example="film">
+            <button
+              id="choice-load-film"
+              class="action-button load-example"
+              type="button"
+              data-example="film"
+            >
               Load film example
             </button>
             <button class="action-button load-example" type="button" data-example="images">
               Load image example
             </button>
           </div>
-          <p class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question. Run is off
-            until the panel holds a request.
+          <p id="choice-empty" class="panel-empty">
+            This panel is empty. Load an example above, or write a state and a question.
           </p>
           <div class="view-switch" role="group" aria-label="Edit the Choice request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
@@ -158,10 +181,11 @@
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
           <p id="choice-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit">
+          <button class="run" type="submit" aria-describedby="choice-empty">
             <span class="run-label">Run</span>
             <span class="run-sizer" aria-hidden="true">Running</span>
           </button>
+          <p id="choice-run-note" class="run-note" hidden></p>
         </form>
       </section>
 
@@ -171,17 +195,23 @@
           A position on ordered levels you describe, with a probability for each level.
         </p>
         <form class="panel-form" data-primitive="score" novalidate>
+          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
+          <div id="score-summary" class="error-summary" tabindex="-1"></div>
           <div class="examples" role="group" aria-label="Examples for Score">
-            <button class="action-button load-example" type="button" data-example="film">
+            <button
+              id="score-load-film"
+              class="action-button load-example"
+              type="button"
+              data-example="film"
+            >
               Load film example
             </button>
             <button class="action-button load-example" type="button" data-example="images">
               Load image example
             </button>
           </div>
-          <p class="panel-empty">
-            This panel is empty. Load an example above, or write a state and a question. Run is off
-            until the panel holds a request.
+          <p id="score-empty" class="panel-empty">
+            This panel is empty. Load an example above, or write a state and a question.
           </p>
           <div class="view-switch" role="group" aria-label="Edit the Score request as">
             <button class="view-option" type="button" data-view="tree" aria-pressed="true">
@@ -212,15 +242,22 @@
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
           <p id="score-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit">
+          <button class="run" type="submit" aria-describedby="score-empty">
             <span class="run-label">Run</span>
             <span class="run-sizer" aria-hidden="true">Running</span>
           </button>
+          <p id="score-run-note" class="run-note" hidden></p>
         </form>
       </section>
 
-      <section class="readout" aria-labelledby="readout-title">
-        <h2 id="readout-title" class="visually-hidden">Readout</h2>
+      <section class="readout" aria-labelledby="results-title">
+        <div class="results-header">
+          <!-- Focus lands here after Clear results, which hides itself. -->
+          <h2 id="results-title" class="results-title" tabindex="-1">Results</h2>
+          <button id="results-clear" class="text-button results-clear" type="button" hidden>
+            Clear results
+          </button>
+        </div>
         <!--
           Shown by src/ui/warm.ts only where the host reports connection metrics
           (the Node dev host) and the selected provider can warm. It fills the
@@ -237,13 +274,20 @@
             <span class="run-label warm-label">Warm connection</span>
             <span class="run-sizer" aria-hidden="true">Warm connection</span>
           </button>
-          <output id="warm-status" class="warm-status" for="keep-alive"></output>
+          <span id="warm-status" class="warm-status"></span>
         </form>
-        <div id="readout-body" class="readout-body" aria-live="polite">
-          <p class="readout-status">Run a panel to see the answer.</p>
-        </div>
-        <!-- The wire view sits beside the live region, so a screen reader announces the result and not the JSON. -->
-        <div id="wire-body" class="wire-body"></div>
+        <!-- Written only at the start, the end, and a failure of a warm, so a screen reader hears those and not each tick. -->
+        <span id="warm-announcer" class="visually-hidden" role="status"></span>
+        <!--
+          The live region says one short sentence per run, such as "Choice on SubQ Snap: 4 answers.",
+          and not the answers themselves, which stay readable in the list below. A failure is announced
+          by its own role="alert" inside its result. src/ui/results.ts fills all of this.
+        -->
+        <p id="results-status" class="readout-status" role="status"></p>
+        <p id="results-empty" class="readout-status">
+          There are no results. Run a panel to see its answers here.
+        </p>
+        <ol id="results-list" class="results-list" role="list"></ol>
       </section>
     </main>
 

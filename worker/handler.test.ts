@@ -10,14 +10,17 @@ import { decisionResponseSchema } from "../src/decision/contract.ts";
 import type { DecisionRequest } from "../src/decision/contract.ts";
 import { validateDecisionRequest } from "../src/decision/validate.ts";
 import type { ValidDecisionRequest } from "../src/decision/validate.ts";
+import { sizeInWords } from "../src/providers/byte-size.ts";
 import { MAX_IMAGE_REQUEST_BYTES, openai, subq, typesafe } from "../src/providers/catalog.ts";
 import type { ProviderDescriptor } from "../src/providers/catalog.ts";
 import {
   FRAMING_ALLOWANCE_BYTES,
   IMAGE_ALLOWANCE_BYTES,
+  IMAGE_TEXT_ALLOWANCE_BYTES,
   MAX_BODY_BYTES,
   TEXT_ALLOWANCE_BYTES,
   TOO_LARGE_MESSAGE,
+  base64Length,
 } from "./body-limit.ts";
 import { PROVIDER_TIMEOUT_MS, wireRecord } from "./decide.ts";
 import type { ImageAttachment } from "./decide.ts";
@@ -397,12 +400,6 @@ async function decideWith(request: Request, env: ProviderKeys, deps: StubDeps) {
   return { response, text, body: JSON.parse(text) as Record<string, unknown> };
 }
 
-/** The body without its measured latency, so two runs can be compared. */
-function withoutLatency(body: Record<string, unknown>): Record<string, unknown> {
-  const { latencyMs: _latency, ...rest } = body;
-  return rest;
-}
-
 describe("POST /api/decide/typesafe", () => {
   it("answers a Yes/no request with a DecisionSuccess, its wire record, and the pinned model", async () => {
     const deps = stubDeps(upstreamReply(200, recordedNoulReply));
@@ -625,7 +622,7 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     ["text/plain", "text/plain"],
     ["form-urlencoded", "application/x-www-form-urlencoded"],
     ["no content type", undefined],
-  ])("answers %s with a 415 naming the two accepted types", async (_name, contentType) => {
+  ])("answers %s with a 415 naming JSON and where images go", async (_name, contentType) => {
     const deps = stubDeps();
 
     const { response, body } = await decideWith(
@@ -635,8 +632,9 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     );
 
     expect(response.status).toBe(415);
-    expect(body.error).toContain("application/json");
-    expect(body.error).toContain("multipart/form-data");
+    expect(body.error).toBe(
+      'Send the request as application/json, with any images as base64 in its "images" list.',
+    );
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
@@ -652,15 +650,17 @@ describe("POST /api/decide/{provider} before any provider call", () => {
     expect(response.status).toBe(200);
   });
 
-  it("limits a multipart body to the text, the images, and the framing, and says so in plain words", () => {
-    expect(IMAGE_ALLOWANCE_BYTES).toBe(64 * 1024);
+  it("limits a body to the text, the images as base64, and the framing, and says so in plain words", () => {
     expect(IMAGE_ALLOWANCE_BYTES).toBe(MAX_IMAGE_REQUEST_BYTES);
+    expect(IMAGE_TEXT_ALLOWANCE_BYTES).toBe(base64Length(IMAGE_ALLOWANCE_BYTES));
+    expect(base64Length(3)).toBe(4);
+    expect(base64Length(4)).toBe(8);
     expect(TEXT_ALLOWANCE_BYTES).toBe(256 * 1024);
     expect(MAX_BODY_BYTES).toBe(
-      IMAGE_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES,
+      IMAGE_TEXT_ALLOWANCE_BYTES + TEXT_ALLOWANCE_BYTES + FRAMING_ALLOWANCE_BYTES,
     );
     expect(TOO_LARGE_MESSAGE).toBe(
-      'The request is too large. The request text may hold up to 256 KB, and a multipart request may add up to 64 KB of images. Trim "state", ask fewer questions, or send smaller images.',
+      `The request is too large. The request text may hold up to 256 KB, and its images may add up to ${sizeInWords(IMAGE_ALLOWANCE_BYTES)}. Trim "state", ask fewer questions, or send smaller images.`,
     );
   });
 
@@ -788,7 +788,7 @@ describe("POST /api/decide/{provider} before any provider call", () => {
 
   it("stops reading a streamed body once it passes the limit, then answers 413", async () => {
     const chunk = new Uint8Array(64 * 1024);
-    const limitInChunks = TEXT_ALLOWANCE_BYTES / chunk.byteLength;
+    const limitInChunks = Math.ceil(MAX_BODY_BYTES / chunk.byteLength);
     let pulled = 0;
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({
@@ -876,106 +876,6 @@ describe("POST /api/decide/{provider} before any provider call", () => {
       expect(deps.fetch).not.toHaveBeenCalled();
     },
   );
-});
-
-describe("POST /api/decide/{provider} as multipart/form-data", () => {
-  function multipart(parts: [string, string | Blob][]): Request {
-    const form = new FormData();
-    for (const [name, value] of parts) form.append(name, value);
-    // The Request sets the content type, boundary included, from the FormData body.
-    return new Request(`${ORIGIN}/api/decide/typesafe`, { method: "POST", body: form });
-  }
-
-  it("answers a request part with no image parts exactly as the same JSON", async () => {
-    const asJson = stubDeps(upstreamReply(200, recordedNoulReply));
-    const asMultipart = stubDeps(upstreamReply(200, recordedNoulReply));
-
-    const viaJson = await decideWith(postJson("/api/decide/typesafe", yesNo), withTypeSafe, asJson);
-    const viaMultipart = await decideWith(
-      multipart([["request", JSON.stringify(yesNo)]]),
-      withTypeSafe,
-      asMultipart,
-    );
-
-    expect(viaMultipart.response.status).toBe(200);
-    expect(withoutLatency(viaMultipart.body)).toEqual(withoutLatency(viaJson.body));
-    expect(asMultipart.fetch.mock.calls[0]?.[1]?.body).toBe(asJson.fetch.mock.calls[0]?.[1]?.body);
-  });
-
-  it("answers an invalid request part exactly as the same JSON", async () => {
-    const invalid = { ...yesNo, primitive: "maybe" };
-
-    const viaJson = await decideWith(
-      postJson("/api/decide/typesafe", invalid),
-      withTypeSafe,
-      stubDeps(),
-    );
-    const viaMultipart = await decideWith(
-      multipart([["request", JSON.stringify(invalid)]]),
-      withTypeSafe,
-      stubDeps(),
-    );
-
-    expect(viaMultipart.response.status).toBe(400);
-    expect(viaMultipart.body).toEqual(viaJson.body);
-  });
-
-  it("refuses images for a provider that accepts none", async () => {
-    const deps = stubDeps();
-
-    const { response, body } = await decideWith(
-      multipart([
-        ["request", JSON.stringify(yesNo)],
-        ["image", new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" })],
-      ]),
-      withTypeSafe,
-      deps,
-    );
-
-    expect(response.status).toBe(400);
-    expect(body.error).toBe(
-      "TypeSafe Jev evaluates text only, so it does not accept images. Remove them and run again.",
-    );
-    expect(deps.fetch).not.toHaveBeenCalled();
-  });
-
-  it.each<[string, [string, string | Blob][]]>([
-    ["no request part", [["image", "x"]]],
-    [
-      "two request parts",
-      [
-        ["request", "{}"],
-        ["request", "{}"],
-      ],
-    ],
-    ["a request part that is a file", [["request", new Blob(["{}"])]]],
-    [
-      "a part with another name",
-      [
-        ["request", "{}"],
-        ["notes", "hello"],
-      ],
-    ],
-  ])("refuses %s with a 400", async (_name, parts) => {
-    const deps = stubDeps();
-
-    const { response, body } = await decideWith(multipart(parts), withTypeSafe, deps);
-
-    expect(response.status).toBe(400);
-    expect(body).toMatchObject({ ok: false, error: expect.any(String) });
-    expect(deps.fetch).not.toHaveBeenCalled();
-  });
-
-  it("refuses a multipart body that cannot be parsed", async () => {
-    const { response, body } = await decideWith(
-      post("/api/decide/typesafe", "not multipart", "multipart/form-data; boundary=xyz"),
-      withTypeSafe,
-      stubDeps(),
-    );
-
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("The multipart body could not be read. Check its boundary and parts.");
-  });
 });
 
 describe("POST /api/decide/{provider} when the provider fails", () => {

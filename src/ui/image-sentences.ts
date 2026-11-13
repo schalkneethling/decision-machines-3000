@@ -26,19 +26,61 @@ export function imagesCount(count: number): string {
   return `${count} ${count === 1 ? "image" : "images"}`;
 }
 
-/** `64 KB each and 64 KB in total`. */
+/**
+ * `64 KB in total`, or `32 KB each and 64 KB in total`. The per-image cap is
+ * named only when it is below the total, because otherwise the total is the
+ * only limit an image can reach, and naming both read as if each image could
+ * take the full amount.
+ */
 export function sizeLimits(images: ImageCapabilities): string {
-  return `${sizeInWords(images.maxBytesPerImage)} each and ${sizeInWords(images.maxBytesPerRequest)} in total`;
+  const total = `${sizeInWords(images.maxBytesPerRequest)} in total`;
+  if (images.maxBytesPerImage >= images.maxBytesPerRequest) return total;
+  return `${sizeInWords(images.maxBytesPerImage)} each and ${total}`;
 }
 
 /**
  * The effect of a provider's image capability, for the provider status line:
- * "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and
- * 64 KB in total." or "Text only, no images."
+ * "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total."
+ * or "Text only, no images."
  */
 export function imageInputSentence(images: ImageCapabilities | false): string {
   if (images === false) return "Text only, no images.";
   return `Image input available: up to ${images.maxCount} ${formatList(images.mediaTypes)} images, ${sizeLimits(images)}.`;
+}
+
+/** `A`, `A or B`, `A, B, or C`: names as a sentence fragment. */
+function orList(names: readonly string[]): string {
+  if (names.length <= 2) return names.join(" or ");
+  return `${names.slice(0, -1).join(", ")}, or ${names.at(-1)}`;
+}
+
+/**
+ * The display names of the listed providers that take images, in list order.
+ * The list is the one the page received from `GET /api/providers`, so a
+ * provider that is not configured on this instance is never named.
+ */
+export function imageProviderNames(providers: readonly ProviderSummary[]): string[] {
+  return providers
+    .filter((provider) => provider.capabilities.images !== false)
+    .map((provider) => provider.displayName);
+}
+
+/**
+ * Says that `selected` is text only and where to go for images: "TypeSafe Jev is
+ * text only. Choose SubQ Snap or OpenAI Decisions to attach images." `purpose`
+ * completes "Choose … " ("to attach images", "first"). When no listed provider
+ * takes images, it says that instead, because there is nowhere to go.
+ */
+export function textOnlySentence(
+  selected: ProviderSummary,
+  providers: readonly ProviderSummary[],
+  purpose: string,
+): string {
+  const names = imageProviderNames(providers);
+  if (names.length === 0) {
+    return `${selected.displayName} is text only, and no provider on this instance takes images.`;
+  }
+  return `${selected.displayName} is text only. Choose ${orList(names)} ${purpose}.`;
 }
 
 /**

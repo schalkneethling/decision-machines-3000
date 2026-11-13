@@ -38,6 +38,7 @@ import {
   issueSlot,
   levelList,
   meaningList,
+  moveHint,
   movableRow,
   optionList,
   previousFocus,
@@ -70,6 +71,11 @@ export type Composer = {
   focusIssue(issue: Issue): void;
   /** Reports problems against other limits from now on, and updates the issues already shown. */
   setCapabilities(capabilities: ProviderCapabilities): void;
+  /**
+   * Reports problems for a request sent with `count` images from now on, and
+   * updates the issues already shown. With one or more, the state may be blank.
+   */
+  setImageCount(count: number): void;
 };
 
 /** What the shared and per-question criteria are called in each primitive. */
@@ -122,6 +128,7 @@ function stateHint(model: ComposerModel): string {
 export function createComposer(options: ComposerOptions): Composer {
   const { prefix, announce, onChange } = options;
   let { capabilities } = options;
+  let imageCount = 0;
   let model = options.model;
   const element = create("div", { className: "tree" });
   /** Rows whose issues show; the rest wait until they are edited or Run reveals them. */
@@ -209,7 +216,7 @@ export function createComposer(options: ComposerOptions): Composer {
    * whose messages or invalid fields differ from what they show now.
    */
   function showIssues(): Issue[] {
-    const issues = findIssues(model, capabilities);
+    const issues = findIssues(model, capabilities, imageCount);
     const next = new Map<string, ShownIssues>();
     for (const issue of issues) {
       if (!revealAll && !touched.has(issue.key)) continue;
@@ -532,7 +539,6 @@ export function createComposer(options: ComposerOptions): Composer {
       label: "Id",
       value: question.id,
       slug: true,
-      hint: "For your code only. The model never sees the id.",
       className: "field-id",
       onInput: (value) => {
         question.id = value;
@@ -588,7 +594,7 @@ export function createComposer(options: ComposerOptions): Composer {
         issueSlot(prefix, question.key),
       ]),
     ]);
-    movableRow(row, move);
+    movableRow(row, move, { up, down });
     return row;
   }
 
@@ -664,12 +670,33 @@ export function createComposer(options: ComposerOptions): Composer {
   /* Whole tree */
 
   function render(): void {
+    const moveId = elementId(prefix, QUESTIONS_KEY, "move-hint");
+    // The shortcut needs two or more questions to move between, so its hint appears only then.
+    const canMove = model.questions.length >= 2;
     const branch = create("ul", {
       className: "tree-branch",
-      attributes: { "aria-label": "Shared criteria and questions" },
+      attributes: {
+        "aria-label": "Shared criteria and questions",
+        ...(canMove ? { "aria-describedby": moveId } : {}),
+      },
     });
     branch.append(sharedNode(), ...model.questions.map(questionNode), addQuestionNode());
-    element.replaceChildren(stateNode(), branch);
+    // Said once for the panel, not under every question's Id field, and only while there is an Id field to describe.
+    const idHint =
+      model.questions.length === 0
+        ? []
+        : [
+            create("p", {
+              className: "tree-hint",
+              text: "Question ids are for your code only. The model never sees them.",
+            }),
+          ];
+    element.replaceChildren(
+      stateNode(),
+      ...idHint,
+      ...(canMove ? [moveHint(moveId, "question")] : []),
+      branch,
+    );
     collectReferences();
     showIssues();
   }
@@ -692,6 +719,10 @@ export function createComposer(options: ComposerOptions): Composer {
     focusIssue,
     setCapabilities(next) {
       capabilities = next;
+      showIssues();
+    },
+    setImageCount(count) {
+      imageCount = count;
       showIssues();
     },
   };

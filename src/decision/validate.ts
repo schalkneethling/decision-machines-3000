@@ -141,11 +141,30 @@ function keyOf(issue: RawIssue): string {
 // The parts every provider shares
 // ---------------------------------------------------------------------------
 
-const state = content((issue) =>
+const stateContent = content((issue) =>
   issue.input === undefined
     ? ADD_STATE
     : `"state" must be text, an object, or a list, not ${describeKind(issue.input)}.`,
-).check(z.refine(isNotBlank, `"state" is empty. Add the text, object, or list to evaluate.`));
+);
+const stateNotBlank = stateContent.check(
+  z.refine(isNotBlank, `"state" is empty. Add the text, object, or list to evaluate.`),
+);
+const stateNotBlankOrImage = stateContent.check(
+  z.refine(
+    isNotBlank,
+    `"state" is empty. Add the text, object, or list to evaluate, or attach an image.`,
+  ),
+);
+
+/**
+ * `state` may be blank when images go with the request, because the images are
+ * then what the questions ask about. Without images it needs content, and the
+ * message offers an image only where the provider takes one.
+ */
+function stateSchema(capabilities: ProviderCapabilities, imageCount: number) {
+  if (imageCount > 0) return stateContent;
+  return capabilities.images === false ? stateNotBlank : stateNotBlankOrImage;
+}
 
 const instructions = content((issue) =>
   issue.input === undefined
@@ -343,24 +362,25 @@ function requestFor<P extends string, C extends z.ZodMiniType>(
   primitive: P,
   criteria: C,
   capabilities: ProviderCapabilities,
+  imageCount: number,
 ) {
   return z.object({
     primitive: z.literal(primitive),
-    state,
+    state: stateSchema(capabilities, imageCount),
     criteria: z.exactOptional(criteria),
     questions: questionsSchema(criteria, capabilities.questionNameMaxLength),
   });
 }
 
-/** Builds the request schema for one provider's limits. */
-function decisionRequestSchema(capabilities: ProviderCapabilities) {
+/** Builds the request schema for one provider's limits and the number of images sent with it. */
+function decisionRequestSchema(capabilities: ProviderCapabilities, imageCount: number) {
   const request = z
     .discriminatedUnion(
       "primitive",
       [
-        requestFor("noul", noulCriteria, capabilities),
-        requestFor("choice", choiceCriteria(capabilities.choiceOptions), capabilities),
-        requestFor("score", scoreCriteria(capabilities.scoreLevels), capabilities),
+        requestFor("noul", noulCriteria, capabilities, imageCount),
+        requestFor("choice", choiceCriteria(capabilities.choiceOptions), capabilities, imageCount),
+        requestFor("score", scoreCriteria(capabilities.scoreLevels), capabilities, imageCount),
       ],
       {
         error: (issue) => {
@@ -421,22 +441,33 @@ export type ValidationResult = { ok: true; value: ValidDecisionRequest } | Valid
  */
 const schemas = new Map<string, DecisionRequestSchema>();
 
-function limitsKey({ choiceOptions, scoreLevels, questionNameMaxLength }: ProviderCapabilities) {
+function limitsKey(
+  { choiceOptions, scoreLevels, questionNameMaxLength, images }: ProviderCapabilities,
+  imageCount: number,
+) {
   return JSON.stringify([
     choiceOptions.min,
     choiceOptions.max ?? null,
     scoreLevels.min,
     scoreLevels.max ?? null,
     questionNameMaxLength ?? null,
+    images !== false,
+    imageCount > 0,
   ]);
 }
 
-/** The request schema for `capabilities`' limits, built on first use and reused after that. */
-export function requestSchemaFor(capabilities: ProviderCapabilities): DecisionRequestSchema {
-  const key = limitsKey(capabilities);
+/**
+ * The request schema for `capabilities`' limits and a request sent with
+ * `imageCount` images, built on first use and reused after that.
+ */
+export function requestSchemaFor(
+  capabilities: ProviderCapabilities,
+  imageCount = 0,
+): DecisionRequestSchema {
+  const key = limitsKey(capabilities, imageCount);
   let schema = schemas.get(key);
   if (schema === undefined) {
-    schema = decisionRequestSchema(capabilities);
+    schema = decisionRequestSchema(capabilities, imageCount);
     schemas.set(key, schema);
   }
   return schema;
@@ -448,15 +479,18 @@ const TOO_DEEP = `The request is nested too deeply to check. Use fewer levels of
  * Check that `value` is a request `/api/jev` can send to a provider.
  *
  * The limits on options, levels, and question ids come from `capabilities`.
- * Reports the first problem and explains how to fix it.
+ * `imageCount` is how many images go to the provider with the request; with
+ * one or more, `state` may be blank. Reports the first problem and explains
+ * how to fix it.
  */
 export function validateDecisionRequest(
   value: unknown,
   capabilities: ProviderCapabilities,
+  imageCount = 0,
 ): ValidationResult {
   let result: ReturnType<DecisionRequestSchema["safeParse"]>;
   try {
-    result = requestSchemaFor(capabilities).safeParse(value);
+    result = requestSchemaFor(capabilities, imageCount).safeParse(value);
   } catch (error) {
     // Zod checks nested JSON by recursion, so thousands of levels exhaust the call stack.
     // That is a problem with the request, not a crash, and is reported like any other.

@@ -24,21 +24,43 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     Then it is a <fieldset> whose first child is <legend>Images</legend>
     And it has no hidden attribute
     And it holds a visible <input type="file" multiple> whose accept attribute is "image/png,image/jpeg,image/webp"
-    And the input's aria-describedby names the instructions and the capability line, both of which are in the fieldset
-    And the fieldset's own aria-describedby points at the privacy note (MDN: fieldset has the implicit role "group")
+    And the input's aria-describedby names only the capability line, which is in the fieldset (issue #97)
+    And the fieldset has no aria-describedby, and the privacy note is a visible paragraph inside it (issue #97)
 
-  Scenario: The control leaves the accessibility tree for a text-only provider
+  Scenario: The control stays in the page, unavailable, for a text-only provider
     Given TypeSafe Jev is selected
     When the panel renders
-    Then the fieldset has the hidden attribute
+    Then the fieldset has no hidden attribute and carries data-unavailable
+    And the file input is disabled and has no accept attribute
+    And the instructions, the hint, and the privacy note are hidden, because they describe choosing files
     And nothing is announced
+    # Issue #98: the control used to be hidden here, which hid from a first-time visitor that images exist. It is hidden
+    # only while no provider is selected, because there is nothing true to say yet.
+
+  Scenario: The unavailable control names the selected provider and the providers that take images
+    Given the page received TypeSafe Jev, SubQ Snap, and OpenAI Decisions
+    And TypeSafe Jev is selected
+    When the panel renders
+    Then the control's one sentence reads "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images."
+    And the names come from the provider list the page received, never from the client's code
+    And the sentence is plain text in the fieldset, not in a live region, so the first render announces nothing
+    And the input's aria-describedby names that sentence alone
+    When the list holds no provider that takes images
+    Then the sentence reads "TypeSafe Jev is text only, and no provider on this instance takes images."
+
+  Scenario: A drop on the unavailable control is refused in words
+    Given TypeSafe Jev is selected
+    When a file is dragged over the fieldset
+    Then dragover is cancelled so that the drop reaches the page, and the fieldset is not highlighted
+    When the file is dropped
+    Then nothing is attached and the status says "dropped.png was not added: TypeSafe Jev is text only."
 
   Scenario: The control follows a provider change between two image providers
     Given OpenAI Decisions is selected and the capability line says up to 8 images
     When the provider changes to SubQ Snap
     Then the accept attribute, the maximum count, and the size limits in the capability line match SubQ Snap
     And the provider status line (#provider-status, the page's single role="status" for provider changes) announces
-      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total."
+      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total."
     # The three panels each have an image control. Announcing the same capability from all three status lines at once
     # would read the sentence three times, so the generic effect of a provider change is announced once, by the provider
     # status line that already announced "Images allowed, up to 4." before this issue. Each panel's own status line
@@ -47,23 +69,23 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: The capability line states the caps and whose they are
     Given OpenAI Decisions is selected
     When the capability line renders
-    Then it reads "OpenAI Decisions takes up to 8 images, 64 KB each and 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's."
+    Then it reads "OpenAI Decisions takes up to 8 images, 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's."
     # Rewritten from the issue body, which named 4 MiB and 8 MiB. The sentence is built from the capabilities, so the
     # numbers follow the catalog. "Not the provider's" is said for every image provider, because the byte caps are the
     # project's for SubQ Snap too (SubQ documents 4 MiB and 8 MiB).
 
-  Scenario: Thumbnails and Remove buttons are named by the file
-    Given an attached image named "poster.png"
+  Scenario: Thumbnails are decorative and Remove buttons are named by the number and the file
+    Given an attached image named "poster.png", the first in the list
     When its list item renders
-    Then its <img> alt is "poster.png"
-    And its Remove button's accessible name is "Remove poster.png"
+    Then its <img> alt is ""
+    And its Remove button's accessible name is "Remove image 1, poster.png"
     And the item shows "image/png", the size as the wire view writes it ("12 KB"), and the pixel dimensions ("64 × 48")
 
   Scenario: Keyboard-only use reaches everything
     Given two attached images
     When the user tabs through the control
     Then the file-input button and each Remove button are focusable and labelled
-    And the instructions are read with the input through aria-describedby
+    And the instructions are visible next to the input, but are not part of its aria-describedby (issue #97)
 
   Scenario: The privacy note is visible under the control
     Given an image provider is selected
@@ -157,29 +179,29 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   # --- Removing ----------------------------------------------------------------------------------------------------
 
   Scenario: Removing an image revokes its object URL
-    Given an attached image
-    When its Remove button is pressed
+    Given two attached images, "poster.png" first
+    When the Remove button of "poster.png" is pressed
     Then the list item disappears and URL.revokeObjectURL is called with its preview URL
-    And the status says "Image removed: poster.png. 1 image remains."
+    And the status says "Image removed: poster.png. 1 image remains. Image 2 is now image 1. Check questions that mention image numbers."
     And focus moves to the next Remove button, or to the file input when none is left
 
   # --- Sending -----------------------------------------------------------------------------------------------------
 
-  Scenario: With images attached, Run posts multipart/form-data built with FormData
+  Scenario: With images attached, Run posts the request with the images as base64 in its JSON
+    # Images went as multipart parts first. Reading multipart cost the Worker more CPU than encoding, so the browser
+    # now encodes them (scenarios/15-server-images.feature).
     Given SubQ Snap is selected and two images are attached
     When Run is pressed
-    Then fetch is called with a FormData body
-    And the app sets no Content-Type header (MDN: a hand-set header drops the boundary)
-    And new Request(url, { method: "POST", body }) gives a Content-Type that starts with "multipart/form-data; boundary="
-    And form.get("request") is a string equal to the textarea text in the JSON view, or the serialised tree request
-    And form.getAll("image") holds one entry per image, in order, each a File with the original bytes
-    And no part contains base64
+    Then fetch is called with a JSON text body and Content-Type application/json
+    And the body is the textarea text in the JSON view, or the serialised tree request, with an "images" list added
+    And "images" holds one { "name", "base64" } entry per image, in order, whose base64 decodes to the image's bytes
+    And the textarea text is unchanged
 
-  Scenario: Parts are added with append, never set, and every image part has a filename
-    Given three images, one of them a pasted Blob
-    When the form is built
-    Then getAll("image") returns three entries and get("request") returns the request text
-    And the pasted image's part filename is "pasted-image-1.png" and never "blob"
+  Scenario: Every image is sent with a name, a pasted one included
+    Given two images, one of them a pasted Blob
+    When the body is built
+    Then "images" holds two entries
+    And the pasted image's name is "pasted-image-1.png" and never "blob"
 
   Scenario: With no images, Run posts application/json as before
     Given no images are attached
@@ -188,7 +210,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
 
   Scenario: The JSON view hint says how images travel
     Given two images are attached and the JSON view is open
-    Then the hint under the textarea says "2 images attached. They are sent as image parts beside this JSON, not inside it."
+    Then the hint under the textarea says '2 images attached. Run adds them to this JSON as base64 in an "images" list, which this view does not show.'
     And the sentence disappears when the last image is removed
 
   # --- Provider changes with images attached ------------------------------------------------------------------------
@@ -196,7 +218,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: Switching to a text-only provider keeps the images and says so
     Given two images are attached on SubQ Snap
     When the provider changes to TypeSafe Jev
-    Then the fieldset is hidden, the two images stay in the panel's state
+    Then the fieldset stays, unavailable, with the two thumbnails and their Remove buttons still listed
     And a visible notice in the panel says "TypeSafe Jev is text only. Your 2 images are kept and will not be sent."
     And the panel's status says "TypeSafe Jev is text only; your 2 images are kept and will not be sent"
 
@@ -209,15 +231,16 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
   Scenario: Switching back to an image provider shows the images again
     Given that state
     When the provider changes back to SubQ Snap
-    Then the fieldset is shown with both thumbnails still attached, the notice is empty, and the status says "Image input available again; your 2 images will be sent."
+    Then the fieldset is available again with both thumbnails still attached, the notice is empty, and the status says "Image input available again; your 2 images will be sent."
 
   Scenario: A lower limit marks the excess and blocks Run until it is removed
     Given eight images are attached on OpenAI Decisions
     When the provider changes to SubQ Snap (limit 4)
     Then images 5 to 8 are marked "Over the limit" in their list items
-    And the panel's Run button is disabled and the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run."
+    And the notice says "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run."
     And the status announces the same
-    And after the four are removed, Run is enabled, the notice is empty, and the removal that cleared the block announces
+    And Run's description says the same, and pressing Run posts nothing and lists it in the panel's error summary, linked to the file input (issue #95)
+    And after the four are removed, the summary and the notice are empty, Run's description says what it will send, and the removal that cleared the block announces
       "Image removed: 5.png. 4 images remain. Your 4 images fit the limits of SubQ Snap."
     # The marking is by the images that fit so far, the per-image cap, and the running total, so it also covers a
     # provider whose byte caps are lower. A new image is judged against the images that will be sent, not the marked ones.
@@ -230,7 +253,7 @@ Feature: A dynamic, accessible image drop zone that follows the selected provide
     When SubQ Snap is chosen and the two files are chosen through the Noul panel's "Choose images" button
     Then two thumbnails appear with type, size, and dimensions, and the panel status says "Image 1 added …" then "Image 2 added …"
     When Run is pressed
-    Then the Network panel shows a request to /api/decide/subq with Content-Type "multipart/form-data; boundary=…" set by Chrome
+    Then the Network panel shows a request to /api/decide/subq with Content-Type application/json and an "images" list in its payload
     And the readout answers, and the "Sent to SubQ Snap" wire block shows "<image 1: image/png, 12 KB>" placeholders, not base64
 
   Scenario: Manual, a phone photo

@@ -10,6 +10,7 @@ import { fileOf, pngBytes } from "./fixtures/images.ts";
 import { noulResponse } from "./fixtures/noul.ts";
 import { setupPanels } from "./panels.ts";
 import type { ProviderSelection } from "./provider-select.ts";
+import { capitalise } from "./text.ts";
 
 const page = readFileSync(resolve(import.meta.dirname, "../../index.html"), "utf8");
 // The page's own module script is left out: the test calls setupPanels itself.
@@ -31,6 +32,8 @@ function selectionOf(initial: ProviderSummary | undefined) {
   const selection: ProviderSelection = {
     current: () => current,
     host: () => (current === undefined ? undefined : { connectionMetrics: false }),
+    // The three providers the catalog lists, as a configured instance would send them.
+    providers: () => (current === undefined ? [] : [typesafe, subq, openai]),
     subscribe: (listener) => listeners.push(listener),
   };
   return {
@@ -78,10 +81,54 @@ function emptyMessage(primitive: string): HTMLElement {
   return get(`form[data-primitive="${primitive}"] .panel-empty`);
 }
 
+/** The error summary at the top of a panel; empty while it lists nothing. */
+function summary(primitive: string): HTMLElement {
+  return get(`#${primitive}-summary`);
+}
+
+/** What the summary lists, each as its text and the href of its link, or null for a problem without one. */
+function summaryItems(primitive: string): { text: string; href: string | null }[] {
+  return [...summary(primitive).querySelectorAll("li")].map((item) => ({
+    text: item.textContent ?? "",
+    href: item.querySelector("a")?.getAttribute("href") ?? null,
+  }));
+}
+
+/** Follows the summary link whose text is `text`. */
+function followSummaryLink(primitive: string, text: string): void {
+  const link = [...summary(primitive).querySelectorAll("a")].find(
+    (candidate) => candidate.textContent === text,
+  );
+  if (link === undefined) throw new Error(`The ${primitive} summary has no link "${text}".`);
+  link.click();
+}
+
+/** The sentence Run's aria-describedby points at. */
+function runNote(primitive: string): string {
+  const id = runButton(primitive).getAttribute("aria-describedby") ?? "";
+  return document.getElementById(id)?.textContent ?? "";
+}
+
+/** Checks that an untouched panel's Run is described by the empty-state message, and its own note is hidden. */
+function expectDescribedByEmptyMessage(primitive: string): void {
+  expect(runButton(primitive).getAttribute("aria-describedby")).toBe(`${primitive}-empty`);
+  expect(get(`#${primitive}-empty`)).toBe(emptyMessage(primitive));
+  expect(get(`#${primitive}-run-note`).hidden).toBe(true);
+}
+
+const EMPTY_PANEL = "Load an example or write a question to run this panel.";
+const NO_PROVIDER =
+  "No provider is available yet. The Provider area at the top of the page says why.";
+
 function stateField(primitive: string): HTMLTextAreaElement {
   return get<HTMLTextAreaElement>(
     `form[data-primitive="${primitive}"] [data-for="state"][data-control="state"]`,
   );
+}
+
+/** The results in the list, newest first. */
+function results(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>("#results-list > li > article")];
 }
 
 function submit(primitive: string): void {
@@ -97,6 +144,23 @@ async function loadFilm(primitive: string): Promise<void> {
 function type(field: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   field.value = value;
   field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** The JSON a decide call posted, with its `images` list split off. */
+function sentRequest(init: RequestInit | undefined): {
+  request: Record<string, unknown>;
+  images: { name: string; base64: string }[];
+} {
+  if (typeof init?.body !== "string") throw new Error("Expected a JSON text body.");
+  const { images = [], ...request } = JSON.parse(init.body) as Record<string, unknown> & {
+    images?: { name: string; base64: string }[];
+  };
+  return { request, images };
+}
+
+/** The bytes a base64 string decodes to. */
+function decoded(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
 }
 
 /**
@@ -171,13 +235,19 @@ afterEach(() => {
 });
 
 describe("the empty start (issue #58)", () => {
-  it("opens every panel empty, with the message shown, Run disabled, and nothing announced", () => {
+  it("opens every panel empty, with the message shown, Run reachable and described, and nothing announced", () => {
     setupPanels(document, selectionOf(typesafe).selection);
     for (const primitive of PRIMITIVES) {
       expect(emptyMessage(primitive).hidden).toBe(false);
       expect(emptyMessage(primitive).textContent).toContain("Load an example above");
-      expect(emptyMessage(primitive).textContent).toContain("Run is off");
-      expect(runButton(primitive).disabled).toBe(true);
+      // Run stays in the tab order (issue #95), and its description says why it cannot run yet.
+      expect(runButton(primitive).disabled).toBe(false);
+      expect(runButton(primitive).hasAttribute("aria-disabled")).toBe(false);
+      runButton(primitive).focus();
+      expect(document.activeElement).toBe(runButton(primitive));
+      // The empty-state message describes Run, so the hidden note does not repeat it.
+      expectDescribedByEmptyMessage(primitive);
+      expect(summary(primitive).childElementCount).toBe(0);
       expect(status(primitive).textContent).toBe("");
       expect(get(`form[data-primitive="${primitive}"] .attachments-status`).textContent).toBe("");
       expect(stateField(primitive).value).toBe("");
@@ -196,27 +266,50 @@ describe("the empty start (issue #58)", () => {
     });
   });
 
-  it("keeps Run disabled on an untouched panel even with a provider, and does not post on submit", () => {
+  it("posts nothing when Run is pressed on an untouched panel, and moves focus to a summary that says why", () => {
     const fetchMock = mockFetch();
     const { selection, choose } = selectionOf(undefined);
     setupPanels(document, selection);
     choose(subq);
-    expect(runButton("noul").disabled).toBe(true);
+    runButton("noul").focus();
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
+    // The GOV.UK error summary: a box with a heading and one link per problem. Focus moving
+    // to it is what makes a screen reader read it, so it is not also an alert.
+    expect(summary("noul").hasAttribute("role")).toBe(false);
+    expect(summary("noul").getAttribute("tabindex")).toBe("-1");
+    expect(summary("noul").querySelector("h3")?.textContent).toBe(
+      "The Noul request cannot be sent yet",
+    );
+    expect(summaryItems("noul")).toEqual([{ text: EMPTY_PANEL, href: "#noul-load-film" }]);
+    expect(document.activeElement).toBe(summary("noul"));
+    // The summary says the problem, so the status line does not repeat it.
     expect(status("noul").textContent).toBe("");
+    // Only the pressed panel shows a summary.
+    expect(summary("choice").childElementCount).toBe(0);
+
+    followSummaryLink("noul", EMPTY_PANEL);
+    expect(document.activeElement).toBe(loadButton("noul", "film"));
   });
 
-  it("hides the message and enables Run on the first edit, and Run then reports the first problem", () => {
+  it("hides the message on the first edit, and Run then lists the request's problems and focuses the summary", () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(typesafe).selection);
     type(stateField("noul"), "A review.");
     expect(emptyMessage("noul").hidden).toBe(true);
-    expect(runButton("noul").disabled).toBe(false);
+    // Once edited, Run is described by its own note, which is now shown.
+    expect(runButton("noul").getAttribute("aria-describedby")).toBe("noul-run-note");
+    expect(get("#noul-run-note").hidden).toBe(false);
+    expect(runNote("noul")).toBe("Checks the Noul request and sends it to TypeSafe Jev.");
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(status("noul").textContent).toBe("Add at least one question.");
-    expect(status("noul").dataset.tone).toBe("alert");
+    expect(summaryItems("noul")).toEqual([
+      { text: "Add at least one question.", href: "#noul-tree-questions-issue" },
+    ]);
+    expect(status("noul").textContent).toBe("");
+    expect(document.activeElement).toBe(summary("noul"));
+    followSummaryLink("noul", "Add at least one question.");
+    expect(document.activeElement?.textContent).toBe("Add question");
   });
 
   it("counts typing in the JSON view as an edit", () => {
@@ -224,7 +317,38 @@ describe("the empty start (issue #58)", () => {
     viewButton("score", "json").click();
     type(textarea("score"), `{"primitive": "score"`);
     expect(emptyMessage("score").hidden).toBe(true);
-    expect(runButton("score").disabled).toBe(false);
+    expect(runNote("score")).toBe("Checks the Score request and sends it to TypeSafe Jev.");
+  });
+
+  it("drops the empty-panel problem from a shown summary once the panel is edited, without moving focus", () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    submit("noul");
+    expect(summaryItems("noul")).toHaveLength(1);
+    stateField("noul").focus();
+    type(stateField("noul"), "A review.");
+    // Fixed problems leave quietly; the new ones wait for the next press of Run.
+    expect(summary("noul").childElementCount).toBe(0);
+    expect(document.activeElement).toBe(stateField("noul"));
+  });
+
+  it("lists every reason at once, and links to the provider select while it can take focus", () => {
+    setupPanels(document, selectionOf(undefined).selection);
+    submit("noul");
+    expect(summaryItems("noul")).toEqual([
+      { text: EMPTY_PANEL, href: "#noul-load-film" },
+      // The page's select is disabled until providers load, so this problem has no link.
+      { text: NO_PROVIDER, href: null },
+    ]);
+
+    get<HTMLSelectElement>("#provider-select").disabled = false;
+    submit("noul");
+    expect(summaryItems("noul")).toEqual([
+      { text: EMPTY_PANEL, href: "#noul-load-film" },
+      { text: "Choose a provider to run this panel.", href: "#provider-select" },
+    ]);
+    expect(document.activeElement).toBe(summary("noul"));
+    followSummaryLink("noul", "Choose a provider to run this panel.");
+    expect(document.activeElement).toBe(get("#provider-select"));
   });
 
   it("puts both load buttons in a labelled group before the view switch", () => {
@@ -255,26 +379,74 @@ describe("the empty start (issue #58)", () => {
   });
 });
 
-describe("offering the image example only where it can load (issue #58)", () => {
-  it("hides it on a text-only provider and when no provider is selected, and keeps the film example", () => {
+describe("the image example on a text-only provider (issues #58 and #98)", () => {
+  it("keeps it visible, unavailable, and focusable on a text-only provider, and hides it only with no provider", () => {
     const { selection, choose } = selectionOf(typesafe);
     setupPanels(document, selection);
     for (const primitive of PRIMITIVES) {
-      expect(loadButton(primitive, "images").hidden).toBe(true);
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      expect(button.hasAttribute("data-unavailable")).toBe(true);
+      // Not `disabled`, so it stays in the tab order and can be pressed.
+      expect(button.disabled).toBe(false);
+      button.focus();
+      expect(document.activeElement).toBe(button);
       expect(loadButton(primitive, "film").hidden).toBe(false);
     }
     choose(undefined);
     for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(true);
   });
 
-  it("shows it on an image provider, and hides it again on a switch to a text-only one", () => {
+  it("shows it as available on an image provider, and marks it unavailable again on a switch to a text-only one", () => {
     const { selection, choose } = selectionOf(subq);
     setupPanels(document, selection);
-    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(false);
+    for (const primitive of PRIMITIVES) {
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+      expect(button.hasAttribute("data-unavailable")).toBe(false);
+    }
     choose(typesafe);
-    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(true);
+    for (const primitive of PRIMITIVES) {
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+    }
     choose(openai);
-    for (const primitive of PRIMITIVES) expect(loadButton(primitive, "images").hidden).toBe(false);
+    for (const primitive of PRIMITIVES) {
+      const button = loadButton(primitive, "images");
+      expect(button.hidden).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+      expect(button.hasAttribute("data-unavailable")).toBe(false);
+    }
+  });
+
+  it("shows each panel's image control as unavailable, naming the providers that take images", () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    for (const primitive of PRIMITIVES) {
+      const zone = get<HTMLFieldSetElement>(
+        `form[data-primitive="${primitive}"] .attachments-zone`,
+      );
+      expect(zone.hidden).toBe(false);
+      expect(zone.hasAttribute("data-unavailable")).toBe(true);
+      expect(get(`#${primitive}-images-limits`).textContent).toBe(
+        "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images.",
+      );
+      expect(get<HTMLInputElement>(`#${primitive}-images-input`).disabled).toBe(true);
+    }
+  });
+
+  it("shows each panel's image control as before on SubQ Snap", () => {
+    setupPanels(document, selectionOf(subq).selection);
+    for (const primitive of PRIMITIVES) {
+      const zone = get<HTMLFieldSetElement>(
+        `form[data-primitive="${primitive}"] .attachments-zone`,
+      );
+      expect(zone.hidden).toBe(false);
+      expect(zone.hasAttribute("data-unavailable")).toBe(false);
+      expect(get<HTMLInputElement>(`#${primitive}-images-input`).disabled).toBe(false);
+    }
   });
 });
 
@@ -283,7 +455,7 @@ describe("loading the film example (issue #58)", () => {
     setupPanels(document, selectionOf(typesafe).selection);
     await loadFilm("choice");
     expect(emptyMessage("choice").hidden).toBe(true);
-    expect(runButton("choice").disabled).toBe(false);
+    expect(runNote("choice")).toBe("Checks the Choice request and sends it to TypeSafe Jev.");
     expect(status("choice").dataset.tone).toBe("note");
     expect(
       [...form("choice").querySelectorAll<HTMLInputElement>('[data-control="id"]')].map(
@@ -294,7 +466,7 @@ describe("loading the film example (issue #58)", () => {
     expect(JSON.parse(textarea("choice").value)).toStrictEqual(choiceExample);
     // The other panels are untouched.
     expect(emptyMessage("noul").hidden).toBe(false);
-    expect(runButton("noul").disabled).toBe(true);
+    expectDescribedByEmptyMessage("noul");
   });
 
   it("puts focus on the State field of the loaded tree", async () => {
@@ -317,9 +489,9 @@ describe("loading the film example (issue #58)", () => {
     const { selection, choose } = selectionOf(undefined);
     setupPanels(document, selection);
     await loadFilm("noul");
-    expect(runButton("noul").disabled).toBe(true);
+    expect(runNote("noul")).toBe(NO_PROVIDER);
     choose(typesafe);
-    expect(runButton("noul").disabled).toBe(false);
+    expect(runNote("noul")).toBe("Checks the Noul request and sends it to TypeSafe Jev.");
   });
 });
 
@@ -360,7 +532,9 @@ describe("loading the image example (issue #58)", () => {
     // One announcement: the panel's status line, not one sentence per picture from the image control.
     expect(get('form[data-primitive="noul"] .attachments-status').textContent).toBe("");
     expect(emptyMessage("noul").hidden).toBe(true);
-    expect(runButton("noul").disabled).toBe(false);
+    expect(runNote("noul")).toBe(
+      "Checks the Noul request and sends it to SubQ Snap with 4 images.",
+    );
     expect(document.activeElement).toBe(stateField("noul"));
 
     viewButton("noul", "json").click();
@@ -368,7 +542,7 @@ describe("loading the image example (issue #58)", () => {
     expect(get("#noul-hint").textContent).toContain("4 images attached");
   });
 
-  it("posts the loaded request and the pictures as one multipart form", async () => {
+  it("posts the loaded request with the pictures as base64 in its images list", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(openai).selection);
     loadButton("score", "images").click();
@@ -377,23 +551,21 @@ describe("loading the image example (issue #58)", () => {
     await vi.waitFor(() => expect(decideCalls(fetchMock)).toHaveLength(1));
     const [url, init] = decideCalls(fetchMock)[0] ?? [];
     expect(url).toBe("/api/decide/openai");
-    const body = init?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(JSON.parse(body.get("request") as string)).toStrictEqual(imageExamples.requests.score);
-    expect(body.getAll("image").map((part) => (part instanceof File ? part.name : ""))).toEqual([
+    const { request, images } = sentRequest(init);
+    expect(request).toStrictEqual(imageExamples.requests.score);
+    expect(images.map((image) => image.name)).toEqual([
       "picture-1.png",
       "picture-2.png",
       "picture-3.png",
       "picture-4.png",
     ]);
-    const first = body.getAll("image")[0];
-    if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(sampleBytes("picture-1.png"));
+    expect(decoded(images[0]!.base64)).toEqual(sampleBytes("picture-1.png"));
   });
 
-  it("refuses on TypeSafe Jev if its hidden button is pressed anyway, and changes nothing", async () => {
+  it("refuses on TypeSafe Jev when its unavailable button is pressed, names the providers that take images, and changes nothing", async () => {
     const fetchMock = mockFetch();
-    setupPanels(document, selectionOf(typesafe).selection);
+    const { selection } = selectionOf(typesafe);
+    setupPanels(document, selection);
     await loadFilm("choice");
     viewButton("choice", "json").click();
     const before = textarea("choice").value;
@@ -401,7 +573,7 @@ describe("loading the image example (issue #58)", () => {
     loadButton("choice", "images").click();
     await vi.waitFor(() =>
       expect(status("choice").textContent).toBe(
-        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose another provider first.",
+        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first.",
       ),
     );
     expect(status("choice").dataset.tone).toBe("alert");
@@ -409,6 +581,43 @@ describe("loading the image example (issue #58)", () => {
     expect(attachments("choice")).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(viewButton("choice", "json").getAttribute("aria-pressed")).toBe("true");
+    // The page does not switch the provider for the person.
+    expect(selection.current()).toBe(typesafe);
+    // The other panels were not touched.
+    expect(status("noul").textContent).toBe("");
+    expect(status("score").textContent).toBe("");
+  });
+
+  it("asks nothing before it refuses, even when the person has typed into the panel", async () => {
+    const confirmReplace = vi.fn(async () => true);
+    mockFetch();
+    setupPanels(document, selectionOf(typesafe).selection, { confirmReplace });
+    type(stateField("noul"), "my own state");
+    loadButton("noul", "images").click();
+    await vi.waitFor(() =>
+      expect(status("noul").textContent).toContain("TypeSafe Jev is text only."),
+    );
+    expect(confirmReplace).not.toHaveBeenCalled();
+    expect(stateField("noul").value).toBe("my own state");
+  });
+
+  it("says when no provider on the instance takes images", async () => {
+    const fetchMock = mockFetch();
+    const { selection } = selectionOf(typesafe);
+    setupPanels(document, {
+      ...selection,
+      providers: () => [typesafe],
+    });
+    loadButton("noul", "images").click();
+    await vi.waitFor(() =>
+      expect(status("noul").textContent).toBe(
+        "The image example needs a provider that takes images. TypeSafe Jev is text only, and no provider on this instance takes images.",
+      ),
+    );
+    expect(get("#noul-images-limits").textContent).toBe(
+      "TypeSafe Jev is text only, and no provider on this instance takes images.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refuses with no provider if its hidden button is pressed anyway", async () => {
@@ -535,7 +744,7 @@ describe("loading the image example (issue #58)", () => {
     );
     expect(status("score").dataset.tone).toBe("alert");
     expect(emptyMessage("score").hidden).toBe(false);
-    expect(runButton("score").disabled).toBe(true);
+    expectDescribedByEmptyMessage("score");
     expect(attachments("score")).toHaveLength(0);
     expect(stateField("score").value).toBe("");
   });
@@ -550,7 +759,7 @@ describe("loading the image example (issue #58)", () => {
     serve();
     await vi.waitFor(() =>
       expect(status("noul").textContent).toBe(
-        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose another provider first.",
+        "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first.",
       ),
     );
     expect(emptyMessage("noul").hidden).toBe(false);
@@ -669,19 +878,29 @@ describe("loading the image example (issue #58)", () => {
     expect(attachments("noul")).toHaveLength(0);
   });
 
-  it("keeps Run disabled while an image is being added, and enables it once the image is in", async () => {
-    mockFetch();
+  it("sends nothing while an image is being added, says so, and runs once the image is in", async () => {
+    const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("noul");
-    expect(runButton("noul").disabled).toBe(false);
+    expect(runNote("noul")).toBe("Checks the Noul request and sends it to SubQ Snap.");
 
     const adding = attachOwnHeld("noul", "slow.png");
     await settled();
-    expect(runButton("noul").disabled).toBe(true);
+    const stillAdding = "Images are still being added. Run is available once they are.";
+    expect(runNote("noul")).toBe(stillAdding);
+    submit("noul");
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+    expect(summaryItems("noul")).toEqual([{ text: stillAdding, href: "#noul-images-input" }]);
+    expect(document.activeElement).toBe(summary("noul"));
+
     adding.release();
     await vi.waitFor(() => expect(attachmentNames("noul")).toEqual(["slow.png"]));
     await settled();
-    expect(runButton("noul").disabled).toBe(false);
+    // The problem went away, so the summary drops it.
+    expect(summary("noul").childElementCount).toBe(0);
+    expect(runNote("noul")).toBe("Checks the Noul request and sends it to SubQ Snap with 1 image.");
+    submit("noul");
+    await vi.waitFor(() => expect(decideCalls(fetchMock)).toHaveLength(1));
   });
 
   it("leaves focus alone when the person moved on while the pictures were fetched", async () => {
@@ -870,7 +1089,7 @@ describe("protecting edits (issue #58)", () => {
     textarea("noul").value = JSON.stringify(noulExample);
     viewButton("noul", "tree").click();
     expect(viewButton("noul", "tree").getAttribute("aria-pressed")).toBe("true");
-    expect(runButton("noul").disabled).toBe(false);
+    expect(runNote("noul")).toBe("Checks the Noul request and sends it to TypeSafe Jev.");
     loadButton("noul", "film").click();
     await vi.waitFor(() => expect(confirmReplace).toHaveBeenCalledOnce());
   });
@@ -1019,6 +1238,21 @@ describe("run", () => {
     const sent = fetchMock.mock.calls[0]?.[1]?.body;
     if (typeof sent !== "string") throw new Error("Expected a JSON string body.");
     expect(JSON.parse(sent)).toStrictEqual(noulExample);
+    expect(summary("noul").childElementCount).toBe(0);
+  });
+
+  it("clears a summary from an earlier press once a press posts", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(typesafe).selection);
+    await loadFilm("noul");
+    viewButton("noul", "json").click();
+    type(textarea("noul"), "{");
+    submit("noul");
+    expect(summaryItems("noul")).toHaveLength(1);
+    textarea("noul").value = JSON.stringify(noulExample);
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(summary("noul").childElementCount).toBe(0);
   });
 
   it("names the provider that answered in the readout", async () => {
@@ -1049,21 +1283,22 @@ describe("run", () => {
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await vi.waitFor(() =>
-      expect(document.querySelector("#readout-body .readout-error")).not.toBeNull(),
+      expect(document.querySelector("#results-list .readout-error")).not.toBeNull(),
     );
     expect(onAnswered).toHaveBeenCalledOnce();
   });
 
-  it("keeps the JSON out of the live region after a success and after a failure", async () => {
+  it("keeps the JSON in its own result, outside the live region, after a success and after a failure", async () => {
     mockFetch();
     setupPanels(document, selectionOf(typesafe).selection);
     await loadFilm("noul");
     submit("noul");
     await vi.waitFor(() => expect(document.querySelector(".reading-meta")).not.toBeNull());
-    const live = get("[aria-live]");
+    const live = get('[role="status"]#results-status');
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(0);
     expect(live.querySelector("details, pre")).toBeNull();
-    expect(get("#wire-body").querySelectorAll("details")).toHaveLength(2);
-    expect(live.contains(get("#wire-body"))).toBe(false);
+    expect(results()[0]?.querySelectorAll("details")).toHaveLength(2);
+    expect(live.contains(get("#results-list"))).toBe(false);
 
     vi.stubGlobal(
       "fetch",
@@ -1075,10 +1310,12 @@ describe("run", () => {
       ),
     );
     submit("noul");
-    await vi.waitFor(() => expect(live.querySelector('[role="alert"]')).not.toBeNull());
-    expect(live.querySelector("details, pre")).toBeNull();
-    const raw = get("#wire-body details");
-    expect(raw.querySelector("summary")?.textContent).toBe("Raw response");
+    await vi.waitFor(() => expect(results()).toHaveLength(2));
+    const failed = results()[0];
+    expect(failed?.querySelector('[role="alert"]')).not.toBeNull();
+    // The alert announces the failure; the live region adds nothing.
+    expect(live.textContent).toBe("");
+    expect(failed?.querySelector("details summary")?.textContent).toBe("Raw response");
   });
 
   it("says a 502 page that is not JSON is not JSON, rather than unreachable", async () => {
@@ -1090,30 +1327,69 @@ describe("run", () => {
     await loadFilm("noul");
     submit("noul");
     await vi.waitFor(() =>
-      expect(document.querySelector("#readout-body")?.textContent).toContain(
+      expect(document.querySelector("#results-list")?.textContent).toContain(
         "The decision endpoint answered with HTTP 502 and a body that is not JSON.",
       ),
     );
-    expect(document.querySelector("#readout-body")?.textContent).not.toMatch(/could not reach/i);
+    expect(document.querySelector("#results-list")?.textContent).not.toMatch(/could not reach/i);
   });
 
-  it("reports the first tree problem in the status line instead of posting", async () => {
+  it("lists the tree's problems in the summary instead of posting, and focuses the summary", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(typesafe).selection);
     await loadFilm("noul");
-    const instructions = form("noul").querySelectorAll<HTMLTextAreaElement>(
+    const [first, second] = form("noul").querySelectorAll<HTMLTextAreaElement>(
       '[data-control="instructions"]',
-    )[1];
-    if (instructions === undefined) throw new Error("No second question.");
-    type(instructions, "");
+    );
+    if (first === undefined || second === undefined) throw new Error("No second question.");
+    type(second, "");
+    type(first, "");
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(status("noul").textContent).toBe("Write the question you want answered.");
-    expect(status("noul").dataset.tone).toBe("alert");
-    expect(document.activeElement).toBe(instructions);
+    const message = "Write the question you want answered.";
+    expect(summaryItems("noul").map((item) => item.text)).toEqual([message, message]);
+    // The summary says them, so the status line stays quiet.
+    expect(status("noul").textContent).toBe("");
+    expect(document.activeElement).toBe(summary("noul"));
+    // The inline issue slots still show each problem beside its control, and the links name them.
+    const slots = [...form("noul").querySelectorAll<HTMLElement>(".tree-issue:not([hidden])")];
+    expect(slots.map((slot) => slot.textContent)).toEqual([message, message]);
+    expect(summaryItems("noul").map((item) => item.href)).toEqual(
+      slots.map((slot) => `#${slot.id}`),
+    );
+
+    // Each link moves focus to its own control.
+    summary("noul").querySelectorAll("a")[0]?.click();
+    expect(document.activeElement).toBe(first);
+    summary("noul").querySelectorAll("a")[1]?.click();
+    expect(document.activeElement).toBe(second);
+
+    // Fixing one drops it from the summary and leaves the other.
+    type(first, "Is it good?");
+    expect(summaryItems("noul").map((item) => item.text)).toEqual([message]);
   });
 
-  it("names no provider when the endpoint answers with a body that is not JSON", async () => {
+  it("lists the JSON error in the summary, which takes focus and links to the textarea", () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    viewButton("noul", "json").click();
+    type(textarea("noul"), "{");
+    submit("noul");
+    const [item] = summaryItems("noul");
+    expect(item?.href).toBe("#noul-request");
+    // The error under the textarea still shows, as before.
+    expect(get("#noul-error").hidden).toBe(false);
+    expect(item?.text).toBe(get("#noul-error").textContent);
+    expect(document.activeElement).toBe(summary("noul"));
+    followSummaryLink("noul", item?.text ?? "");
+    expect(document.activeElement).toBe(textarea("noul"));
+
+    // A switch to the tree, where that problem no longer is, drops it.
+    textarea("noul").value = JSON.stringify(noulExample);
+    viewButton("noul", "tree").click();
+    expect(summary("noul").childElementCount).toBe(0);
+  });
+
+  it("names the provider only as where the request went when the endpoint answers with a body that is not JSON", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("<!doctype html>", { status: 200 })),
@@ -1122,7 +1398,11 @@ describe("run", () => {
     await loadFilm("noul");
     submit("noul");
     await vi.waitFor(() => expect(document.body.textContent).toContain("a body that is not JSON"));
-    expect(document.body.textContent).not.toMatch(/Jev|TypeSafe/);
+    const [result] = results();
+    expect(result?.querySelector("h3")?.textContent).toMatch(/^Noul on TypeSafe Jev at /);
+    result?.querySelector("h3")?.remove();
+    // Only the result list; Run's note and the image control name the selected provider on purpose.
+    expect(get("#results-list").textContent).not.toMatch(/Jev|TypeSafe/);
   });
 
   it("posts the JSON text unchanged from the JSON view", async () => {
@@ -1135,6 +1415,119 @@ describe("run", () => {
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(text);
+  });
+});
+
+describe("the result list (issue #100)", () => {
+  /** Answers each decide call with the Noul fixture, as the provider in its URL. */
+  function answerAsEachProvider() {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      const provider = url.split("/").at(-1);
+      return new Response(JSON.stringify({ ...noulResponse, provider }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function heading(result: HTMLElement | undefined): string {
+    return result?.querySelector("h3")?.textContent ?? "";
+  }
+
+  it("starts empty and says so, with no Clear results button", () => {
+    setupPanels(document, selectionOf(typesafe).selection);
+    expect(results()).toHaveLength(0);
+    expect(get("#results-empty").hidden).toBe(false);
+    expect(get("#results-empty").textContent).toContain("There are no results.");
+    expect(get("#results-clear").hidden).toBe(true);
+    expect(get("#results-status").textContent).toBe("");
+  });
+
+  it("names Noul, TypeSafe Jev, and the time in the heading of the first result", async () => {
+    answerAsEachProvider();
+    const before = Date.now();
+    setupPanels(document, selectionOf(typesafe).selection);
+    await loadFilm("noul");
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    const [result] = results();
+    expect(heading(result)).toMatch(/^Noul on TypeSafe Jev at \d{2}:\d{2}:\d{2}$/);
+    const time = result?.querySelector("h3 time");
+    const at = Date.parse(time?.getAttribute("datetime") ?? "");
+    expect(at).toBeGreaterThanOrEqual(before - 1000);
+    expect(at).toBeLessThanOrEqual(Date.now());
+    expect(result?.querySelectorAll("h4")).toHaveLength(4);
+    expect(get("#results-empty").hidden).toBe(true);
+    expect(get("#results-clear").hidden).toBe(false);
+  });
+
+  it("keeps the first result when a run on another provider adds a second, newest first", async () => {
+    answerAsEachProvider();
+    const { selection, choose } = selectionOf(typesafe);
+    setupPanels(document, selection);
+    await loadFilm("noul");
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    choose(subq);
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(2));
+    expect(results().map(heading)).toEqual([
+      expect.stringMatching(/^Noul on SubQ Snap at /),
+      expect.stringMatching(/^Noul on TypeSafe Jev at /),
+    ]);
+    expect(results().map((result) => result.querySelector(".reading-meta")?.textContent)).toEqual([
+      expect.stringMatching(/^Answered by SubQ Snap /),
+      expect.stringMatching(/^Answered by TypeSafe Jev /),
+    ]);
+    for (const result of results()) {
+      expect(result.querySelectorAll(".bar-value")).toHaveLength(4);
+    }
+  });
+
+  it("announces one sentence naming the question type, the provider, and the number of answers", async () => {
+    answerAsEachProvider();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    expect(get("#results-status").textContent).toBe("Noul on SubQ Snap: 4 answers.");
+  });
+
+  it("keeps each result's wire view closed until the person opens it", async () => {
+    answerAsEachProvider();
+    setupPanels(document, selectionOf(typesafe).selection);
+    await loadFilm("noul");
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    const blocks = [...(results()[0]?.querySelectorAll("details") ?? [])];
+    expect(blocks).toHaveLength(2);
+    expect(blocks.map((details) => details.open)).toEqual([false, false]);
+  });
+
+  it("empties the list on Clear results, says so, and moves focus to the Results heading", async () => {
+    answerAsEachProvider();
+    setupPanels(document, selectionOf(typesafe).selection);
+    await loadFilm("noul");
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(2));
+    get<HTMLButtonElement>("#results-clear").click();
+    expect(results()).toHaveLength(0);
+    expect(get("#results-empty").hidden).toBe(false);
+    expect(get("#results-status").textContent).toBe("Results cleared.");
+    expect(get("#results-clear").hidden).toBe(true);
+    expect(document.activeElement).toBe(get("#results-title"));
+  });
+
+  it("keeps a run's result after the panel is edited", async () => {
+    answerAsEachProvider();
+    setupPanels(document, selectionOf(typesafe).selection);
+    await loadFilm("noul");
+    submit("noul");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    type(stateField("noul"), "A different review.");
+    expect(results()).toHaveLength(1);
+    expect(results()[0]?.querySelectorAll(".bar-value")).toHaveLength(4);
   });
 });
 
@@ -1161,29 +1554,35 @@ describe("provider selection", () => {
     await loadFilm("score");
     choose(subq);
     submit("score");
-    expect(get("#readout-body").textContent).toBe("Asking SubQ Snap…");
+    expect(get("#results-status").textContent).toBe("Asking SubQ Snap…");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/decide/subq");
   });
 
-  it("disables every Run button while there is no provider, and enables them when one arrives", async () => {
+  it("sends nothing while there is no provider, says why, and drops the reason when one arrives", async () => {
     const fetchMock = mockFetch();
     const { selection, choose } = selectionOf(undefined);
     setupPanels(document, selection);
     for (const primitive of PRIMITIVES) await loadFilm(primitive);
     for (const primitive of PRIMITIVES) {
-      expect(runButton(primitive).disabled).toBe(true);
+      expect(runButton(primitive).disabled).toBe(false);
+      expect(runNote(primitive)).toBe(NO_PROVIDER);
     }
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(summaryItems("noul")).toEqual([{ text: NO_PROVIDER, href: null }]);
+    expect(document.activeElement).toBe(summary("noul"));
 
     choose(typesafe);
+    expect(summary("noul").childElementCount).toBe(0);
     for (const primitive of PRIMITIVES) {
-      expect(runButton(primitive).disabled).toBe(false);
+      expect(runNote(primitive)).toBe(
+        `Checks the ${capitalise(primitive)} request and sends it to TypeSafe Jev.`,
+      );
     }
 
     choose(undefined);
-    expect(runButton("noul").disabled).toBe(true);
+    expect(runNote("noul")).toBe(NO_PROVIDER);
   });
 
   /** Eleven levels, which the catalog's providers refuse and a provider with no maximum accepts. */
@@ -1192,7 +1591,7 @@ describe("provider selection", () => {
     return JSON.stringify({ ...scoreExample, criteria });
   }
 
-  it("clears a panel's alert when the new provider accepts the request", () => {
+  it("clears a panel's summary when the new provider accepts the request", () => {
     const unlimited = withoutLevelLimit(subq);
     const { selection, choose } = selectionOf(unlimited);
     setupPanels(document, selection);
@@ -1205,12 +1604,11 @@ describe("provider selection", () => {
     // A provider whose maximum is 10 refuses them when Run is pressed.
     choose(typesafe);
     submit("score");
-    expect(status("score").dataset.tone).toBe("alert");
-    expect(status("score").textContent).not.toBe("");
+    expect(summaryItems("score")).toHaveLength(1);
 
     choose(unlimited);
-    expect(status("score").textContent).toBe("");
-    expect(runButton("score").disabled).toBe(false);
+    expect(summary("score").childElementCount).toBe(0);
+    expect(runNote("score")).toBe("Checks the Score request and sends it to SubQ Snap.");
   });
 
   it("clears the JSON view's error when the new provider accepts the request", () => {
@@ -1229,7 +1627,7 @@ describe("provider selection", () => {
     choose(unlimited);
     expect(get("#score-error").hidden).toBe(true);
     expect(status("score").textContent).toBe("");
-    expect(runButton("score").disabled).toBe(false);
+    expect(runNote("score")).toBe("Checks the Score request and sends it to SubQ Snap.");
     expect(document.activeElement).toBe(elsewhere);
   });
 
@@ -1266,7 +1664,7 @@ describe("provider selection", () => {
     expect(get("#score-error").hidden).toBe(false);
   });
 
-  it("replaces an alert with the new provider's own limit in the tree view", () => {
+  it("replaces a summary's problem with the new provider's own limit in the tree view", () => {
     const { selection, choose } = selectionOf(withoutLevelLimit(subq));
     setupPanels(document, selection);
     viewButton("score", "json").click();
@@ -1275,13 +1673,17 @@ describe("provider selection", () => {
 
     choose(typesafe);
     submit("score");
-    expect(status("score").dataset.tone).toBe("alert");
-    expect(status("score").textContent).toContain("at most 10");
+    expect(summaryItems("score")).toHaveLength(1);
+    expect(summaryItems("score")[0]?.text).toContain("at most 10");
+    const elsewhere = loadButton("noul", "film");
+    elsewhere.focus();
 
     choose(withLevelLimit(subq, 6));
-    expect(status("score").dataset.tone).toBe("alert");
-    expect(status("score").textContent).toContain("at most 6");
-    expect(status("score").textContent).not.toContain("at most 10");
+    expect(summaryItems("score")).toHaveLength(1);
+    expect(summaryItems("score")[0]?.text).toContain("at most 6");
+    expect(summaryItems("score")[0]?.text).not.toContain("at most 10");
+    expect(status("score").textContent).toBe("");
+    expect(document.activeElement).toBe(elsewhere);
   });
 });
 
@@ -1318,7 +1720,11 @@ describe("images", () => {
     const { selection, choose } = selectionOf(typesafe);
     setupPanels(document, selection);
     for (const primitive of PRIMITIVES) {
-      expect(get(`form[data-primitive="${primitive}"] .attachments-zone`).hidden).toBe(true);
+      expect(
+        get(`form[data-primitive="${primitive}"] .attachments-zone`).hasAttribute(
+          "data-unavailable",
+        ),
+      ).toBe(true);
     }
     choose(subq);
     for (const primitive of PRIMITIVES) {
@@ -1333,7 +1739,7 @@ describe("images", () => {
     }
   });
 
-  it("posts a multipart form with the JSON text as the request part and each file as an image part", async () => {
+  it("posts the JSON view's request with each file as base64 in its images list, and leaves the textarea alone", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("noul");
@@ -1343,33 +1749,22 @@ describe("images", () => {
     attach("noul", png("a.png"), png("b.png"));
     await vi.waitFor(() => expect(attachments("noul")).toHaveLength(2));
     expect(get("#noul-hint").textContent).toContain(
-      "2 images attached. They are sent as image parts beside this JSON, not inside it.",
+      '2 images attached. Run adds them to this JSON as base64 in an "images" list, which this view does not show.',
     );
 
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const init = fetchMock.mock.calls[0]?.[1];
-    const body = init?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(init?.headers).toBeUndefined();
-    expect(body.get("request")).toBe(text);
-    const parts = body.getAll("image");
-    expect(parts).toHaveLength(2);
-    expect(parts.map((part) => (part instanceof File ? part.name : typeof part))).toEqual([
-      "a.png",
-      "b.png",
-    ]);
-    const first = parts[0];
-    if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(pngBytes({ size: 4 * KIB }));
-    for (const part of [body.get("request"), ...parts]) {
-      if (typeof part === "string") expect(part).not.toMatch(/^data:|[A-Za-z0-9+/]{200,}/);
-    }
+    expect(init?.headers).toEqual({ "content-type": "application/json" });
+    const { request, images } = sentRequest(init);
+    expect(request).toStrictEqual(noulExample);
+    expect(images.map((image) => image.name)).toEqual(["a.png", "b.png"]);
+    expect(decoded(images[0]!.base64)).toEqual(pngBytes({ size: 4 * KIB }));
     // The textarea is untouched.
     expect(textarea("noul").value).toBe(text);
   });
 
-  it("posts the tree's request as the request part when the tree view is open", async () => {
+  it("posts the tree's request with the images when the tree view is open", async () => {
     const fetchMock = mockFetch();
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("score");
@@ -1377,10 +1772,9 @@ describe("images", () => {
     await vi.waitFor(() => expect(attachments("score")).toHaveLength(1));
     submit("score");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const body = fetchMock.mock.calls[0]?.[1]?.body;
-    if (!(body instanceof FormData)) throw new Error("Expected a FormData body.");
-    expect(JSON.parse(body.get("request") as string)).toStrictEqual(scoreExample);
-    expect(body.getAll("image")).toHaveLength(1);
+    const { request, images } = sentRequest(fetchMock.mock.calls[0]?.[1]);
+    expect(request).toStrictEqual(scoreExample);
+    expect(images).toHaveLength(1);
   });
 
   it("posts JSON as before when no image is attached", async () => {
@@ -1395,6 +1789,29 @@ describe("images", () => {
     expect(get("#noul-hint").textContent).not.toContain("attached");
   });
 
+  it("runs with a blank state once an image is attached, and clears the empty-state problem", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    type(stateField("noul"), "");
+    submit("noul");
+    expect(summaryItems("noul").map((item) => item.text)).toEqual([
+      "The state is empty. Add the text, object, or list to evaluate, or attach an image.",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    attach("noul", png("a.png"));
+    await vi.waitFor(() => expect(attachments("noul")).toHaveLength(1));
+    expect(summaryItems("noul")).toEqual([]);
+    expect(stateField("noul").getAttribute("aria-invalid")).toBeNull();
+
+    submit("noul");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const { request, images } = sentRequest(fetchMock.mock.calls[0]?.[1]);
+    expect(request.state).toBe("");
+    expect(images).toHaveLength(1);
+  });
+
   it("keeps the images on a text-only provider, sends JSON without them, and says so in the result", async () => {
     const fetchMock = mockFetch();
     const { selection, choose } = selectionOf(subq);
@@ -1404,7 +1821,9 @@ describe("images", () => {
     await vi.waitFor(() => expect(attachments("noul")).toHaveLength(2));
 
     choose(typesafe);
-    expect(get('form[data-primitive="noul"] .attachments-zone').hidden).toBe(true);
+    expect(
+      get('form[data-primitive="noul"] .attachments-zone').hasAttribute("data-unavailable"),
+    ).toBe(true);
     expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toBe(
       "TypeSafe Jev is text only. Your 2 images are kept and will not be sent.",
     );
@@ -1413,7 +1832,9 @@ describe("images", () => {
     );
     // The other panels hold no images, so they say nothing.
     expect(get('form[data-primitive="choice"] .attachments-status').textContent).toBe("");
-    expect(runButton("noul").disabled).toBe(false);
+    expect(runNote("noul")).toBe(
+      "Checks the Noul request and sends it to TypeSafe Jev without your 2 images.",
+    );
 
     submit("noul");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -1431,7 +1852,7 @@ describe("images", () => {
     expect(attachments("noul")).toHaveLength(2);
   });
 
-  it("blocks Run while a lower limit leaves images marked, and frees it when they are removed", async () => {
+  it("sends nothing while a lower limit leaves images marked, lists why, and runs once they are removed", async () => {
     const fetchMock = mockFetch();
     const { selection, choose } = selectionOf(openai);
     setupPanels(document, selection);
@@ -1439,28 +1860,36 @@ describe("images", () => {
     await loadFilm("choice");
     attach("noul", ...Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`)));
     await vi.waitFor(() => expect(attachments("noul")).toHaveLength(8));
-    expect(runButton("noul").disabled).toBe(false);
+    expect(runNote("noul")).toBe(
+      "Checks the Noul request and sends it to OpenAI Decisions with 8 images.",
+    );
 
     choose(subq);
-    expect(runButton("noul").disabled).toBe(true);
-    // Another panel's blocked images never disable this one's Run.
-    expect(runButton("choice").disabled).toBe(false);
+    const overLimit = get('form[data-primitive="noul"] .attachments-notice').textContent ?? "";
+    expect(overLimit).toContain("Remove the 4 marked images to run.");
+    expect(runNote("noul")).toBe(overLimit);
+    // Another panel's blocked images never stop this one's Run.
+    expect(runNote("choice")).toBe("Checks the Choice request and sends it to SubQ Snap.");
     expect(attachments("noul").filter((item) => item.hasAttribute("data-over-limit"))).toHaveLength(
       4,
     );
-    expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toContain(
-      "Remove the 4 marked images to run.",
-    );
     submit("noul");
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(status("noul").textContent).toContain("Remove the 4 marked images to run.");
-    expect(status("noul").dataset.tone).toBe("alert");
+    expect(summaryItems("noul")).toEqual([{ text: overLimit, href: "#noul-images-input" }]);
+    expect(document.activeElement).toBe(summary("noul"));
+    // The summary says it, so the status line does not.
+    expect(status("noul").textContent).toBe("");
+    followSummaryLink("noul", overLimit);
+    expect(document.activeElement).toBe(get("#noul-images-input"));
 
     for (let index = 0; index < 4; index += 1) {
       attachments("noul").at(-1)?.querySelector<HTMLButtonElement>(".attachment-remove")?.click();
     }
     expect(attachments("noul")).toHaveLength(4);
-    expect(runButton("noul").disabled).toBe(false);
+    expect(summary("noul").childElementCount).toBe(0);
+    expect(runNote("noul")).toBe(
+      "Checks the Noul request and sends it to SubQ Snap with 4 images.",
+    );
     expect(get('form[data-primitive="noul"] .attachments-notice').textContent).toBe("");
   });
 
@@ -1498,6 +1927,8 @@ describe("images", () => {
     );
     setupPanels(document, selectionOf(subq).selection);
     await loadFilm("noul");
+    await loadFilm("choice");
+    runButton("noul").focus();
     submit("noul");
     expect(labels()).toEqual(["Running", "Run", "Run"]);
     expect(runButton("noul").hasAttribute("data-running")).toBe(true);
@@ -1505,13 +1936,95 @@ describe("images", () => {
     attach("choice", png("a.png"));
     await vi.waitFor(() => expect(attachments("choice")).toHaveLength(1));
     expect(labels()).toEqual(["Running", "Run", "Run"]);
+    // Marked aria-disabled, not disabled, so the pressed Run keeps focus and each says why it waits.
     for (const button of document.querySelectorAll<HTMLButtonElement>(
       "form[data-primitive] .run",
     )) {
-      expect(button.disabled).toBe(true);
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute("aria-disabled")).toBe("true");
     }
+    expect(document.activeElement).toBe(runButton("noul"));
+    expect(runNote("noul")).toBe("Waiting for the answer to this request.");
+    expect(runNote("choice")).toBe(
+      "The Noul panel is running. Run is available again once its answer arrives.",
+    );
+    // A press meanwhile does nothing: no second request, and no summary.
+    submit("choice");
+    expect(summary("choice").childElementCount).toBe(0);
+    expect(labels()).toEqual(["Running", "Run", "Run"]);
+
     answer(new Response(JSON.stringify(noulResponse), { status: 200 }));
     await vi.waitFor(() => expect(labels()).toEqual(["Run", "Run", "Run"]));
     expect(runButton("noul").hasAttribute("data-running")).toBe(false);
+    expect(runButton("noul").hasAttribute("aria-disabled")).toBe(false);
+    expect(document.activeElement).toBe(runButton("noul"));
+    expect(runNote("choice")).toBe(
+      "Checks the Choice request and sends it to SubQ Snap with 1 image.",
+    );
+  });
+});
+
+describe("Enter in a request field does not run the request (issue #93)", () => {
+  /** Presses Enter in `field` and returns whether the browser's default action was cancelled. */
+  function pressEnter(field: HTMLElement, isComposing = false): boolean {
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      isComposing,
+      bubbles: true,
+      cancelable: true,
+    });
+    field.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  // Browsers submit a form from Enter in a text input as that key's default action, and
+  // cancelling the keydown cancels it. happy-dom does not implement implicit submission,
+  // so these tests check that the default is cancelled and that no request is posted.
+  it("cancels Enter in a question's Id field and posts nothing", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    const idField = get<HTMLInputElement>('form[data-primitive="noul"] input[data-control="id"]');
+    const answerBefore = get("#results-list").innerHTML;
+    expect(pressEnter(idField)).toBe(true);
+    await settled();
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+    expect(get("#results-list").innerHTML).toBe(answerBefore);
+  });
+
+  it("cancels Enter in an option's name field in the Choice panel and posts nothing", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("choice");
+    const optionName = get<HTMLInputElement>(
+      'form[data-primitive="choice"] input[data-control="name"]',
+    );
+    expect(pressEnter(optionName)).toBe(true);
+    await settled();
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("leaves Enter alone in a textarea, so it still inserts a new line", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    expect(pressEnter(stateField("noul"))).toBe(false);
+    await settled();
+    expect(decideCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("leaves Enter that confirms an input-method composition alone", async () => {
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    const idField = get<HTMLInputElement>('form[data-primitive="noul"] input[data-control="id"]');
+    expect(pressEnter(idField, true)).toBe(false);
+  });
+
+  it("still posts when Run is activated", async () => {
+    const fetchMock = mockFetch();
+    setupPanels(document, selectionOf(subq).selection);
+    await loadFilm("noul");
+    runButton("noul").click();
+    await vi.waitFor(() => expect(decideCalls(fetchMock)).toHaveLength(1));
   });
 });

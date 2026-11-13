@@ -477,3 +477,30 @@ describe("question id length", () => {
     expect(findIssues(model, typesafe)).toEqual([]);
   });
 });
+
+describe("a blank state with images", () => {
+  const subq = PROVIDERS.subq.capabilities;
+  const typesafe = PROVIDERS.typesafe.capabilities;
+
+  function blankState(): ComposerModel {
+    const model = toViewModel(noulExample);
+    model.state = "  ";
+    return model;
+  }
+
+  it("is not an issue when an image goes with the request", () => {
+    expect(findIssues(blankState(), subq, 1)).toEqual([]);
+  });
+
+  it("offers attaching an image when none is attached and the provider takes images", () => {
+    expect(findIssues(blankState(), subq).map((issue) => issue.message)).toEqual([
+      "The state is empty. Add the text, object, or list to evaluate, or attach an image.",
+    ]);
+  });
+
+  it("does not offer an image to a text-only provider", () => {
+    expect(findIssues(blankState(), typesafe).map((issue) => issue.message)).toEqual([
+      "The state is empty. Add the text, object, or list to evaluate.",
+    ]);
+  });
+});

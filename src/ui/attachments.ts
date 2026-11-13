@@ -1,18 +1,30 @@
+import { encodeBase64 } from "../providers/base64.ts";
 import { formatBytes, sizeAndLimit } from "../providers/byte-size.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
 import { SIGNATURE_BYTES, detectMediaType, imageDimensions } from "../providers/image-bytes.ts";
 import type { ImageSize } from "../providers/image-bytes.ts";
 import { create, required } from "./dom.ts";
-import { capabilitySentence, formatList, imagesCount, sizeLimits } from "./image-sentences.ts";
+import {
+  capabilitySentence,
+  formatList,
+  imagesCount,
+  sizeLimits,
+  textOnlySentence,
+} from "./image-sentences.ts";
 
 /**
  * The image control of one panel (issue #16): a fieldset with a file input,
  * a drop zone, and a paste listener on the panel form, which follows the
- * selected provider. It appears only for a provider that takes images, and its
- * `accept` list, count, and size limits come from that provider's
- * `capabilities.images`, as `GET /api/providers` serves them. The client holds
- * no limit of its own.
+ * selected provider. For a provider that takes images, its `accept` list,
+ * count, and size limits come from that provider's `capabilities.images`, as
+ * `GET /api/providers` serves them. The client holds no limit of its own. For a
+ * text-only provider the control stays in the page in an unavailable state
+ * (issue #98), so a visitor can see that images exist: one sentence names the
+ * selected provider as text only and the listed providers that take images,
+ * and the file input is disabled. Drop and paste still reach `admit`, which
+ * refuses them with "X is text only". Only while no provider is selected is the
+ * control hidden, because there is nothing true to say yet.
  *
  * Every image goes through one pipeline, `admit`, whatever brought it in:
  *
@@ -35,13 +47,16 @@ import { capabilitySentence, formatList, imagesCount, sizeLimits } from "./image
  * 5. The accepted file is read once for its pixel size, given an object URL
  *    for its thumbnail, and listed. It is kept as a `File` whose declared type
  *    is the detected one, and with a generated name when it arrived as a
- *    nameless `Blob`, so every multipart part has a filename and a true type.
+ *    nameless `Blob`, so every image sent has a name and a true type.
  *
  * The status line (`role="status"`) announces what the user caused: an image
  * added, removed, or refused with the reason, and what a provider change does
  * to this panel's images. It says nothing on initial render, and nothing about
  * a provider change that leaves an empty list alone: the provider select's own
- * status line announces the new capability once, for all three panels.
+ * status line announces the new capability once, for all three panels. The
+ * unavailable sentence is not in a live region for the same reason: it is
+ * rewritten on every provider change, and the provider status line has already
+ * said the change.
  */
 
 /** A picture the user attached, as the panel keeps it. */
@@ -85,13 +100,15 @@ export type AttachmentsOptions = {
   prefix: string;
   /** The provider selected when the control is built. The first render announces nothing. */
   provider: ProviderSummary | undefined;
+  /** The providers the page received, read when the control says which ones take images. */
+  providers: () => readonly ProviderSummary[];
   transform?: ImageTransform;
   /** Called after every change to the list or to what the provider makes of it. */
   onChange?: () => void;
 };
 
 export type Attachments = {
-  /** Follows a provider change: shows or hides the control, updates its limits, marks the excess, and announces the effect. */
+  /** Follows a provider change: shows the control as available or unavailable, updates its limits, marks the excess, and announces the effect. */
   setProvider(provider: ProviderSummary | undefined): void;
   /** The attached files, in order, as they are sent. */
   files(): readonly File[];
@@ -140,17 +157,22 @@ function sizeText(size: ImageSize | undefined): string {
 }
 
 /**
- * The multipart body Run sends: the request JSON as the text of one `request`
- * part, then one `image` part per file, in order, each with its filename.
- * Parts are added with `append`, because `set` would replace the earlier
- * `image` parts (MDN, FormData.set). Nothing here sets a Content-Type: the
- * browser writes `multipart/form-data` with its boundary when it sends the form.
+ * The body Run sends with images: the request JSON with an `images` list
+ * added, one `{ name, base64 }` entry per file, in order. The browser encodes
+ * the images, so the Worker reads one JSON body and never encodes bytes, which
+ * is what lets the caps be larger than reading a multipart body allowed
+ * (`worker/images.ts`). `requestText` is the request the panel validated, so it
+ * is a JSON object without an `images` field of its own.
  */
-export function toFormData(requestText: string, files: readonly File[]): FormData {
-  const form = new FormData();
-  form.append("request", requestText);
-  for (const file of files) form.append("image", file, file.name);
-  return form;
+export async function withImages(requestText: string, files: readonly File[]): Promise<string> {
+  const images: { name: string; base64: string }[] = [];
+  for (const file of files) {
+    images.push({
+      name: file.name,
+      base64: encodeBase64(new Uint8Array(await file.arrayBuffer())),
+    });
+  }
+  return JSON.stringify({ ...(JSON.parse(requestText) as Record<string, unknown>), images });
 }
 
 /**
@@ -194,7 +216,7 @@ function carriesFiles(data: DataTransfer | null | undefined): data is DataTransf
 /** Builds the control in `form`'s `.attachments` container and wires the file input, the drop zone, and paste. */
 export function createAttachments(
   form: HTMLFormElement,
-  { prefix, provider, transform = keepAsIs, onChange }: AttachmentsOptions,
+  { prefix, provider, providers, transform = keepAsIs, onChange }: AttachmentsOptions,
 ): Attachments {
   const host = required(form, ".attachments", HTMLElement);
   const ids = {
@@ -216,7 +238,11 @@ export function createAttachments(
     text: ASK_ABOUT_IMAGES,
     attributes: { id: ids.hint },
   });
-  const limits = create("p", { className: "attachments-limits", attributes: { id: ids.limits } });
+  // Focusable by script only: it takes focus when the last Remove goes while the input is disabled.
+  const limits = create("p", {
+    className: "attachments-limits",
+    attributes: { id: ids.limits, tabindex: "-1" },
+  });
   const label = create("label", {
     className: "attachments-label",
     text: "Choose images",
@@ -228,21 +254,31 @@ export function createAttachments(
       type: "file",
       id: ids.input,
       multiple: "",
-      "aria-describedby": `${ids.instructions} ${ids.hint} ${ids.limits}`,
+      // Only the limits, because they change with the provider. The instructions and the hint stay visible but are not read on focus.
+      "aria-describedby": ids.limits,
     },
   });
-  const list = create("ul", { className: "attachments-list", attributes: { role: "list" } });
+  // The order carries meaning (image 1, image 2), so this is an ordered list. `role="list"` stays because
+  // Safari and VoiceOver drop list semantics from a list styled with `list-style: none`, as this one is.
+  const list = create("ol", { className: "attachments-list", attributes: { role: "list" } });
   const privacy = create("p", {
     className: "attachments-privacy",
     text: PRIVACY_NOTE,
     attributes: { id: ids.privacy },
   });
-  const zone = create(
-    "fieldset",
-    { className: "attachments-zone", attributes: { "aria-describedby": ids.privacy } },
-    [legend, instructions, hint, limits, label, input, list, privacy],
-  );
-  // Kept in the page, empty, so that filling it is announced; the zone may be hidden while it speaks.
+  // The privacy note stays a visible paragraph and does not describe the fieldset, so it is not read on every focus.
+  const zone = create("fieldset", { className: "attachments-zone" }, [
+    legend,
+    instructions,
+    hint,
+    limits,
+    label,
+    input,
+    list,
+    privacy,
+  ]);
+  // Outside the zone, so it stays visible when a text-only provider hides the zone. It is not a live
+  // region: the status line announces the same news on a provider change, and a live region here would say it twice.
   const notice = create("p", { className: "attachments-notice" });
   const status = create("p", { className: "attachments-status", attributes: { role: "status" } });
   host.replaceChildren(zone, notice, status);
@@ -273,6 +309,30 @@ export function createAttachments(
   function setNotice(text: string, tone: "note" | "alert" = "note"): void {
     notice.textContent = text;
     notice.dataset.tone = tone;
+  }
+
+  /** Writes "Image N" into each item, so the labels and the Remove names match the order the model reads. */
+  function numberItems(): void {
+    attachments.forEach((attachment, index) => {
+      const number = index + 1;
+      const label = attachment.element.querySelector(".attachment-number");
+      if (label instanceof HTMLElement) label.textContent = `Image ${number}`;
+      const hidden = attachment.element.querySelector(".attachment-remove .visually-hidden");
+      if (hidden instanceof HTMLElement)
+        hidden.textContent = ` image ${number}, ${attachment.file.name}`;
+    });
+  }
+
+  /**
+   * The sentence for a removal that moved later images up, or an empty string when the last image went.
+   * `index` is the removed image's place, so the images now at `index` and after were one number higher.
+   */
+  function renumberSentence(index: number): string {
+    const moved = attachments.length - index;
+    if (moved <= 0) return "";
+    const check = " Check questions that mention image numbers.";
+    if (moved === 1) return ` Image ${index + 2} is now image ${index + 1}.${check}`;
+    return ` Images ${index + 2} to ${attachments.length + 1} are now images ${index + 1} to ${attachments.length}.${check}`;
   }
 
   /** The over-limit marks for the selected provider, and how many images carry one. */
@@ -314,9 +374,18 @@ export function createAttachments(
   /** The fieldset, its limits, and the notice for the current provider. Returns the blocking message, if any. */
   function render(): string | undefined {
     const images = imagesOf(current);
-    zone.hidden = images === false;
+    // Only "no provider" hides the control. A text-only provider shows it as unavailable.
+    zone.hidden = current === undefined;
+    const unavailable = images === false;
+    zone.toggleAttribute("data-unavailable", unavailable && current !== undefined);
+    input.disabled = unavailable;
+    // What the control says about choosing files is untrue while it is unavailable.
+    for (const element of [instructions, hint, privacy]) element.hidden = unavailable;
     if (images === false || current === undefined) {
-      limits.textContent = "";
+      // Plain text in the fieldset, not in a live region: it is there on the first render and
+      // rewritten on a provider change, which the provider status line announces once.
+      limits.textContent =
+        current === undefined ? "" : textOnlySentence(current, providers(), "to attach images");
       input.removeAttribute("accept");
       markOverLimit();
       if (current !== undefined && attachments.length > 0) {
@@ -344,17 +413,22 @@ export function createAttachments(
     attachments.splice(index, 1);
     URL.revokeObjectURL(attachment.previewUrl);
     attachment.element.remove();
+    numberItems();
     const blocked = render();
     // The pressed Remove is gone; hand focus to the next one, or back to the input.
+    // A disabled input cannot take focus, so the sentence that says why it is disabled does.
     const next = attachments[index] ?? attachments.at(-1);
-    (next?.element.querySelector<HTMLElement>(".attachment-remove") ?? input).focus();
+    (
+      next?.element.querySelector<HTMLElement>(".attachment-remove") ??
+      (input.disabled ? limits : input)
+    ).focus();
     const remain =
       attachments.length === 0
         ? "No images remain."
         : `${imagesCount(attachments.length)} remain${attachments.length === 1 ? "s" : ""}.`;
     const freed =
       wasBlocked && blocked === undefined && attachments.length > 0 ? ` ${fitSentence()}.` : "";
-    announce(`Image removed: ${attachment.file.name}. ${remain}${freed}`);
+    announce(`Image removed: ${attachment.file.name}. ${remain}${freed}${renumberSentence(index)}`);
     onChange?.();
   }
 
@@ -365,14 +439,16 @@ export function createAttachments(
     const remove = create(
       "button",
       { className: "text-button attachment-remove", attributes: { type: "button" } },
-      ["Remove ", create("span", { className: "visually-hidden", text: listed.file.name })],
+      ["Remove", create("span", { className: "visually-hidden" })],
     );
     remove.addEventListener("click", onRemove);
     return create("li", { className: "attachment" }, [
       create("img", {
         className: "attachment-thumb",
-        attributes: { src: listed.previewUrl, alt: listed.file.name },
+        // Empty on purpose: the number label and the file name beside it already name the image.
+        attributes: { src: listed.previewUrl, alt: "" },
       }),
+      create("span", { className: "attachment-number" }),
       create("span", { className: "attachment-name", text: listed.file.name }),
       create("span", {
         className: "attachment-meta",
@@ -487,6 +563,7 @@ export function createAttachments(
     };
     attachments.push(attachment);
     list.append(attachment.element);
+    numberItems();
     render();
     onChange?.();
     const shrunk =
@@ -577,9 +654,11 @@ export function createAttachments(
   // The drop zone must cancel dragover for drop to fire (MDN, File drag and drop).
   zone.addEventListener("dragover", (event) => {
     if (!carriesFiles(event.dataTransfer)) return;
+    // Cancelled even when unavailable, so the drop reaches `add` and is refused in words
+    // instead of the browser opening the file. The highlight is for a zone that accepts.
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    zone.dataset.dragging = "true";
+    if (imagesOf(current) !== false) zone.dataset.dragging = "true";
   });
   zone.addEventListener("dragleave", () => {
     delete zone.dataset.dragging;

@@ -198,6 +198,46 @@ code {
   line-height: var(--leading-meta);
 }
 
+/*
+ * The error summary at the top of each panel: why Run cannot send the request,
+ * with one link per problem. It takes no room while it lists nothing.
+ */
+.error-summary {
+  grid-column: 1 / -1;
+}
+
+.error-summary:empty {
+  display: none;
+}
+
+.error-summary:not(:empty) {
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--alert);
+  border-radius: var(--radius-well);
+}
+
+.error-summary-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--size-body);
+  font-weight: 600;
+  line-height: var(--leading-body);
+}
+
+.error-summary-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--alert);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+}
+
+.error-summary-list a {
+  color: inherit;
+}
+
 /* The example buttons at the top of each panel, and the empty-state message that points at them */
 .examples {
   display: flex;
@@ -298,6 +338,25 @@ code {
   border-color: var(--reading);
 }
 
+/* A text-only provider: the control stays, quieter, and its sentence says why and where to go. */
+.attachments-zone[data-unavailable] {
+  border-style: dotted;
+}
+
+.attachments-zone[data-unavailable] .attachments-label {
+  opacity: 0.6;
+}
+
+.attachments-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.attachments-limits:focus-visible {
+  outline: 2px solid var(--reading);
+  outline-offset: 2px;
+}
+
 .attachments-legend {
   padding: 0 0.25rem;
   color: var(--ink-muted);
@@ -345,6 +404,7 @@ code {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
+    "thumb number"
     "thumb name"
     "thumb meta"
     "thumb shrunk"
@@ -367,6 +427,14 @@ code {
   object-fit: cover;
   background: var(--well);
   border-radius: 2px;
+}
+
+.attachment-number {
+  grid-area: number;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+  font-variant-numeric: tabular-nums;
 }
 
 .attachment-name {
@@ -455,14 +523,27 @@ code {
   cursor: pointer;
 }
 
-/* Off while empty, without a provider, or blocked by images; the running panel's button shows progress */
-.run:disabled {
+/*
+ * Off while a run is in flight; the running panel's button shows progress. The
+ * panels mark Run aria-disabled so it keeps focus; the warm form disables its own.
+ */
+.run:disabled,
+.run[aria-disabled="true"] {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
 .run[data-running] {
   cursor: progress;
+}
+
+/* The sentence Run's aria-describedby points at: what Run will send, or why it cannot */
+.run-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
 }
 
 .run-label,
@@ -643,8 +724,8 @@ code {
   color: inherit;
 }
 
-/* The announcement of a provider change. Empty until the viewer changes the provider. */
-.provider-status {
+/* The selected provider's image capability, always shown. The status line beside it is visually hidden and only announces a change. */
+.provider-capability {
   margin: 0;
   color: var(--ink-muted);
   font-size: var(--size-meta);
@@ -725,9 +806,11 @@ code {
 .attachments-input:focus-visible,
 .run:focus-visible,
 .provider-problem:focus-visible,
+.error-summary:focus-visible,
 .provider-retry:focus-visible,
 .provider-vocabulary-summary:focus-visible,
 .raw-summary:focus-visible,
+.results-title:focus-visible,
 .view-option:focus-visible,
 .tree-field:focus-visible,
 .text-button:focus-visible,
@@ -1028,6 +1111,12 @@ textarea.tree-field {
   border-color: var(--ink-muted);
 }
 
+/* "Load image example" on a text-only provider: dimmed like a disabled control, but it still takes focus and presses. */
+.action-button[data-unavailable] {
+  color: var(--ink-muted);
+  border-style: dotted;
+}
+
 .action-button[data-tone="alert"] {
   color: var(--alert);
   border-color: var(--alert);
@@ -1079,6 +1168,61 @@ textarea.tree-field {
 .readout-status {
   margin: 0;
   color: var(--ink-muted);
+}
+
+/* The Results heading, with Clear results beside it while there are results */
+.results-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-block-end: 1rem;
+}
+
+.results-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--size-title);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+/* Newest first; a rule separates each result from the earlier one below it */
+.results-list {
+  display: grid;
+  gap: 2rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results-item + .results-item {
+  padding-block-start: 2rem;
+  border-block-start: 1px solid var(--line);
+}
+
+.result,
+.result-runs,
+.result-run {
+  display: grid;
+  gap: 1.5rem;
+  min-inline-size: 0;
+}
+
+.result-title {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  font-weight: 500;
+  line-height: var(--leading-meta);
+  letter-spacing: 0.02em;
+}
+
+.result-title time {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .readout-error {
@@ -1256,15 +1400,7 @@ textarea.tree-field {
   border-radius: 2px;
 }
 
-/* The wire view sits below the live region and is empty until a run finishes */
-.wire-body {
-  margin-block-start: 1.5rem;
-}
-
-.wire-body:empty {
-  display: none;
-}
-
+/* The wire view closes each result, below its reading */
 .wire-view {
   display: grid;
   gap: 1.5rem;
@@ -1299,9 +1435,9 @@ textarea.tree-field {
   font-size: inherit;
 }
 
-/* Motion answers the run: the readout fades its new content in */
+/* Motion answers the run: each new result fades in */
 @media (prefers-reduced-motion: no-preference) {
-  .readout-body > * {
+  .results-item {
     animation: readout-in 150ms ease-out;
   }
 }

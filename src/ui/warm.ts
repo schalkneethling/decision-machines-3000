@@ -58,10 +58,21 @@ const repeatWithInterval: Repeat = (callback, ms) => {
   };
 };
 
+/**
+ * Where the countdown writes. `show` puts text on screen only. `announce` writes
+ * to the live region that screen readers speak.
+ */
+export type CountdownOutput = {
+  show: (text: string) => void;
+  announce: (text: string) => void;
+};
+
 export type Countdown = {
   /**
-   * Show `lead` (if any) and "Warm for {seconds} s.", then count down once a
-   * second to "Connection is cold again." Restarting cancels the running count.
+   * Show and announce `lead` (if any) and "Warm for {seconds} s.". Then count
+   * down once a second, showing each step without announcing it, until
+   * "Connection is cold again." is shown and announced. Restarting cancels the
+   * running count.
    */
   start(seconds: number, lead?: string): void;
   /** Cancel the running count, leaving the text as it is. */
@@ -72,7 +83,7 @@ export type Countdown = {
 
 /** The countdown as a small state machine; `repeat` is injectable so tests control time. */
 export function createCountdown(
-  render: (text: string) => void,
+  output: CountdownOutput,
   repeat: Repeat = repeatWithInterval,
 ): Countdown {
   let remaining = 0;
@@ -86,19 +97,22 @@ export function createCountdown(
   function tick(): void {
     remaining -= 1;
     if (remaining > 0) {
-      render(warmForText(remaining));
+      output.show(warmForText(remaining));
       return;
     }
     remaining = 0;
     stop();
-    render(COLD_TEXT);
+    output.show(COLD_TEXT);
+    output.announce(COLD_TEXT);
   }
 
   return {
     start(seconds, lead) {
       stop();
       remaining = seconds;
-      render(lead === undefined ? warmForText(seconds) : `${lead} ${warmForText(seconds)}`);
+      const text = lead === undefined ? warmForText(seconds) : `${lead} ${warmForText(seconds)}`;
+      output.show(text);
+      output.announce(text);
       cancel = repeat(tick, 1000);
     },
     stop,
@@ -154,7 +168,8 @@ export function setupWarm(
   const button = required(form, "button.warm-button", HTMLButtonElement);
   const label = required(form, ".warm-label", HTMLElement);
   const sizer = required(form, ".run-sizer", HTMLElement);
-  const status = required(form, "output.warm-status", HTMLOutputElement);
+  const status = required(form, "#warm-status", HTMLElement);
+  const announcer = required(root, "#warm-announcer", HTMLElement);
 
   select.replaceChildren(
     ...KEEP_ALIVE_SECONDS.map((seconds) => {
@@ -167,10 +182,16 @@ export function setupWarm(
     }),
   );
 
-  const countdown = createCountdown((text) => {
-    status.value = text;
+  function show(text: string): void {
+    status.textContent = text;
     delete status.dataset.tone;
-  }, repeat);
+  }
+
+  function announce(text: string): void {
+    announcer.textContent = text;
+  }
+
+  const countdown = createCountdown({ show, announce }, repeat);
 
   /** The provider the form warms, or undefined while the form is hidden. */
   let provider: ProviderSummary | undefined;
@@ -195,8 +216,8 @@ export function setupWarm(
     if (warmable?.id !== provider?.id) {
       // The count and any message were about the previous provider's connection.
       countdown.stop();
-      status.value = "";
-      delete status.dataset.tone;
+      show("");
+      announce("");
     }
     provider = warmable;
     form.hidden = warmable === undefined;
@@ -221,8 +242,10 @@ export function setupWarm(
         return;
       }
       countdown.stop();
-      status.value = `Could not warm the connection. ${warmFailureText(result) ?? ""}`.trim();
+      const failure = `Could not warm the connection. ${warmFailureText(result) ?? ""}`.trim();
+      show(failure);
       status.dataset.tone = "alert";
+      announce(failure);
     } finally {
       warming.delete(target.id);
       renderButton();

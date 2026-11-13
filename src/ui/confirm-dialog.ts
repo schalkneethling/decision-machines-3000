@@ -15,7 +15,7 @@ const CONFIRMED = "confirm";
  * person answers. Escape fires `cancel` and closes the dialog without touching
  * `returnValue`, which is reset before each question, so it counts as "no", as
  * does the cancel button. Only the button whose value is `confirm` says yes.
- * The page has one dialog for every panel, so questions take turns: one asked
+ * The page has one dialog, so questions take turns: one asked
  * while another is open waits until that one is answered, rather than
  * overwriting its text and sharing its answer.
  */

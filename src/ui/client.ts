@@ -108,7 +108,7 @@ export function getProviders(timeoutMs = REQUEST_TIMEOUT_MS): Promise<ProvidersR
 }
 
 /**
- * POSTs a panel's request to the decide route of `providerId`: its JSON text,
+ * POSTs the request to the decide route of `providerId`: its JSON text,
  * with the images in its `images` list when it has any. Never rejects.
  */
 export function askProvider(

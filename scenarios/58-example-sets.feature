@@ -73,7 +73,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   Scenario: A second press while an example is loading
     Given "Load image example" was pressed and the pictures are still being fetched
     When either load button in that panel is pressed again
-    Then nothing new starts, and the status line says "An example is still loading into the Yes or no panel."
+    Then nothing new starts, and the status line says "An example is still loading."
     And a picture that does not arrive within ten seconds ends the load with the could-not-be-loaded message
 
   Scenario: The image example stays visible on a text-only provider, marked unavailable
@@ -109,7 +109,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   Scenario: Loading an example over images the person attached asks first
     Given a "Yes or no" panel with one image the person attached, and SubQ Snap selected
     When "Load image example" is pressed
-    Then the confirmation asks "Load the image example into the Yes or no panel?"
+    Then the confirmation asks "Load the image example for Yes or no?"
     And it says "This removes the image you attached. You cannot undo this."
     When the person agrees
     Then the person's image is removed and the four sample pictures take its place
@@ -137,7 +137,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Given a "Yes or no" panel in which the person has typed into the "What the model reads" field
     When "Load film example" is pressed
     Then a dialog opens with showModal(), so the rest of the page is inert
-    And its heading asks "Load the film example into the Yes or no panel?"
+    And its heading asks "Load the film example for Yes or no?"
     And its message says "This replaces your request. You cannot undo this."
     And focus starts on "Keep my request", so pressing Enter keeps the request
 
@@ -191,7 +191,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Given keyboard-only use, with a provider that takes images selected
     When the person tabs through a panel
     Then "Load film example" and "Load image example" are reached before the view switch
-    And each sits in a group labelled "Examples for <Panel name>"
+    And each sits in a group labelled "Examples"
     And after loading, focus is on the first field of the loaded request
 
   Scenario: Nothing is announced on initial render

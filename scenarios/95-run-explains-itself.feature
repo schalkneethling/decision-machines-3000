@@ -18,7 +18,7 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
     Given an untouched panel
     When a keyboard user tabs through it
     Then Run receives focus
-    And its description is the empty-state message, "This panel is empty. Load an example above, or write a state and a question."
+    And its description is the empty-state message, "The request is empty. Load an example above, or write what the model reads and a question."
     And no note shows under Run, so the page does not say the same thing twice
 
   Scenario: Run in a ready panel says what it will send
@@ -33,8 +33,8 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
     Given an untouched panel
     When the person presses Run
     Then nothing is posted
-    And an error summary appears at the top of the panel, headed "The Yes or no request cannot be sent yet"
-    And it lists "Load an example or write a question to run this panel.", linked to "Load film example"
+    And an error summary appears at the top of the panel, headed "The request cannot be sent yet"
+    And it lists "Load an example or write a question to run the request.", linked to "Load film example"
     And focus moves to the summary
     When the person follows the link
     Then focus moves to "Load film example"
@@ -103,6 +103,8 @@ Feature: Run says why it cannot run, and stays reachable by keyboard
   # --- While a run is in flight --------------------------------------------------------------------------------------
 
   Scenario: Run is aria-disabled, not disabled, while a run is in flight
+    # Since #102 there is one Run, so the sentence for the other panels below no longer exists
+    # (scenarios/102-one-request.feature).
     Given the "Yes or no" panel's run is in flight
     Then every panel's Run has aria-disabled="true" and is not disabled
     And the pressed Run keeps focus

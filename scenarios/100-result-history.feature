@@ -51,7 +51,7 @@ Feature: Every result is labelled with its question type, provider, and time, an
   Scenario: Clearing the list
     Given several results
     When the person presses "Clear results"
-    Then the list is empty and the page says "There are no results. Run a panel to see its answers here."
+    Then the list is empty and the page says "There are no results. Run the request to see its answers here."
     And the status line says "Results cleared."
     And the "Clear results" button hides, and focus moves to the "Results" heading
 

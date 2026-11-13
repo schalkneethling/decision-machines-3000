@@ -64,7 +64,7 @@ function fakeRasterizer(
 
 function mount(): HTMLFormElement {
   document.body.innerHTML = `
-    <form class="panel-form" data-primitive="noul" novalidate>
+    <form id="request-form" class="request-form" novalidate>
       <div class="attachments"></div>
     </form>`;
   const form = document.querySelector("form");

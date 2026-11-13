@@ -148,7 +148,7 @@ export function warmFailureText(result: ApiResult<WarmResponse>): string | undef
   }
 }
 
-/** What the panels tell the warm form. */
+/** What the request form tells the warm form. */
 export type WarmControl = {
   /** A run succeeded: restart the count when it used the connection the form shows. */
   noteAnswered: (response: DecisionSuccess) => void;

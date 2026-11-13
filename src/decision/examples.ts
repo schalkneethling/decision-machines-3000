@@ -17,8 +17,8 @@ import greenTriangle from "./examples/images/picture-3.png?no-inline";
 import busyScene from "./examples/images/picture-4.png?no-inline";
 
 /**
- * The two example sets a panel can load (issue #58). Neither loads by itself:
- * every panel opens empty, and a person presses a load button.
+ * The two example sets the request form can load (issue #58). Neither loads by itself:
+ * the form opens empty, and a person presses a load button.
  *
  * Each request is a JSON file under `examples/`, so the data is plain data,
  * and it is checked with the request validator the moment this module loads.

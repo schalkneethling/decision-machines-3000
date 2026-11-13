@@ -117,7 +117,7 @@ export const VOCABULARY: readonly VocabularyRow[] = [
 const providerList = new Intl.ListFormat("en", { type: "conjunction" });
 
 /**
- * The API term for a question type, as the second line under its panel heading
+ * The API term for a question type, as the last line of its option in the question type choice
  * says it: "`noul` in TypeSafe Jev and SubQ Snap, `predicate` in OpenAI
  * Decisions", or "`choice` in every provider" when they all agree. It reads the
  * type's legend row, so the heading and the legend cannot disagree. It is built

@@ -177,7 +177,7 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDescriptor>> = {
 export const PROVIDER_ORDER: readonly ProviderId[] = ["typesafe", "subq", "openai"];
 
 /**
- * The provider whose limits the panels check a request against until the list
+ * The provider whose limits the request form checks a request against until the list
  * of configured providers has loaded and the provider select has a choice.
  */
 export const DEFAULT_PROVIDER: ProviderDescriptor = typesafe;

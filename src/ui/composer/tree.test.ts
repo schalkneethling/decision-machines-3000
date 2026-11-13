@@ -137,7 +137,7 @@ describe("tree structure", () => {
     );
   });
 
-  it("says what the id is for once per panel, and no Id field is described by it", () => {
+  it("says what the id is for once per request, and no Id field is described by it", () => {
     const harness = mount(noulExample);
     const keys = questionKeys(harness);
     const sentence = "Question ids are for your code only. The model never sees them.";
@@ -153,7 +153,7 @@ describe("tree structure", () => {
     }
   });
 
-  it("leaves out the id hint when the panel has no questions", () => {
+  it("leaves out the id hint when the request has no questions", () => {
     const harness = mount(noulExample);
     harness.composer.setModel({ ...harness.composer.model(), questions: [] });
     expect(harness.all(".field-id")).toHaveLength(0);
@@ -264,7 +264,7 @@ describe("editing", () => {
     expect(harness.composer.model().state).toBe("A plain sentence.");
   });
 
-  it("offers no fan-out control on a Noul panel", () => {
+  it("offers no fan-out control on a Yes or no request", () => {
     const harness = mount(noulExample);
     expect(harness.all('[data-control="fan-out"]')).toEqual([]);
   });

@@ -8,9 +8,9 @@ export const SAMPLE_FETCH_TIMEOUT_MS = 10_000;
  * `replace` takes, in the set's order. Each file carries the sample's name, which
  * the control lists and the model's label uses, and its media type, which the
  * control checks again from the bytes. All or nothing: one picture that cannot
- * be fetched rejects the whole load, so the panel can stay as it is.
+ * be fetched rejects the whole load, so the request can stay as it is.
  * A picture that has not arrived within `SAMPLE_FETCH_TIMEOUT_MS` counts as
- * one that cannot be fetched, because the panel takes no other load until
+ * one that cannot be fetched, because the form takes no other load until
  * this one ends.
  */
 export async function fetchSampleImages(images: readonly SampleImage[]): Promise<File[]> {

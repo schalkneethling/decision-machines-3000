@@ -15,11 +15,11 @@ import { VOCABULARY } from "./vocabulary.ts";
  * support. Each option's name and model are separated by a text space, so the
  * native fallback reads "OpenAI Decisions gpt-6-luna" and not "OpenAI Decisionsgpt-6-luna".
  *
- * The panels and the warm form learn the choice through `ProviderSelection`,
+ * The request form and the warm form learn the choice through `ProviderSelection`,
  * so they do not depend on this module's markup.
  */
 
-/** What the panels and the warm form read: the provider Run asks, and a way to hear when it changes. */
+/** What the request form and the warm form read: the provider Run asks, and a way to hear when it changes. */
 export type ProviderSelection = {
   /** The selected provider, or undefined while the list loads and when it could not be loaded. */
   current(): ProviderSummary | undefined;
@@ -97,7 +97,7 @@ function setupNotice(): HTMLElement {
   ]);
 }
 
-/** Wires the provider select in `root`, loads the list, and returns what the panels read. */
+/** Wires the provider select in `root`, loads the list, and returns what the request form reads. */
 export function setupProviderSelect(root: Document): ProviderSelection {
   const select = required(root, "#provider-select", HTMLSelectElement);
   const problem = required(root, "#provider-problem", HTMLElement);
@@ -135,7 +135,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     }
   }
 
-  /** The select, the notice, the legend, and the panels for a state in which no provider is chosen. */
+  /** The select, the notice, the legend, and the request form for a state in which no provider is chosen. */
   function showUnavailable(placeholder: string, notice: Node[]): void {
     providers = [];
     host = undefined;
@@ -237,7 +237,7 @@ export function setupProviderSelect(root: Document): ProviderSelection {
     const next = providers.find((provider) => provider.id === select.value);
     if (next === undefined) return;
     storeProvider(next.id);
-    // The one announcement of the new image capability; each panel's image control says only what concerns its own images.
+    // The one announcement of the new image capability; the image control says only what concerns the attached images.
     // The visible capability line says the same sentence, so the status line is visually hidden.
     status.textContent = `Provider set to ${next.displayName}. ${imageInputSentence(next.capabilities.images)}`;
     capability.textContent = capabilityText(next);

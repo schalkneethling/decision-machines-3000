@@ -18,9 +18,12 @@
     />
   </head>
   <body>
+    <a class="skip-link" href="#results-title">Skip to results</a>
     <header class="masthead">
       <h1 class="wordmark">DecisionMachines3000</h1>
-      <p class="masthead-summary">Three ways to ask a model a question about the same thing.</p>
+      <p class="masthead-summary">
+        Ask a model a question about some text, an object, a list, or images.
+      </p>
     </header>
 
     <main class="bench">
@@ -67,211 +70,133 @@
         </details>
       </div>
 
-      <section class="panel" aria-labelledby="noul-title">
-        <!--
-          The h2 holds only the plain name, so the section's name and a list of
-          headings stay short. The API term is the next line in the hgroup, so a
-          screen reader reads it straight after the heading. src/ui/panels.ts
-          fills it from the vocabulary legend, because this markup names no provider.
-        -->
-        <hgroup class="panel-heading">
-          <h2 id="noul-title" class="panel-name">Yes or no</h2>
-          <p class="panel-api-term"></p>
-        </hgroup>
-        <p class="panel-description">
-          How likely a yes-or-no statement is to be true, judged from what the model reads.
-        </p>
-        <form class="panel-form" data-primitive="noul" novalidate>
+      <section class="request" aria-labelledby="request-title">
+        <h2 id="request-title" class="request-title">Request</h2>
+        <form id="request-form" class="request-form" novalidate>
           <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
-          <div id="noul-summary" class="error-summary" tabindex="-1"></div>
-          <div class="examples" role="group" aria-label="Examples for Yes or no">
-            <button
-              id="noul-load-film"
-              class="action-button load-example"
-              type="button"
-              data-example="film"
-            >
-              Load film example
-            </button>
-            <button class="action-button load-example" type="button" data-example="images">
-              Load image example
-            </button>
+          <div id="request-summary" class="error-summary" tabindex="-1"></div>
+          <!--
+            Native radios: the group is one tab stop and the arrow keys choose.
+            Each type keeps its own questions, so switching back restores them,
+            while what the model reads and the images stay the same for all three.
+            The API term line is filled by src/ui/request-form.ts from the
+            vocabulary legend, because this markup names no provider.
+          -->
+          <fieldset class="question-type">
+            <legend class="question-type-legend">Question type</legend>
+            <label class="question-type-option">
+              <input
+                class="question-type-input"
+                type="radio"
+                name="question-type"
+                value="noul"
+                aria-labelledby="noul-type-name"
+                aria-describedby="noul-type-description noul-type-term"
+              />
+              <span class="question-type-text">
+                <span id="noul-type-name" class="question-type-name">Yes or no</span>
+                <span id="noul-type-description" class="question-type-description"
+                  >How likely a yes-or-no statement is to be true, judged from what the model
+                  reads.</span
+                >
+                <span id="noul-type-term" class="question-type-term"></span>
+              </span>
+            </label>
+            <label class="question-type-option">
+              <input
+                class="question-type-input"
+                type="radio"
+                name="question-type"
+                value="choice"
+                aria-labelledby="choice-type-name"
+                aria-describedby="choice-type-description choice-type-term"
+              />
+              <span class="question-type-text">
+                <span id="choice-type-name" class="question-type-name">Pick one option</span>
+                <span id="choice-type-description" class="question-type-description"
+                  >One option from a fixed set, with a probability for every option.</span
+                >
+                <span id="choice-type-term" class="question-type-term"></span>
+              </span>
+            </label>
+            <label class="question-type-option">
+              <input
+                class="question-type-input"
+                type="radio"
+                name="question-type"
+                value="score"
+                aria-labelledby="score-type-name"
+                aria-describedby="score-type-description score-type-term"
+              />
+              <span class="question-type-text">
+                <span id="score-type-name" class="question-type-name">Score on a scale</span>
+                <span id="score-type-description" class="question-type-description"
+                  >A position on ordered levels you describe, with a probability for each
+                  level.</span
+                >
+                <span id="score-type-term" class="question-type-term"></span>
+              </span>
+            </label>
+          </fieldset>
+          <div class="request-tools">
+            <div class="examples" role="group" aria-label="Examples">
+              <button
+                id="load-film"
+                class="action-button load-example"
+                type="button"
+                data-example="film"
+              >
+                Load film example
+              </button>
+              <button class="action-button load-example" type="button" data-example="images">
+                Load image example
+              </button>
+            </div>
+            <fieldset class="view-switch">
+              <legend class="view-switch-legend">Edit the request as</legend>
+              <label class="view-option">
+                <input type="radio" name="view" value="tree" checked />
+                Tree
+              </label>
+              <label class="view-option">
+                <input type="radio" name="view" value="json" />
+                JSON
+              </label>
+            </fieldset>
           </div>
-          <p id="noul-empty" class="panel-empty">
-            This panel is empty. Load an example above, or write what the model reads and a
+          <p id="request-empty" class="request-empty">
+            The request is empty. Load an example above, or write what the model reads and a
             question.
           </p>
-          <div class="view-switch" role="group" aria-label="Edit the Yes or no request as">
-            <button class="view-option" type="button" data-view="tree" aria-pressed="true">
-              Tree
-            </button>
-            <button class="view-option" type="button" data-view="json" aria-pressed="false">
-              JSON
-            </button>
-          </div>
           <div class="tree-view" data-view-body="tree"></div>
           <div class="json-view" data-view-body="json" hidden>
-            <label class="visually-hidden" for="noul-request">Yes or no request as JSON</label>
+            <label class="visually-hidden" for="request-json">Request as JSON</label>
             <textarea
-              id="noul-request"
+              id="request-json"
               class="request-field"
               name="request"
               rows="14"
               spellcheck="false"
               autocomplete="off"
               autocapitalize="off"
-              aria-describedby="noul-hint"
+              aria-describedby="request-json-hint"
             ></textarea>
-            <p id="noul-error" class="field-error" hidden></p>
-            <p id="noul-hint" class="hint">
+            <p id="request-json-error" class="field-error" hidden></p>
+            <p id="request-json-hint" class="hint">
               JSON, with the API's own keys. Questions without their own <code>criteria</code> use
               the <code>criteria</code> at the top of the request.
             </p>
           </div>
           <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
           <div class="attachments"></div>
-          <p id="noul-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit" aria-describedby="noul-empty">
-            <span class="run-label">Run</span>
-            <span class="run-sizer" aria-hidden="true">Running</span>
-          </button>
-          <p id="noul-run-note" class="run-note" hidden></p>
-        </form>
-      </section>
-
-      <section class="panel" aria-labelledby="choice-title">
-        <hgroup class="panel-heading">
-          <h2 id="choice-title" class="panel-name">Pick one option</h2>
-          <p class="panel-api-term"></p>
-        </hgroup>
-        <p class="panel-description">
-          One option from a fixed set, with a probability for every option.
-        </p>
-        <form class="panel-form" data-primitive="choice" novalidate>
-          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
-          <div id="choice-summary" class="error-summary" tabindex="-1"></div>
-          <div class="examples" role="group" aria-label="Examples for Pick one option">
-            <button
-              id="choice-load-film"
-              class="action-button load-example"
-              type="button"
-              data-example="film"
-            >
-              Load film example
-            </button>
-            <button class="action-button load-example" type="button" data-example="images">
-              Load image example
+          <p id="request-status" class="request-status" role="status"></p>
+          <div class="run-bar">
+            <p id="request-run-note" class="run-note" hidden></p>
+            <button class="run" type="submit" aria-describedby="request-empty">
+              <span class="run-label">Run</span>
+              <span class="run-sizer" aria-hidden="true">Running</span>
             </button>
           </div>
-          <p id="choice-empty" class="panel-empty">
-            This panel is empty. Load an example above, or write what the model reads and a
-            question.
-          </p>
-          <div class="view-switch" role="group" aria-label="Edit the Pick one option request as">
-            <button class="view-option" type="button" data-view="tree" aria-pressed="true">
-              Tree
-            </button>
-            <button class="view-option" type="button" data-view="json" aria-pressed="false">
-              JSON
-            </button>
-          </div>
-          <div class="tree-view" data-view-body="tree"></div>
-          <div class="json-view" data-view-body="json" hidden>
-            <label class="visually-hidden" for="choice-request"
-              >Pick one option request as JSON</label
-            >
-            <textarea
-              id="choice-request"
-              class="request-field"
-              name="request"
-              rows="14"
-              spellcheck="false"
-              autocomplete="off"
-              autocapitalize="off"
-              aria-describedby="choice-hint"
-            ></textarea>
-            <p id="choice-error" class="field-error" hidden></p>
-            <p id="choice-hint" class="hint">
-              JSON, with the API's own keys. Questions without their own <code>criteria</code> use
-              the <code>criteria</code> at the top of the request.
-            </p>
-          </div>
-          <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
-          <div class="attachments"></div>
-          <p id="choice-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit" aria-describedby="choice-empty">
-            <span class="run-label">Run</span>
-            <span class="run-sizer" aria-hidden="true">Running</span>
-          </button>
-          <p id="choice-run-note" class="run-note" hidden></p>
-        </form>
-      </section>
-
-      <section class="panel" aria-labelledby="score-title">
-        <hgroup class="panel-heading">
-          <h2 id="score-title" class="panel-name">Score on a scale</h2>
-          <p class="panel-api-term"></p>
-        </hgroup>
-        <p class="panel-description">
-          A position on ordered levels you describe, with a probability for each level.
-        </p>
-        <form class="panel-form" data-primitive="score" novalidate>
-          <!-- The error summary (src/ui/error-summary.ts) lists why Run cannot send the request. A press that fills it moves focus to it, which reads it. -->
-          <div id="score-summary" class="error-summary" tabindex="-1"></div>
-          <div class="examples" role="group" aria-label="Examples for Score on a scale">
-            <button
-              id="score-load-film"
-              class="action-button load-example"
-              type="button"
-              data-example="film"
-            >
-              Load film example
-            </button>
-            <button class="action-button load-example" type="button" data-example="images">
-              Load image example
-            </button>
-          </div>
-          <p id="score-empty" class="panel-empty">
-            This panel is empty. Load an example above, or write what the model reads and a
-            question.
-          </p>
-          <div class="view-switch" role="group" aria-label="Edit the Score on a scale request as">
-            <button class="view-option" type="button" data-view="tree" aria-pressed="true">
-              Tree
-            </button>
-            <button class="view-option" type="button" data-view="json" aria-pressed="false">
-              JSON
-            </button>
-          </div>
-          <div class="tree-view" data-view-body="tree"></div>
-          <div class="json-view" data-view-body="json" hidden>
-            <label class="visually-hidden" for="score-request"
-              >Score on a scale request as JSON</label
-            >
-            <textarea
-              id="score-request"
-              class="request-field"
-              name="request"
-              rows="14"
-              spellcheck="false"
-              autocomplete="off"
-              autocapitalize="off"
-              aria-describedby="score-hint"
-            ></textarea>
-            <p id="score-error" class="field-error" hidden></p>
-            <p id="score-hint" class="hint">
-              JSON, with the API's own keys. Questions without their own <code>criteria</code> use
-              the <code>criteria</code> at the top of the request.
-            </p>
-          </div>
-          <!-- The image control (src/ui/attachments.ts) builds its fieldset, notice, and status line here. -->
-          <div class="attachments"></div>
-          <p id="score-status" class="panel-status" role="status"></p>
-          <button class="run" type="submit" aria-describedby="score-empty">
-            <span class="run-label">Run</span>
-            <span class="run-sizer" aria-hidden="true">Running</span>
-          </button>
-          <p id="score-run-note" class="run-note" hidden></p>
         </form>
       </section>
 
@@ -310,13 +235,13 @@
         -->
         <p id="results-status" class="readout-status" role="status"></p>
         <p id="results-empty" class="readout-status">
-          There are no results. Run a panel to see its answers here.
+          There are no results. Run the request to see its answers here.
         </p>
         <ol id="results-list" class="results-list" role="list"></ol>
       </section>
     </main>
 
-    <!-- Asked before a load replaces what the person made in a panel. The cancel button comes first and takes focus, so Enter keeps the request. -->
+    <!-- Asked before a load replaces what the person made in the request. The cancel button comes first and takes focus, so Enter keeps the request. -->
     <dialog
       id="replace-dialog"
       class="confirm-dialog"

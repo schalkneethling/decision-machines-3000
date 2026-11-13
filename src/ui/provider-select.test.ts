@@ -6,7 +6,7 @@ import { PROVIDERS } from "../providers/catalog.ts";
 import { toProviderSummary } from "../providers/contract.ts";
 import type { Protection } from "../providers/contract.ts";
 import { noulResponse } from "./fixtures/noul.ts";
-import { setupPanels } from "./panels.ts";
+import { setupRequestForm } from "./request-form.ts";
 import { DEPLOYMENT_GUIDE_URL } from "./protection-notice.ts";
 import { setupProviderSelect } from "./provider-select.ts";
 
@@ -38,7 +38,7 @@ function optionTexts(): string[] {
 }
 
 function runButtons(): HTMLButtonElement[] {
-  return [...document.querySelectorAll<HTMLButtonElement>("form[data-primitive] .run")];
+  return [...document.querySelectorAll<HTMLButtonElement>("#request-form .run")];
 }
 
 /** The sentence a Run button's aria-describedby points at: what it will send, or why it cannot. */
@@ -49,18 +49,15 @@ function runNote(button: HTMLButtonElement): string {
 const NO_PROVIDER =
   "No provider is available yet. The Provider area at the top of the page says why.";
 
-/** Loads the film example into every panel, since an empty panel's Run sends nothing (issues #58 and #95). */
-async function loadFilmExamples(): Promise<void> {
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    'form[data-primitive] .load-example[data-example="film"]',
-  )) {
-    button.click();
-  }
-  await vi.waitFor(() => {
-    for (const line of document.querySelectorAll("form[data-primitive] .panel-status")) {
-      expect(line.textContent).toBe("Film example loaded.");
-    }
-  });
+/** Chooses a question type in the request form. */
+function useType(primitive: string): void {
+  get<HTMLInputElement>(`input[name="question-type"][value="${primitive}"]`).click();
+}
+
+/** Loads the film example into the request, since an empty request's Run sends nothing (issues #58 and #95). */
+async function loadFilmExample(): Promise<void> {
+  get<HTMLButtonElement>("#load-film").click();
+  await vi.waitFor(() => expect(get("#request-status").textContent).toBe("Film example loaded."));
 }
 
 /** Answers GET /api/providers with each queued answer in turn, and the last one after that. */
@@ -125,7 +122,7 @@ describe("the list", () => {
     ]);
   });
 
-  it("hands the listed providers to the panels, empty until the list loads", async () => {
+  it("hands the listed providers to the request form, empty until the list loads", async () => {
     answerProviders(listed(typesafe, subq));
     const selection = setupProviderSelect(document);
     expect(selection.providers()).toEqual([]);
@@ -373,23 +370,21 @@ describe("an instance with no provider key", () => {
   it("disables the select, and every Run button says no provider is available and sends nothing", async () => {
     const fetchMock = answerProviders(missingKeys());
     const selection = setupProviderSelect(document);
-    setupPanels(document, selection);
+    setupRequestForm(document, selection);
     await vi.waitFor(() => expect(get("#provider-problem").textContent).not.toBe(""));
-    await loadFilmExamples();
+    await loadFilmExample();
     expect(providerSelect().disabled).toBe(true);
     expect(selection.current()).toBeUndefined();
-    expect(runButtons()).toHaveLength(3);
+    expect(runButtons()).toHaveLength(1);
     // Run stays reachable by keyboard and says why it cannot run (issue #95).
     for (const button of runButtons()) {
       expect(button.disabled).toBe(false);
       expect(runNote(button)).toBe(NO_PROVIDER);
     }
-    get("form[data-primitive='noul']").dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
+    get("#request-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     // The select cannot take focus, so the summary names the problem without a link.
-    expect(get("#noul-summary").textContent).toContain(NO_PROVIDER);
-    expect(get("#noul-summary").querySelector("a")).toBeNull();
+    expect(get("#request-summary").textContent).toContain(NO_PROVIDER);
+    expect(get("#request-summary").querySelector("a")).toBeNull();
     // Only the list was requested: no decide call could have been made.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -404,14 +399,14 @@ describe("a list that could not be loaded", () => {
       }),
     );
     const selection = setupProviderSelect(document);
-    setupPanels(document, selection);
+    setupRequestForm(document, selection);
     await vi.waitFor(() => expect(get("#provider-problem").textContent).toContain("Retry"));
     expect(get("#provider-problem").textContent).toContain(
       "The list of providers could not be loaded.",
     );
     expect(providerSelect().disabled).toBe(true);
     // Loaded, so the missing provider is the first reason each Run gives.
-    await loadFilmExamples();
+    await loadFilmExample();
     for (const button of runButtons()) {
       expect(button.disabled).toBe(false);
       expect(runNote(button)).toBe(NO_PROVIDER);
@@ -431,10 +426,10 @@ describe("a list that could not be loaded", () => {
       listed(typesafe, subq),
     );
     const selection = setupProviderSelect(document);
-    setupPanels(document, selection);
+    setupRequestForm(document, selection);
     await vi.waitFor(() => expect(get(".provider-retry")).toBeTruthy());
-    // The panels start empty, which also stops Run; an example makes them runnable.
-    await loadFilmExamples();
+    // The request starts empty, which also stops Run; an example makes it runnable.
+    await loadFilmExample();
 
     get(".provider-retry").click();
     await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
@@ -522,18 +517,17 @@ describe("a list that could not be loaded", () => {
 });
 
 describe("Run follows the select", () => {
-  it('posts the "Score on a scale" panel to the selected provider\'s decide route', async () => {
+  it('posts a "Score on a scale" request to the selected provider\'s decide route', async () => {
     const fetchMock = answerProviders(listed(typesafe, subq));
     const selection = setupProviderSelect(document);
-    setupPanels(document, selection);
+    setupRequestForm(document, selection);
     await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
     change("subq");
-    await loadFilmExamples();
+    useType("score");
+    await loadFilmExample();
 
     fetchMock.mockImplementation(async () => Response.json(noulResponse));
-    get("form[data-primitive='score']").dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
+    get("#request-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/decide/subq");
   });

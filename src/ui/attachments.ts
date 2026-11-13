@@ -14,8 +14,8 @@ import {
 } from "./image-sentences.ts";
 
 /**
- * The image control of one panel (issue #16): a fieldset with a file input,
- * a drop zone, and a paste listener on the panel form, which follows the
+ * The image control of the request form (issue #16): a fieldset with a file input,
+ * a drop zone, and a paste listener on the request form, which follows the
  * selected provider. For a provider that takes images, its `accept` list,
  * count, and size limits come from that provider's `capabilities.images`, as
  * `GET /api/providers` serves them. The client holds no limit of its own. For a
@@ -51,15 +51,15 @@ import {
  *
  * The status line (`role="status"`) announces what the user caused: an image
  * added, removed, or refused with the reason, and what a provider change does
- * to this panel's images. It says nothing on initial render, and nothing about
+ * to the attached images. It says nothing on initial render, and nothing about
  * a provider change that leaves an empty list alone: the provider select's own
- * status line announces the new capability once, for all three panels. The
+ * status line announces the new capability once, for the whole page. The
  * unavailable sentence is not in a live region for the same reason: it is
  * rewritten on every provider change, and the provider status line has already
  * said the change.
  */
 
-/** A picture the user attached, as the panel keeps it. */
+/** A picture the user attached, as the form keeps it. */
 export type Attachment = {
   /** The file as it will be sent: named, and declared as the type its bytes show. */
   file: File;
@@ -161,7 +161,7 @@ function sizeText(size: ImageSize | undefined): string {
  * added, one `{ name, base64 }` entry per file, in order. The browser encodes
  * the images, so the Worker reads one JSON body and never encodes bytes, which
  * is what lets the caps be larger than reading a multipart body allowed
- * (`worker/images.ts`). `requestText` is the request the panel validated, so it
+ * (`worker/images.ts`). `requestText` is the request the form validated, so it
  * is a JSON object without an `images` field of its own.
  */
 export async function withImages(requestText: string, files: readonly File[]): Promise<string> {
@@ -230,7 +230,7 @@ export function createAttachments(
   const legend = create("legend", { className: "attachments-legend", text: "Images" });
   const instructions = create("p", {
     className: "attachments-instructions",
-    text: "Choose files with the button, drop them on this box, or paste an image into this panel.",
+    text: "Choose files with the button, drop them on this box, or paste an image into the request.",
     attributes: { id: ids.instructions },
   });
   const hint = create("p", {

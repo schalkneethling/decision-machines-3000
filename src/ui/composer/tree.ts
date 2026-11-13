@@ -51,14 +51,14 @@ import type { ProviderCapabilities } from "../../providers/catalog.ts";
 import type { FocusTarget, RowContext, StructuralChange } from "./rows.ts";
 
 export type ComposerOptions = {
-  /** Prefix for element ids, unique per panel. */
+  /** Prefix for element ids, unique per form. */
   prefix: string;
   model: ComposerModel;
   /** The limits the tree reports problems against. */
   capabilities: ProviderCapabilities;
-  /** Speaks a change through the panel's status line. */
+  /** Speaks a change through the form's status line. */
   announce: (message: string) => void;
-  /** The model changed; the panel re-derives its request. */
+  /** The model changed; the form re-derives its request. */
   onChange: () => void;
 };
 
@@ -688,7 +688,7 @@ export function createComposer(options: ComposerOptions): Composer {
       },
     });
     branch.append(sharedNode(), ...model.questions.map(questionNode), addQuestionNode());
-    // Said once for the panel, not under every question's Id field, and only while there is an Id field to describe.
+    // Said once for the request, not under every question's Id field, and only while there is an Id field to describe.
     const idHint =
       model.questions.length === 0
         ? []

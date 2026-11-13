@@ -4,15 +4,15 @@ import type { ExampleSet, ExampleSetId } from "../decision/examples.ts";
 import { validateDecisionRequest } from "../decision/validate.ts";
 import { DEFAULT_PROVIDER } from "../providers/catalog.ts";
 import type { ProviderCapabilities } from "../providers/catalog.ts";
-import type { ValidDecisionRequest } from "../decision/validate.ts";
+import type { ValidDecisionRequest, ValidationResult } from "../decision/validate.ts";
 import type { ProviderSummary } from "../providers/contract.ts";
-import { createAttachments, toFormData } from "./attachments.ts";
+import { createAttachments, withImages } from "./attachments.ts";
 import { browserRasterizer } from "./shrink-browser.ts";
 import { createShrinkTransform } from "./shrink.ts";
 import type { Attachments } from "./attachments.ts";
 import { imagesCount, textOnlySentence } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
-import type { AskResult, PostBody } from "./client.ts";
+import type { AskResult } from "./client.ts";
 import { findIssues, STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
 import type { ComposerModel, DraftRequest, Issue } from "./composer/model.ts";
 import { createComposer } from "./composer/tree.ts";
@@ -126,7 +126,7 @@ function setStatus(panel: Panel, message: string, tone: "note" | "alert" = "note
 /** What the JSON view's hint says about the images, or nothing when there are none. */
 function imagesHintText(count: number): string {
   if (count === 0) return "";
-  return `${imagesCount(count)} attached. ${count === 1 ? "It is" : "They are"} sent as image parts beside this JSON, not inside it.`;
+  return `${imagesCount(count)} attached. Run adds ${count === 1 ? "it" : "them"} to this JSON as base64 in an "images" list, which this view does not show.`;
 }
 
 /**
@@ -174,6 +174,8 @@ function setupPanel(
     onChange: () => {
       if (!panel) return;
       panel.imagesHint.textContent = imagesHintText(attachments.count());
+      // An image added or removed decides whether a blank state is a problem.
+      revalidate(panel);
       onChange();
     },
   });
@@ -271,6 +273,16 @@ function writeJson(panel: Panel): void {
   clearFieldError(panel);
 }
 
+/** How many of the panel's images Run would send: none to a text-only provider. */
+function sentImageCount(panel: Panel): number {
+  return panel.capabilities.images === false ? 0 : panel.attachments.count();
+}
+
+/** Checks `value` as the request the panel would send, with the images it would send. */
+function validateForPanel(panel: Panel, value: unknown): ValidationResult {
+  return validateDecisionRequest(value, panel.capabilities, sentImageCount(panel));
+}
+
 /** The textarea read as a valid request, or why it is not one. Shows nothing. */
 function checkJson(
   panel: Panel,
@@ -283,7 +295,7 @@ function checkJson(
     return { ok: false, message: describeJsonError(source, error) };
   }
 
-  const validation = validateDecisionRequest(parsed, panel.capabilities);
+  const validation = validateForPanel(panel, parsed);
   if (!validation.ok) return { ok: false, message: invalidMessage(validation) };
   return { ok: true, value: validation.value };
 }
@@ -443,9 +455,9 @@ function requestProblems(panel: Panel): Problem[] {
     const checked = checkJson(panel);
     return checked.ok ? [] : [jsonProblem(panel, checked.message)];
   }
-  const issues = findIssues(panel.composer.model(), panel.capabilities);
+  const issues = findIssues(panel.composer.model(), panel.capabilities, sentImageCount(panel));
   if (issues.length > 0) return issueProblems(panel, issues);
-  const validation = validateDecisionRequest(panel.request, panel.capabilities);
+  const validation = validateForPanel(panel, panel.request);
   return validation.ok ? [] : [invalidProblem(validation)];
 }
 
@@ -473,26 +485,27 @@ function prepareRun(panel: Panel): Prepared {
   if (issues.length > 0) return { ok: false, problems: issueProblems(panel, issues) };
 
   // The tree found nothing wrong; the shared validator has the final word.
-  const validation = validateDecisionRequest(panel.request, panel.capabilities);
+  const validation = validateForPanel(panel, panel.request);
   if (!validation.ok) return { ok: false, problems: [invalidProblem(validation)] };
   return { ok: true, sent: validation.value, body: JSON.stringify(validation.value) };
 }
 
 /**
- * Checks what a panel shows against the limits of a newly selected provider, so
- * a problem the old limits caused goes away, and a new one is shown, without
+ * Checks what a panel shows against the limits of a newly selected provider, or
+ * against a changed set of images, so a problem the old ones caused goes away, and a new one is shown, without
  * another press of Run. The tree's issue slots and the error under the
  * textarea follow here; the error summary follows in the caller. Nothing here
  * moves focus.
  */
 function revalidate(panel: Panel): void {
   panel.composer.setCapabilities(panel.capabilities);
+  panel.composer.setImageCount(sentImageCount(panel));
   if (panel.view !== "json") return;
 
   const parsed = tryParse(panel.field.value);
-  // A syntax error stays as it is shown; only validity depends on the provider.
+  // A syntax error stays as it is shown; only validity depends on the provider and images.
   if (!parsed.ok) return;
-  const validation = validateDecisionRequest(parsed.value, panel.capabilities);
+  const validation = validateForPanel(panel, parsed.value);
   if (validation.ok) {
     panel.request = validation.value;
     if (!panel.error.hidden) clearFieldError(panel);
@@ -832,19 +845,20 @@ export function setupPanels(
   }
 
   /**
-   * What Run posts: the request text alone as JSON, or, when the panel holds
-   * images the provider takes, a multipart form of that text and the files.
-   * Returns the body and how many images were left out because the provider is text only.
+   * What Run posts: the request text alone, or, when the panel holds images the
+   * provider takes, that request with the images added as base64 in its
+   * `images` list. Returns the body and how many images were left out because
+   * the provider is text only.
    */
-  function bodyFor(
+  async function bodyFor(
     panel: Panel,
     text: string,
     chosen: ProviderSummary,
-  ): { body: PostBody; omittedImages: number } {
+  ): Promise<{ body: string; omittedImages: number }> {
     const files = panel.attachments.files();
     if (files.length === 0) return { body: text, omittedImages: 0 };
     if (chosen.capabilities.images === false) return { body: text, omittedImages: files.length };
-    return { body: toFormData(text, files), omittedImages: 0 };
+    return { body: await withImages(text, files), omittedImages: 0 };
   }
 
   /**
@@ -870,8 +884,6 @@ export function setupPanels(
       showProblems(panel, [...blockers, ...found]);
       return;
     }
-    const { body, omittedImages } = bodyFor(panel, prepared.body, chosen);
-
     panel.summary.clear();
     setStatus(panel, "");
     setRunning(panel);
@@ -881,6 +893,8 @@ export function setupPanels(
     const provider = chosen.displayName;
     results.waiting(provider);
     try {
+      // Encoding the images happens while the panel already shows that it is running.
+      const { body, omittedImages } = await bodyFor(panel, prepared.body, chosen);
       const result = await askProvider(chosen.id, body);
       const reading = renderOutcome(prepared.sent, result, omittedImages);
       const wire = result.kind === "response" ? renderWire(result.response) : undefined;
@@ -947,9 +961,7 @@ export function setupPanels(
     panel.field.addEventListener("input", () => {
       markEdited(panel);
       const parsed = tryParse(panel.field.value);
-      const validation = parsed.ok
-        ? validateDecisionRequest(parsed.value, panel.capabilities)
-        : undefined;
+      const validation = parsed.ok ? validateForPanel(panel, parsed.value) : undefined;
       if (validation?.ok) {
         panel.request = validation.value;
         if (!panel.error.hidden) clearFieldError(panel);

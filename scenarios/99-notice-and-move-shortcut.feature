@@ -12,7 +12,7 @@ Feature: The image limit notice is announced once, and the Alt + Arrow move shor
   Scenario: A provider change that pushes images over the limit is announced once
     Given a panel with eight images attached on OpenAI Decisions
     When the provider is changed to SubQ Snap, which takes four images
-    Then the status line announces "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run."
+    Then the status line announces "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run."
     And the notice beside the image control shows the same message, without a live region
     And no other live region on the page holds that message
 

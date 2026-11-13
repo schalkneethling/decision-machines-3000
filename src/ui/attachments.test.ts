@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { encodeBase64 } from "../providers/base64.ts";
 import { PROVIDERS } from "../providers/catalog.ts";
 import type { ImageCapabilities } from "../providers/catalog.ts";
 import { toProviderSummary } from "../providers/contract.ts";
@@ -9,7 +10,7 @@ import {
   PRIVACY_NOTE,
   createAttachments,
   fitsWithin,
-  toFormData,
+  withImages as requestWithImages,
 } from "./attachments.ts";
 import type { ImageTransform } from "./attachments.ts";
 import {
@@ -143,7 +144,7 @@ describe("sentences", () => {
   it("states the capability for the provider status line, from the capabilities alone", () => {
     expect(imageInputSentence(false)).toBe("Text only, no images.");
     expect(imageInputSentence(limits)).toBe(
-      "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and 64 KB in total.",
+      "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
     );
     expect(
       imageInputSentence({
@@ -172,7 +173,7 @@ describe("sentences", () => {
 
   it("states this instance's caps under the control and whose they are", () => {
     expect(capabilitySentence(openai, openai.capabilities.images as ImageCapabilities)).toBe(
-      "OpenAI Decisions takes up to 8 images, 64 KB each and 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's.",
+      "OpenAI Decisions takes up to 8 images, 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's.",
     );
   });
 });
@@ -186,35 +187,24 @@ describe("fitsWithin", () => {
   });
 });
 
-describe("toFormData", () => {
-  it("appends the request text and one image part per file, each with its filename", async () => {
+describe("requestWithImages", () => {
+  it("adds an images list to the request, one entry per file, in order, with its name and base64", async () => {
     const files = [
       png("a.png"),
-      png("b.png"),
       new File([pngBytes()], "pasted-image-1.png", { type: "image/png" }),
     ];
-    const text = '{"primitive":"noul"}';
-    const form = toFormData(text, files);
-    expect(form.get("request")).toBe(text);
-    const images = form.getAll("image");
-    expect(images).toHaveLength(3);
-    expect(images.map((part) => (part instanceof File ? part.name : typeof part))).toEqual([
-      "a.png",
-      "b.png",
-      "pasted-image-1.png",
-    ]);
-    // The bytes travel as they are: the first part's bytes equal the file's.
-    const first = images[0];
-    if (!(first instanceof File)) throw new Error("Expected a file part.");
-    expect(new Uint8Array(await first.arrayBuffer())).toEqual(
-      new Uint8Array(await files[0]!.arrayBuffer()),
-    );
-    // The body the platform writes from this form declares multipart with a boundary and no base64.
-    const request = new Request("https://decisionmachines3000.example/api/decide/subq", {
-      method: "POST",
-      body: form,
+    const text = '{"primitive":"noul","state":"","questions":{}}';
+    const body = JSON.parse(await requestWithImages(text, files)) as Record<string, unknown>;
+
+    expect(body).toEqual({
+      primitive: "noul",
+      state: "",
+      questions: {},
+      images: [
+        { name: "a.png", base64: encodeBase64(new Uint8Array(await files[0]!.arrayBuffer())) },
+        { name: "pasted-image-1.png", base64: encodeBase64(pngBytes()) },
+      ],
     });
-    expect(request.headers.get("content-type")).toMatch(/^multipart\/form-data; boundary=/);
   });
 });
 
@@ -552,8 +542,10 @@ describe("attaching", () => {
     // The generated extension follows the bytes, and the count goes on.
     await control.add([new Blob([jpegBytes({ size: KIB })])]);
     expect(control.files()[1]?.name).toBe("pasted-image-2.jpg");
-    const form2 = toFormData("{}", control.files());
-    expect(form2.getAll("image").map((part) => (part instanceof File ? part.name : ""))).toEqual([
+    const body = JSON.parse(await requestWithImages("{}", control.files())) as {
+      images: { name: string }[];
+    };
+    expect(body.images.map((image) => image.name)).toEqual([
       "pasted-image-1.png",
       "pasted-image-2.jpg",
     ]);
@@ -976,7 +968,7 @@ describe("provider changes with images attached", () => {
     expect(flagOf(4).hidden).toBe(false);
     expect(flagOf(0).hidden).toBe(true);
     const message =
-      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run.";
+      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run.";
     expect(control.blocked()).toBe(message);
     expect(notice()).toBe(message);
     expect(get(".attachments-notice").dataset.tone).toBe("alert");
@@ -1023,7 +1015,7 @@ describe("provider changes with images attached", () => {
     control.setProvider(withImages(subq, { maxBytesPerRequest: 32 * KIB }));
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([false, true]);
     expect(control.blocked()).toBe(
-      "1 image is over the limits of SubQ Snap: up to 4 images, 64 KB each and 32 KB in total. Remove the marked image to run.",
+      "1 image is over the limits of SubQ Snap: up to 4 images, 32 KB in total. Remove the marked image to run.",
     );
     control.setProvider(withImages(subq, { maxBytesPerImage: 16 * KIB }));
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([true, true]);
@@ -1055,7 +1047,7 @@ describe("provider changes with images attached", () => {
     await control.add(Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
     control.setProvider(subq);
     const message =
-      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB each and 64 KB in total. Remove the 4 marked images to run.";
+      "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run.";
     expect(notice()).toBe(message);
     expect(status()).toBe(message);
     expect(get(".attachments-notice").hasAttribute("role")).toBe(false);

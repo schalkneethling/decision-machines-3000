@@ -248,7 +248,9 @@ export async function decide(
 
   const { read, files } = await readDecisionRequest(request, provider);
   if (!read.ok) return read.response;
-  const validation = validateDecisionRequest(read.value, provider.capabilities);
+  // Only images the provider takes are sent, and with one or more the state may be blank.
+  const imageCount = provider.capabilities.images === false ? 0 : files.length;
+  const validation = validateDecisionRequest(read.value, provider.capabilities, imageCount);
   if (!validation.ok) {
     return failure(400, validation.error, { detail: validation.detail });
   }

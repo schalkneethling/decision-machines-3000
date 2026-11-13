@@ -766,8 +766,20 @@ describe("validateDecisionRequest builds one schema per set of limits", () => {
   it("reuses one schema for equal limits and builds another for different ones", () => {
     const schema = requestSchemaFor(typesafe);
     expect(requestSchemaFor({ ...typesafe })).toBe(schema);
-    expect(requestSchemaFor(PROVIDERS.openai.capabilities)).toBe(schema);
     expect(requestSchemaFor(subq)).not.toBe(schema);
+  });
+
+  it("keys on whether the provider takes images and whether any are sent, not on the image caps", () => {
+    const openai = PROVIDERS.openai.capabilities;
+    if (openai.images === false) throw new Error("OpenAI is expected to take images.");
+    const schema = requestSchemaFor(openai);
+    // The empty-state message offers an image only where the provider takes one.
+    expect(schema).not.toBe(requestSchemaFor(typesafe));
+    expect(requestSchemaFor({ ...openai, images: { ...openai.images, maxCount: 2 } })).toBe(schema);
+
+    const withImages = requestSchemaFor(openai, 1);
+    expect(withImages).not.toBe(schema);
+    expect(requestSchemaFor(openai, 3)).toBe(withImages);
   });
 });
 
@@ -781,6 +793,31 @@ describe("validateDecisionRequest on a deeply nested request", () => {
     ).toEqual({
       ok: false,
       error: `The request is nested too deeply to check. Use fewer levels of lists and objects inside each other.`,
+    });
+  });
+});
+
+describe("validateDecisionRequest with a blank state", () => {
+  const openai = PROVIDERS.openai.capabilities;
+  const blank = { primitive: "noul", state: "", questions: { q: { instructions: "Is it?" } } };
+
+  it("accepts it when images go with the request", () => {
+    expect(validateDecisionRequest(blank, openai, 1)).toEqual({ ok: true, value: blank });
+  });
+
+  it("refuses it without images, and offers an image where the provider takes one", () => {
+    expect(validateDecisionRequest(blank, openai)).toEqual({
+      ok: false,
+      error: `"state" is empty. Add the text, object, or list to evaluate, or attach an image.`,
+      detail: "state",
+    });
+  });
+
+  it("still requires a state field, with or without images", () => {
+    const { state: _state, ...missing } = blank;
+    expect(validateDecisionRequest(missing, openai, 1)).toMatchObject({
+      ok: false,
+      detail: "state",
     });
   });
 });

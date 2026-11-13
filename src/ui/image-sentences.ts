@@ -26,15 +26,22 @@ export function imagesCount(count: number): string {
   return `${count} ${count === 1 ? "image" : "images"}`;
 }
 
-/** `64 KB each and 64 KB in total`. */
+/**
+ * `64 KB in total`, or `32 KB each and 64 KB in total`. The per-image cap is
+ * named only when it is below the total, because otherwise the total is the
+ * only limit an image can reach, and naming both read as if each image could
+ * take the full amount.
+ */
 export function sizeLimits(images: ImageCapabilities): string {
-  return `${sizeInWords(images.maxBytesPerImage)} each and ${sizeInWords(images.maxBytesPerRequest)} in total`;
+  const total = `${sizeInWords(images.maxBytesPerRequest)} in total`;
+  if (images.maxBytesPerImage >= images.maxBytesPerRequest) return total;
+  return `${sizeInWords(images.maxBytesPerImage)} each and ${total}`;
 }
 
 /**
  * The effect of a provider's image capability, for the provider status line:
- * "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB each and
- * 64 KB in total." or "Text only, no images."
+ * "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total."
+ * or "Text only, no images."
  */
 export function imageInputSentence(images: ImageCapabilities | false): string {
   if (images === false) return "Text only, no images.";

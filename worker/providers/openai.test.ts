@@ -450,6 +450,23 @@ describe("toWire", () => {
     expect(content?.[1]).toStrictEqual({ type: "input_text", text: "Image 1" });
   });
 
+  it("leaves out the state part when the state is blank, so only the labels and images are sent", () => {
+    const wire = toWire({
+      ...noulRequest,
+      state: "  ",
+      images: [{ mediaType: "image/png", base64: "AAAA", name: "a.png" }],
+    });
+    expect(wire.input).toStrictEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "Image 1: a.png" },
+          { type: "input_image", image_url: "data:image/png;base64,AAAA" },
+        ],
+      },
+    ]);
+  });
+
   it("sends input as text when the images list is empty", () => {
     expect(toWire({ ...noulRequest, images: [] }).input).toBe(STATE);
   });

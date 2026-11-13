@@ -1104,7 +1104,25 @@ textarea.tree-field {
   gap: 0 1rem;
 }
 
+/* A row's More button and, once it is open, the actions it reveals beside it */
+.row-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 1rem;
+}
+
+.row-menu[hidden] {
+  display: none;
+}
+
+.more-toggle[aria-expanded="true"] {
+  color: var(--ink);
+}
+
+/* At least 44px tall, so each target meets WCAG 2.2's 2.5.8 with room to spare */
 .text-button {
+  min-block-size: 2.75rem;
   padding: 0.25rem 0;
   background: none;
   color: var(--ink-muted);

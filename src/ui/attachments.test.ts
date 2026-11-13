@@ -160,13 +160,13 @@ describe("sentences", () => {
 
   it("says a provider is text only and names the listed ones that take images, as a list that reads aloud", () => {
     const third: ProviderSummary = { ...openai, displayName: "Third One" };
-    expect(textOnlySentence(typesafe, listed, "to attach images")).toBe(
+    expect(textOnlySentence([typesafe], listed, "to attach images")).toBe(
       "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images.",
     );
-    expect(textOnlySentence(typesafe, [...listed, third], "first")).toBe(
+    expect(textOnlySentence([typesafe], [...listed, third], "first")).toBe(
       "TypeSafe Jev is text only. Choose SubQ Snap, OpenAI Decisions, or Third One first.",
     );
-    expect(textOnlySentence(typesafe, [typesafe], "first")).toBe(
+    expect(textOnlySentence([typesafe], [typesafe], "first")).toBe(
       "TypeSafe Jev is text only, and no provider on this instance takes images.",
     );
   });
@@ -211,7 +211,7 @@ describe("requestWithImages", () => {
 describe("markup", () => {
   it("is a fieldset with a legend, a visible labelled file input described by the limits, and the privacy note", () => {
     const form = mount();
-    createAttachments(form, { prefix: "noul-images", provider: subq, providers });
+    createAttachments(form, { prefix: "noul-images", selected: [subq], providers });
     const fieldset = zone();
     expect(fieldset.hidden).toBe(false);
     expect(fieldset.firstElementChild?.tagName).toBe("LEGEND");
@@ -232,7 +232,7 @@ describe("markup", () => {
   });
 
   it("tells the user to ask about the images, and the hint is visible but does not describe the input", () => {
-    createAttachments(mount(), { prefix: "noul-images", provider: openai, providers });
+    createAttachments(mount(), { prefix: "noul-images", selected: [openai], providers });
     const hint = get("#noul-images-hint");
     expect(hint.textContent).toBe(ASK_ABOUT_IMAGES);
     expect(hint.textContent).toContain("what the model reads or in a question");
@@ -243,7 +243,7 @@ describe("markup", () => {
   });
 
   it("hides the instructions, the hint, and the privacy note while the control is unavailable", () => {
-    createAttachments(mount(), { prefix: "noul-images", provider: typesafe, providers });
+    createAttachments(mount(), { prefix: "noul-images", selected: [typesafe], providers });
     for (const id of ["instructions", "hint", "privacy"]) {
       expect(zone().contains(get(`#noul-images-${id}`))).toBe(true);
       expect(get(`#noul-images-${id}`).hidden).toBe(true);
@@ -252,16 +252,16 @@ describe("markup", () => {
   });
 
   it("is hidden only while no provider is selected, and announces nothing in either state", () => {
-    createAttachments(mount(), { prefix: "noul-images", provider: typesafe, providers });
+    createAttachments(mount(), { prefix: "noul-images", selected: [typesafe], providers });
     expect(zone().hidden).toBe(false);
     expect(status()).toBe("");
-    createAttachments(mount(), { prefix: "noul-images", provider: undefined, providers });
+    createAttachments(mount(), { prefix: "noul-images", selected: [], providers });
     expect(zone().hidden).toBe(true);
     expect(status()).toBe("");
   });
 
   it("stays visible and unavailable on a text-only provider, and says which providers take images (issue #98)", () => {
-    createAttachments(mount(), { prefix: "noul-images", provider: typesafe, providers });
+    createAttachments(mount(), { prefix: "noul-images", selected: [typesafe], providers });
     expect(zone().hidden).toBe(false);
     expect(zone().hasAttribute("data-unavailable")).toBe(true);
     expect(zone().firstElementChild?.textContent).toBe("Images");
@@ -279,20 +279,20 @@ describe("markup", () => {
   it("disables the file input while unavailable, and restores it with its accept list on an image provider", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: typesafe,
+      selected: [typesafe],
       providers,
     });
     expect(input().disabled).toBe(true);
     expect(input().hasAttribute("accept")).toBe(false);
-    control.setProvider(subq);
+    control.setSelected([subq]);
     expect(input().disabled).toBe(false);
     expect(zone().hasAttribute("data-unavailable")).toBe(false);
     expect(input().getAttribute("accept")).toBe("image/png,image/jpeg,image/webp");
     expect(input().getAttribute("aria-describedby")).toBe("noul-images-limits");
     expect(zone().hasAttribute("aria-describedby")).toBe(false);
     expect(get("#noul-images-instructions").hidden).toBe(false);
-    control.setProvider(openai);
-    control.setProvider(typesafe);
+    control.setSelected([openai]);
+    control.setSelected([typesafe]);
     expect(input().disabled).toBe(true);
     expect(zone().hasAttribute("data-unavailable")).toBe(true);
   });
@@ -300,7 +300,7 @@ describe("markup", () => {
   it("names only the providers the page received that take images, in list order, from the list alone", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: typesafe,
+      selected: [typesafe],
       providers: () => [typesafe, openai],
     });
     expect(get("#noul-images-limits").textContent).toBe(
@@ -309,7 +309,7 @@ describe("markup", () => {
     const renamed = { ...subq, displayName: "Picture Pal" };
     createAttachments(mount(), {
       prefix: "noul-images",
-      provider: typesafe,
+      selected: [typesafe],
       providers: () => [renamed, typesafe, openai],
     });
     expect(get("#noul-images-limits").textContent).toBe(
@@ -321,7 +321,7 @@ describe("markup", () => {
   it("says so when no provider on the instance takes images", () => {
     createAttachments(mount(), {
       prefix: "noul-images",
-      provider: typesafe,
+      selected: [typesafe],
       providers: () => [typesafe],
     });
     expect(get("#noul-images-limits").textContent).toBe(
@@ -332,10 +332,10 @@ describe("markup", () => {
   it("rewrites the sentence on a provider change, without announcing it", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
-    control.setProvider(typesafe);
+    control.setSelected([typesafe]);
     expect(get("#noul-images-limits").textContent).toBe(
       "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images.",
     );
@@ -345,7 +345,7 @@ describe("markup", () => {
   it("does not highlight the unavailable zone for a drag, but still cancels it so the drop is refused in words", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: typesafe,
+      selected: [typesafe],
       providers,
     });
     const over = eventWithFiles("dragover", [png()]);
@@ -363,7 +363,7 @@ describe("markup", () => {
   it("follows a change between two image providers, down to the accept list", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     expect(get("#noul-images-limits").textContent).toContain("up to 8 images");
@@ -372,7 +372,7 @@ describe("markup", () => {
       mediaTypes: ["image/png"],
       maxBytesPerImage: 32 * KIB,
     });
-    control.setProvider(pngOnly);
+    control.setSelected([pngOnly]);
     expect(input().getAttribute("accept")).toBe("image/png");
     expect(get("#noul-images-limits").textContent).toBe(
       "SubQ Snap takes up to 2 images, 32 KB each and 64 KB in total: PNG. These are this instance's limits, not the provider's.",
@@ -385,7 +385,7 @@ describe("markup", () => {
 describe("attaching", () => {
   it("lists a chosen PNG with its type, size, dimensions, and a thumbnail, and announces it", async () => {
     const form = mount();
-    const control = createAttachments(form, { prefix: "noul-images", provider: subq, providers });
+    const control = createAttachments(form, { prefix: "noul-images", selected: [subq], providers });
     choose(fileOf(pngBytes({ width: 64, height: 48, size: 12 * KIB }), "poster.png", "image/png"));
     await vi.waitFor(() => expect(items()).toHaveLength(1));
     const item = items()[0]!;
@@ -403,7 +403,7 @@ describe("attaching", () => {
 
   it("refuses a photo over the per-image cap without reading it, with a sentence that names both sizes", async () => {
     const form = mount();
-    const control = createAttachments(form, { prefix: "noul-images", provider: subq, providers });
+    const control = createAttachments(form, { prefix: "noul-images", selected: [subq], providers });
     const reads = vi.spyOn(Blob.prototype, "arrayBuffer");
     choose(fileOf(jpegBytes({ size: Math.round(3.2 * KIB * KIB) }), "holiday.jpg", "image/jpeg"));
     await vi.waitFor(() => expect(status()).not.toBe(""));
@@ -420,7 +420,7 @@ describe("attaching", () => {
   it("refuses an image that would push the total over the per-request cap", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add([png("a.png", 40 * KIB)]);
@@ -434,7 +434,7 @@ describe("attaching", () => {
   it("refuses a fifth image on SubQ Snap before reading any of it", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([
@@ -457,7 +457,7 @@ describe("attaching", () => {
   it("takes the media type from the bytes, not the name or the declared type", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([fileOf(jpegBytes({ size: 4 * KIB }), "photo.png", "image/png")]);
@@ -471,7 +471,7 @@ describe("attaching", () => {
   it("refuses bytes of no accepted format, judging by the first bytes", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([fileOf(gifBytes(2 * KIB), "loop.gif", "image/gif")]);
@@ -492,7 +492,7 @@ describe("attaching", () => {
   it("honours the provider's own media types", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: withImages(subq, { mediaTypes: ["image/png"] }),
+      selected: [withImages(subq, { mediaTypes: ["image/png"] })],
       providers,
     });
     await control.add([fileOf(jpegBytes({ size: 2 * KIB }), "photo.jpg", "image/jpeg")]);
@@ -504,7 +504,7 @@ describe("attaching", () => {
   it("reads the pixel size from each format's header, and says when it cannot", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add([
@@ -530,7 +530,7 @@ describe("attaching", () => {
 
   it("attaches a pasted image from the request form, naming a nameless blob by its detected type", async () => {
     const form = mount();
-    const control = createAttachments(form, { prefix: "noul-images", provider: subq, providers });
+    const control = createAttachments(form, { prefix: "noul-images", selected: [subq], providers });
     const paste = eventWithFiles("paste", [fileOf(pngBytes({ size: 2 * KIB }), "", "image/png")]);
     form.dispatchEvent(paste);
     expect(paste.defaultPrevented).toBe(true);
@@ -553,7 +553,7 @@ describe("attaching", () => {
 
   it("leaves a text paste to the focused field", () => {
     const form = mount();
-    createAttachments(form, { prefix: "noul-images", provider: subq, providers });
+    createAttachments(form, { prefix: "noul-images", selected: [subq], providers });
     const transfer = new DataTransfer();
     transfer.setData("text/plain", "hello");
     const paste = new ClipboardEvent("paste", {
@@ -570,7 +570,7 @@ describe("attaching", () => {
     const form = mount();
     const control = createAttachments(form, {
       prefix: "noul-images",
-      provider: typesafe,
+      selected: [typesafe],
       providers,
     });
     form.dispatchEvent(
@@ -584,7 +584,7 @@ describe("attaching", () => {
   it("accepts a drop after cancelling dragover, and ignores a drag without files", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     const over = eventWithFiles("dragover", [png()]);
@@ -616,7 +616,7 @@ describe("attaching", () => {
     };
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       transform: shrink,
     });
@@ -632,7 +632,7 @@ describe("attaching", () => {
     const transform = vi.fn<ImageTransform>(async ({ file }) => file);
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: withImages(subq, { maxCount: 1 }),
+      selected: [withImages(subq, { maxCount: 1 })],
       providers,
       transform,
     });
@@ -646,7 +646,7 @@ describe("attaching", () => {
   it("refuses what a transform returns when its bytes are not an accepted format", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       transform: async () => new File([gifBytes(KIB)], "odd.gif"),
     });
@@ -658,7 +658,7 @@ describe("attaching", () => {
   it("announces nothing for an empty selection", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([]);
@@ -672,7 +672,7 @@ describe("removing", () => {
   it("revokes the object URL, drops the item, moves focus, and announces", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png", 4 * KIB), png("b.png", 4 * KIB)]);
@@ -719,7 +719,7 @@ describe("replacing (issue #58)", () => {
     const onChange = vi.fn();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       onChange,
     });
@@ -740,11 +740,11 @@ describe("replacing (issue #58)", () => {
   it("empties the control when given nothing, and lifts the block that over-limit images put on Run", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add(Array.from({ length: 6 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
-    control.setProvider(subq);
+    control.setSelected([subq]);
     expect(control.blocked()).toBeDefined();
 
     expect(await control.replace([])).toEqual({ added: [], refused: [] });
@@ -756,7 +756,7 @@ describe("replacing (issue #58)", () => {
   it("returns a sentence for each source it could not attach, and attaches the rest", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     const sources = Array.from({ length: limits.maxCount + 1 }, (_, index) =>
@@ -774,7 +774,7 @@ describe("replacing (issue #58)", () => {
     const held = heldTransform();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       transform: held.transform,
     });
@@ -794,7 +794,7 @@ describe("replacing (issue #58)", () => {
     const held = heldTransform();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       transform: held.transform,
     });
@@ -814,7 +814,7 @@ describe("replacing (issue #58)", () => {
     const held = heldTransform();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       transform: held.transform,
     });
@@ -831,7 +831,7 @@ describe("replacing (issue #58)", () => {
     let finish = (): void => {};
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       // A shrink that holds on, so the progress sentence can be seen while it works.
       transform: ({ file }) =>
@@ -852,7 +852,7 @@ describe("settling (issue #58)", () => {
   it("resolves at once when nothing is being added", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await expect(control.settled()).resolves.toBeUndefined();
@@ -862,7 +862,7 @@ describe("settling (issue #58)", () => {
     const held = heldTransform();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       transform: held.transform,
     });
@@ -889,14 +889,14 @@ describe("provider changes with images attached", () => {
     const onChange = vi.fn();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
       onChange,
     });
     await control.add([png("a.png", 4 * KIB), png("b.png", 4 * KIB)]);
     onChange.mockClear();
 
-    control.setProvider(typesafe);
+    control.setSelected([typesafe]);
     expect(zone().hidden).toBe(false);
     expect(zone().hasAttribute("data-unavailable")).toBe(true);
     expect(control.count()).toBe(2);
@@ -908,7 +908,7 @@ describe("provider changes with images attached", () => {
     expect(control.blocked()).toBeUndefined();
     expect(onChange).toHaveBeenCalledOnce();
 
-    control.setProvider(subq);
+    control.setSelected([subq]);
     expect(zone().hidden).toBe(false);
     expect(items()).toHaveLength(2);
     expect(notice()).toBe("");
@@ -918,11 +918,11 @@ describe("provider changes with images attached", () => {
   it("lets the person remove kept images on a text-only provider, and hands focus to the sentence when the last goes", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png", 4 * KIB), png("b.png", 4 * KIB)]);
-    control.setProvider(typesafe);
+    control.setSelected([typesafe]);
     // The kept thumbnails are listed inside the unavailable control, each with its Remove button.
     expect(zone().hidden).toBe(false);
     expect(items()).toHaveLength(2);
@@ -937,26 +937,26 @@ describe("provider changes with images attached", () => {
   it("says nothing about an empty image list on a provider change", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
-    control.setProvider(typesafe);
+    control.setSelected([typesafe]);
     expect(notice()).toBe("");
     expect(status()).toBe("");
-    control.setProvider(openai);
+    control.setSelected([openai]);
     expect(status()).toBe("");
   });
 
   it("marks the excess on a provider with a lower count and blocks Run until it is removed", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add(Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
     expect(control.count()).toBe(8);
 
-    control.setProvider(subq);
+    control.setSelected([subq]);
     const marked = items().map((item) => item.hasAttribute("data-over-limit"));
     expect(marked).toEqual([false, false, false, false, true, true, true, true]);
     const flagOf = (index: number): HTMLElement => {
@@ -992,11 +992,11 @@ describe("provider changes with images attached", () => {
     const roomy = withImages(openai, { maxBytesPerRequest: 128 * KIB });
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: roomy,
+      selected: [roomy],
       providers,
     });
     await control.add([png("a.png", 40 * KIB), png("b.png", 40 * KIB)]);
-    control.setProvider(subq);
+    control.setSelected([subq]);
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([false, true]);
     await control.add([png("c.png", 30 * KIB)]);
     // 40 KB kept plus 30 KB: the marked 40 KB is not counted, so the sentence names 70 KB.
@@ -1008,18 +1008,18 @@ describe("provider changes with images attached", () => {
   it("marks by bytes too, by position and running total, and uses the singular", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add([png("a.png", 30 * KIB), png("b.png", 30 * KIB)]);
-    control.setProvider(withImages(subq, { maxBytesPerRequest: 32 * KIB }));
+    control.setSelected([withImages(subq, { maxBytesPerRequest: 32 * KIB })]);
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([false, true]);
     expect(control.blocked()).toBe(
       "1 image is over the limits of SubQ Snap: up to 4 images, 32 KB in total. Remove the marked image to run.",
     );
-    control.setProvider(withImages(subq, { maxBytesPerImage: 16 * KIB }));
+    control.setSelected([withImages(subq, { maxBytesPerImage: 16 * KIB })]);
     expect(items().map((item) => item.hasAttribute("data-over-limit"))).toEqual([true, true]);
-    control.setProvider(openai);
+    control.setSelected([openai]);
     expect(control.blocked()).toBeUndefined();
     expect(status()).toBe("Your 2 images fit the limits of OpenAI Decisions and will be sent.");
   });
@@ -1027,13 +1027,13 @@ describe("provider changes with images attached", () => {
   it("drops the marks when the provider is text only, because nothing will be sent", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add(Array.from({ length: 5 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
-    control.setProvider(subq);
+    control.setSelected([subq]);
     expect(control.blocked()).not.toBeUndefined();
-    control.setProvider(typesafe);
+    control.setSelected([typesafe]);
     expect(control.blocked()).toBeUndefined();
     expect(items().some((item) => item.hasAttribute("data-over-limit"))).toBe(false);
   });
@@ -1041,11 +1041,11 @@ describe("provider changes with images attached", () => {
   it("announces the over-limit message exactly once, in the status line, and not again in the notice beside it", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers,
     });
     await control.add(Array.from({ length: 8 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
-    control.setProvider(subq);
+    control.setSelected([subq]);
     const message =
       "4 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 4 marked images to run.";
     expect(notice()).toBe(message);
@@ -1058,11 +1058,11 @@ describe("provider changes with images attached", () => {
   it("announces a text-only change exactly once, in the status line, and not again in the notice beside it", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png", 4 * KIB)]);
-    control.setProvider(typesafe);
+    control.setSelected([typesafe]);
     expect(notice()).toBe("TypeSafe Jev is text only. Your 1 image is kept and will not be sent.");
     expect(liveRegionsSaying("TypeSafe Jev is text only")).toEqual(["attachments-status"]);
   });
@@ -1070,13 +1070,76 @@ describe("provider changes with images attached", () => {
   it("refuses to add while no provider is selected", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: undefined,
+      selected: [],
       providers,
     });
     await control.add([png()]);
     expect(status()).toBe("poster.png was not added: no provider is selected.");
-    control.setProvider(undefined);
+    control.setSelected([]);
     expect(status()).toBe("poster.png was not added: no provider is selected.");
+  });
+});
+
+describe("several ticked providers (issue #101)", () => {
+  function limitsLine(): string {
+    return get("#noul-images-limits").textContent ?? "";
+  }
+
+  it("says each ticked provider's limits in its own sentence, in list order", () => {
+    createAttachments(mount(), {
+      prefix: "noul-images",
+      selected: [typesafe, subq, openai],
+      providers,
+    });
+    expect(limitsLine()).toBe(
+      [
+        "TypeSafe Jev is text only and gets the request without images.",
+        "SubQ Snap takes up to 4 images, 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's.",
+        "OpenAI Decisions takes up to 8 images, 64 KB in total: PNG, JPEG, or WebP. These are this instance's limits, not the provider's.",
+      ].join(" "),
+    );
+    expect(zone().hasAttribute("data-unavailable")).toBe(false);
+  });
+
+  it("is available while any ticked provider takes images, and unavailable only when none does", () => {
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      selected: [typesafe, subq],
+      providers,
+    });
+    expect(input().disabled).toBe(false);
+    control.setSelected([typesafe]);
+    expect(input().disabled).toBe(true);
+    expect(limitsLine()).toBe(
+      "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions to attach images.",
+    );
+  });
+
+  it("marks images past the strictest count, and names only the providers whose limits they exceed", async () => {
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      selected: [openai],
+      providers,
+    });
+    await control.add(Array.from({ length: 6 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
+    control.setSelected([subq, openai]);
+    expect(items().filter((item) => item.hasAttribute("data-over-limit"))).toHaveLength(2);
+    expect(control.blocked()).toBe(
+      "2 images are over the limits of SubQ Snap: up to 4 images, 64 KB in total. Remove the 2 marked images to run.",
+    );
+  });
+
+  it("refuses an image past the strictest count, naming the provider whose count it is", async () => {
+    const control = createAttachments(mount(), {
+      prefix: "noul-images",
+      selected: [subq, openai],
+      providers,
+    });
+    await control.add(Array.from({ length: 5 }, (_, index) => png(`${index + 1}.png`, 4 * KIB)));
+    expect(control.count()).toBe(4);
+    expect(status()).toContain(
+      "5.png was not added: SubQ Snap takes at most 4 images per request, and 4 are attached.",
+    );
   });
 });
 
@@ -1084,7 +1147,7 @@ describe("edges the review asked for", () => {
   it("names a file within a kibibyte of the cap by its exact byte count, so the sentence cannot contradict itself", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("edge.png", 65_800)]);
@@ -1100,7 +1163,7 @@ describe("edges the review asked for", () => {
   it("reports a file that cannot be read and goes on with the rest of the selection", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     const unreadable = png("gone.png");
@@ -1119,7 +1182,7 @@ describe("edges the review asked for", () => {
 
   it("keeps the file input and every Remove button in the tab order, each with a name", async () => {
     const form = mount();
-    const control = createAttachments(form, { prefix: "noul-images", provider: subq, providers });
+    const control = createAttachments(form, { prefix: "noul-images", selected: [subq], providers });
     await control.add([png("a.png"), png("b.png")]);
     const focusable = [
       ...zone().querySelectorAll<HTMLElement>(
@@ -1141,14 +1204,14 @@ describe("edges the review asked for", () => {
   it("keeps the same object URLs through a text-only round trip", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png")]);
     const before = items().map((item) => item.querySelector("img")?.getAttribute("src"));
     createObjectURL.mockClear();
-    control.setProvider(typesafe);
-    control.setProvider(subq);
+    control.setSelected([typesafe]);
+    control.setSelected([subq]);
     expect(createObjectURL).not.toHaveBeenCalled();
     expect(revokeObjectURL).not.toHaveBeenCalled();
     expect(items().map((item) => item.querySelector("img")?.getAttribute("src"))).toEqual(before);
@@ -1165,7 +1228,7 @@ describe("numbered images", () => {
   it("lists the images in an ordered list labelled Image 1, 2, 3", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png"), png("c.png")]);
@@ -1176,7 +1239,7 @@ describe("numbered images", () => {
   it("gives thumbnails an empty alt and Remove buttons the number and the file name", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png")]);
@@ -1187,7 +1250,7 @@ describe("numbered images", () => {
   it("says that image 3 is now image 2 when image 2 is removed, and renumbers the items", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png"), png("c.png")]);
@@ -1202,7 +1265,7 @@ describe("numbered images", () => {
   it("names a range when several images move up", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png"), png("c.png"), png("d.png")]);
@@ -1213,7 +1276,7 @@ describe("numbered images", () => {
   it("does not mention renumbering when the last image is removed", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png"), png("c.png")]);
@@ -1225,7 +1288,7 @@ describe("numbered images", () => {
   it("numbers from 1 again after replace", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png"), png("c.png")]);
@@ -1237,11 +1300,11 @@ describe("numbered images", () => {
   it("keeps marking over-limit images after a removal", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers,
     });
     await control.add([png("a.png"), png("b.png"), png("c.png"), png("d.png")]);
-    control.setProvider(withImages(subq, { maxCount: 2 }));
+    control.setSelected([withImages(subq, { maxCount: 2 })]);
     const marks = () => items().map((item) => item.hasAttribute("data-over-limit"));
     expect(marks()).toEqual([false, false, true, true]);
     pressRemove(0);

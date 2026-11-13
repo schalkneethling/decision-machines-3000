@@ -1,5 +1,10 @@
 Feature: A provider select picks which configured provider Run asks
 
+  # Since #101 the select is a set of checkboxes in the Run bar, and Run asks every ticked provider. The list, the
+  # stored choice, the setup notice, Retry, and the protection notice work as below, with "checkbox" for "option"
+  # and a JSON list of ids under "decisionmachines3000:providers" for the stored id
+  # (scenarios/101-compare-providers.feature).
+
   Background:
     Given GET /api/providers lists the providers this instance has a key for
     And the select is a real <select> with a <label for>, filled from that list

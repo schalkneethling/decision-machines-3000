@@ -156,7 +156,9 @@ export type WarmControl = {
 
 /**
  * Wires the warm form: the keep-alive select, built from `KEEP_ALIVE_SECONDS`,
- * the button that warms the provider `selection` holds, and the countdown output.
+ * the button that warms a provider, and the countdown output. The form warms
+ * the first ticked provider that can warm, and its button names that provider,
+ * because one connection is warmed at a time while Run may ask several.
  */
 export function setupWarm(
   root: Document,
@@ -208,10 +210,10 @@ export function setupWarm(
     button.disabled = active;
   }
 
-  function follow(next: ProviderSummary | undefined): void {
+  function follow(ticked: readonly ProviderSummary[]): void {
     const warmable =
-      next !== undefined && next.canWarm && selection.host()?.connectionMetrics === true
-        ? next
+      selection.host()?.connectionMetrics === true
+        ? ticked.find((candidate) => candidate.canWarm)
         : undefined;
     if (warmable?.id !== provider?.id) {
       // The count and any message were about the previous provider's connection.
@@ -263,7 +265,7 @@ export function setupWarm(
   });
 
   selection.subscribe(follow);
-  follow(selection.current());
+  follow(selection.selected());
 
   return {
     noteAnswered: (response) => {

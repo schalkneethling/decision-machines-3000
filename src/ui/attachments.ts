@@ -10,21 +10,30 @@ import {
   formatList,
   imagesCount,
   sizeLimits,
+  textOnlyLimitSentence,
   textOnlySentence,
 } from "./image-sentences.ts";
+import {
+  imageProviders,
+  providerNames,
+  strictestImages,
+  textOnlyProviders,
+} from "./provider-limits.ts";
 
 /**
  * The image control of the request form (issue #16): a fieldset with a file input,
  * a drop zone, and a paste listener on the request form, which follows the
- * selected provider. For a provider that takes images, its `accept` list,
- * count, and size limits come from that provider's `capabilities.images`, as
- * `GET /api/providers` serves them. The client holds no limit of its own. For a
- * text-only provider the control stays in the page in an unavailable state
- * (issue #98), so a visitor can see that images exist: one sentence names the
- * selected provider as text only and the listed providers that take images,
- * and the file input is disabled. Drop and paste still reach `admit`, which
- * refuses them with "X is text only". Only while no provider is selected is the
- * control hidden, because there is nothing true to say yet.
+ * ticked providers. Its `accept` list, count, and size limits are the
+ * strictest of the ticked providers that take images (issue #101), from their
+ * `capabilities.images` as `GET /api/providers` serves them, so every image it
+ * keeps can go to each of them. The client holds no limit of its own. A ticked
+ * text-only provider is sent the request without the images. When every ticked
+ * provider is text only, the control stays in the page in an unavailable state
+ * (issue #98), so a visitor can see that images exist: one sentence names them
+ * as text only and the listed providers that take images, and the file input is
+ * disabled. Drop and paste still reach `admit`, which refuses them with "X is
+ * text only". Only while no provider is ticked is the control hidden, because
+ * there is nothing true to say yet.
  *
  * Every image goes through one pipeline, `admit`, whatever brought it in:
  *
@@ -69,7 +78,7 @@ export type Attachment = {
   previewUrl: string;
   /** The size in bytes the file arrived with, when the transform made it smaller; otherwise undefined. */
   shrunkFrom: number | undefined;
-  /** True when the selected provider cannot take this image, by count or by bytes. */
+  /** True when a ticked provider cannot take this image, by count or by bytes. */
   overLimit: boolean;
   element: HTMLLIElement;
 };
@@ -98,8 +107,8 @@ export class ImageRefusal extends Error {}
 export type AttachmentsOptions = {
   /** The prefix of every id the control mints, such as `noul-images`. */
   prefix: string;
-  /** The provider selected when the control is built. The first render announces nothing. */
-  provider: ProviderSummary | undefined;
+  /** The providers ticked when the control is built. The first render announces nothing. */
+  selected: readonly ProviderSummary[];
   /** The providers the page received, read when the control says which ones take images. */
   providers: () => readonly ProviderSummary[];
   transform?: ImageTransform;
@@ -108,12 +117,12 @@ export type AttachmentsOptions = {
 };
 
 export type Attachments = {
-  /** Follows a provider change: shows the control as available or unavailable, updates its limits, marks the excess, and announces the effect. */
-  setProvider(provider: ProviderSummary | undefined): void;
+  /** Follows a change to the ticked providers: shows the control as available or unavailable, updates its limits, marks the excess, and announces the effect. */
+  setSelected(selected: readonly ProviderSummary[]): void;
   /** The attached files, in order, as they are sent. */
   files(): readonly File[];
   count(): number;
-  /** Why Run must wait, or undefined when every image fits the selected provider. */
+  /** Why Run must wait, or undefined when every image fits every ticked provider that takes images. */
   blocked(): string | undefined;
   /** Runs `sources` through the pipeline, in order, and announces the outcome. The way the file input, drop, and paste add images. */
   add(sources: readonly Blob[]): Promise<void>;
@@ -216,7 +225,7 @@ function carriesFiles(data: DataTransfer | null | undefined): data is DataTransf
 /** Builds the control in `form`'s `.attachments` container and wires the file input, the drop zone, and paste. */
 export function createAttachments(
   form: HTMLFormElement,
-  { prefix, provider, providers, transform = keepAsIs, onChange }: AttachmentsOptions,
+  { prefix, selected, providers, transform = keepAsIs, onChange }: AttachmentsOptions,
 ): Attachments {
   const host = required(form, ".attachments", HTMLElement);
   const ids = {
@@ -283,7 +292,7 @@ export function createAttachments(
   const status = create("p", { className: "attachments-status", attributes: { role: "status" } });
   host.replaceChildren(zone, notice, status);
 
-  let current = provider;
+  let current = selected;
   const attachments: Attachment[] = [];
   let pastedCount = 0;
   /** How many `add` calls have not finished; Run waits for them, or it would go without an image still being shrunk. */
@@ -291,8 +300,22 @@ export function createAttachments(
   /** Adds run one after another, so two drops cannot both pass the count check. */
   let queue: Promise<unknown> = Promise.resolve();
 
-  function imagesOf(selected: ProviderSummary | undefined): ImageCapabilities | false {
-    return selected === undefined ? false : selected.capabilities.images;
+  /** The limits every ticked provider that takes images accepts, or false when none takes images. */
+  function imagesOf(ticked: readonly ProviderSummary[]): ImageCapabilities | false {
+    const images = imageProviders(ticked).flatMap((provider) =>
+      provider.capabilities.images === false ? [] : [provider.capabilities.images],
+    );
+    return images.length === 0 ? false : strictestImages(images);
+  }
+
+  /** The ticked providers that take images and cannot take every attached image. */
+  function bindingProviders(): ProviderSummary[] {
+    const sizes = attachments.map((attachment) => attachment.file.size);
+    return imageProviders(current).filter(
+      (provider) =>
+        provider.capabilities.images !== false &&
+        fitsWithin(sizes, provider.capabilities.images).some((fits) => !fits),
+    );
   }
 
   /** The bytes of the images that will be sent: the marked ones are left out, as they are of the request. */
@@ -335,7 +358,7 @@ export function createAttachments(
     return ` Images ${index + 2} to ${attachments.length + 1} are now images ${index + 1} to ${attachments.length}.${check}`;
   }
 
-  /** The over-limit marks for the selected provider, and how many images carry one. */
+  /** The over-limit marks for the ticked providers, and how many images carry one. */
   function markOverLimit(): number {
     const images = imagesOf(current);
     const fits =
@@ -356,11 +379,17 @@ export function createAttachments(
     return over;
   }
 
+  /**
+   * Why the marked images stop Run, naming only the ticked providers whose
+   * limits they exceed, and those providers' limits.
+   */
   function blockedMessage(over: number): string | undefined {
-    const images = imagesOf(current);
-    if (over === 0 || images === false || current === undefined) return undefined;
+    if (over === 0 || imagesOf(current) === false) return undefined;
+    const binding = bindingProviders();
+    const images = imagesOf(binding);
+    if (images === false) return undefined;
     return (
-      `${imagesCount(over)} ${over === 1 ? "is" : "are"} over the limits of ${current.displayName}: ` +
+      `${imagesCount(over)} ${over === 1 ? "is" : "are"} over the limits of ${providerNames(binding)}: ` +
       `up to ${images.maxCount} images, ${sizeLimits(images)}. ` +
       `Remove the ${over === 1 ? "marked image" : `${over} marked images`} to run.`
     );
@@ -368,36 +397,51 @@ export function createAttachments(
 
   /** "Your 2 images fit the limits of SubQ Snap": said when a change makes every image fit again. */
   function fitSentence(): string {
-    return `Your ${imagesCount(attachments.length)} fit the limits of ${current?.displayName ?? ""}`;
+    return `Your ${imagesCount(attachments.length)} fit the limits of ${providerNames(imageProviders(current))}`;
   }
 
-  /** The fieldset, its limits, and the notice for the current provider. Returns the blocking message, if any. */
+  /** "TypeSafe Jev is", "TypeSafe Jev and X are": the subject of a sentence about the ticked text-only providers. */
+  function textOnlySubject(): string {
+    const textOnly = textOnlyProviders(current);
+    return `${providerNames(textOnly)} ${textOnly.length === 1 ? "is" : "are"}`;
+  }
+
+  /** The fieldset, its limits, and the notice for the ticked providers. Returns the blocking message, if any. */
   function render(): string | undefined {
     const images = imagesOf(current);
-    // Only "no provider" hides the control. A text-only provider shows it as unavailable.
-    zone.hidden = current === undefined;
+    const none = current.length === 0;
+    // Only "no provider" hides the control. Only text-only providers show it as unavailable.
+    zone.hidden = none;
     const unavailable = images === false;
-    zone.toggleAttribute("data-unavailable", unavailable && current !== undefined);
+    zone.toggleAttribute("data-unavailable", unavailable && !none);
     input.disabled = unavailable;
     // What the control says about choosing files is untrue while it is unavailable.
     for (const element of [instructions, hint, privacy]) element.hidden = unavailable;
-    if (images === false || current === undefined) {
+    if (images === false) {
       // Plain text in the fieldset, not in a live region: it is there on the first render and
       // rewritten on a provider change, which the provider status line announces once.
-      limits.textContent =
-        current === undefined ? "" : textOnlySentence(current, providers(), "to attach images");
+      limits.textContent = none
+        ? ""
+        : textOnlySentence(textOnlyProviders(current), providers(), "to attach images");
       input.removeAttribute("accept");
       markOverLimit();
-      if (current !== undefined && attachments.length > 0) {
+      if (!none && attachments.length > 0) {
         setNotice(
-          `${current.displayName} is text only. Your ${imagesCount(attachments.length)} ${attachments.length === 1 ? "is" : "are"} kept and will not be sent.`,
+          `${textOnlySubject()} text only. Your ${imagesCount(attachments.length)} ${attachments.length === 1 ? "is" : "are"} kept and will not be sent.`,
         );
       } else {
         setNotice("");
       }
       return undefined;
     }
-    limits.textContent = capabilitySentence(current, images);
+    // One sentence per ticked provider, in list order, so each one's limits are said in its own words.
+    limits.textContent = current
+      .map((provider) =>
+        provider.capabilities.images === false
+          ? textOnlyLimitSentence(provider)
+          : capabilitySentence(provider, provider.capabilities.images),
+      )
+      .join(" ");
     // A comma-separated list of MIME types, as MDN's `accept` attribute page gives it.
     input.setAttribute("accept", images.mediaTypes.join(","));
     const blocked = blockedMessage(markOverLimit());
@@ -497,13 +541,19 @@ export function createAttachments(
   async function admit(source: Blob): Promise<Admission> {
     const label = labelOf(source);
     const images = imagesOf(current);
-    if (current === undefined)
+    if (current.length === 0)
       return { sentence: `${label} was not added: no provider is selected.` };
     if (images === false)
-      return { sentence: `${label} was not added: ${current.displayName} is text only.` };
+      return { sentence: `${label} was not added: ${textOnlySubject()} text only.` };
     if (attachments.length >= images.maxCount) {
+      // Named by the providers whose count is the one reached.
+      const counting = imageProviders(current).filter(
+        (provider) =>
+          provider.capabilities.images !== false &&
+          provider.capabilities.images.maxCount === images.maxCount,
+      );
       return {
-        sentence: `${label} was not added: ${current.displayName} takes at most ${images.maxCount} images per request, and ${attachments.length} are attached.`,
+        sentence: `${label} was not added: ${providerNames(counting)} ${counting.length === 1 ? "takes" : "take"} at most ${images.maxCount} images per request, and ${attachments.length} are attached.`,
       };
     }
 
@@ -681,20 +731,20 @@ export function createAttachments(
   render();
 
   return {
-    setProvider(next) {
+    setSelected(next) {
       const before = current;
       current = next;
       const blocked = render();
       onChange?.();
-      if (next === undefined || attachments.length === 0) return;
+      if (next.length === 0 || attachments.length === 0) return;
       const count = imagesCount(attachments.length);
-      if (next.capabilities.images === false) {
+      if (imagesOf(next) === false) {
         announce(
-          `${next.displayName} is text only; your ${count} ${attachments.length === 1 ? "is" : "are"} kept and will not be sent`,
+          `${textOnlySubject()} text only; your ${count} ${attachments.length === 1 ? "is" : "are"} kept and will not be sent`,
         );
       } else if (blocked !== undefined) {
         announce(blocked);
-      } else if (before === undefined || before.capabilities.images === false) {
+      } else if (imagesOf(before) === false) {
         announce(`Image input available again; your ${count} will be sent.`);
       } else {
         announce(`${fitSentence()} and will be sent.`);

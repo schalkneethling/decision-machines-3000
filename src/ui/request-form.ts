@@ -11,6 +11,12 @@ import { browserRasterizer } from "./shrink-browser.ts";
 import { createShrinkTransform } from "./shrink.ts";
 import type { Attachments } from "./attachments.ts";
 import { imagesCount, textOnlySentence } from "./image-sentences.ts";
+import {
+  imageProviders,
+  providerNames,
+  strictestCapabilities,
+  textOnlyProviders,
+} from "./provider-limits.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
 import { findIssues, STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
@@ -26,7 +32,8 @@ import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
 import { renderError, renderNonJson, renderResponse, renderUnreachable } from "./readout.ts";
 import { QUESTION_TYPE_NAMES } from "./question-types.ts";
-import { answersSentence, setupResults } from "./results.ts";
+import { answersSentence, comparedSentence, setupResults } from "./results.ts";
+import type { Outcome, ProviderRun } from "./results.ts";
 import { fetchSampleImages } from "./sample-images.ts";
 import { capitalise } from "./text.ts";
 import { questionTypeTerm } from "./vocabulary.ts";
@@ -57,7 +64,9 @@ type RequestForm = {
    * shown; the composer holds its live model.
    */
   remembered: Record<Primitive, ComposerModel>;
-  /** The limits the form validates against. */
+  /** The ticked providers, which Run asks. */
+  selected: readonly ProviderSummary[];
+  /** The limits every ticked provider accepts, which the form validates against. */
   capabilities: ProviderCapabilities;
   form: HTMLFormElement;
   typeInputs: Record<Primitive, HTMLInputElement>;
@@ -165,10 +174,8 @@ function emptyModel(primitive: Primitive): ComposerModel {
 type FormSetup = {
   /** The type the form opens on. */
   primitive: Primitive;
-  /** The limits the form validates against until a provider is selected. */
-  capabilities: ProviderCapabilities;
-  /** The provider selected while the form is built, for the image control's first, silent render. */
-  provider: ProviderSummary | undefined;
+  /** The providers ticked while the form is built, for the image control's first, silent render. */
+  selected: readonly ProviderSummary[];
   /** The providers the page received, so the image control and example can name the ones that take images. */
   providers: () => readonly ProviderSummary[];
   /** Called after any change to what Run would send or why it cannot: the images, or an edit. */
@@ -177,8 +184,9 @@ type FormSetup = {
 
 function setupForm(
   form: HTMLFormElement,
-  { primitive, capabilities, provider, providers, onChange }: FormSetup,
+  { primitive, selected, providers, onChange }: FormSetup,
 ): RequestForm {
+  const capabilities = limitsOf(selected);
   const status = required(form, ".request-status", HTMLElement);
   const treeBody = required(form, '[data-view-body="tree"]', HTMLElement);
   const hint = required(form, ".hint", HTMLElement);
@@ -189,7 +197,7 @@ function setupForm(
   let request: RequestForm | undefined;
   const attachments = createAttachments(form, {
     prefix: "request-images",
-    provider,
+    selected,
     providers,
     transform: createShrinkTransform(browserRasterizer()),
     onChange: () => {
@@ -237,6 +245,7 @@ function setupForm(
       choice: emptyModel("choice"),
       score: emptyModel("score"),
     },
+    selected,
     capabilities,
     form,
     typeInputs,
@@ -317,14 +326,39 @@ function writeJson(request: RequestForm): void {
   clearFieldError(request);
 }
 
-/** How many of the request's images Run would send: none to a text-only provider. */
+/**
+ * The limits the form checks a request against: those every ticked provider
+ * accepts, or, with none ticked, the default provider's, so the tree still
+ * reports what it can.
+ */
+function limitsOf(selected: readonly ProviderSummary[]): ProviderCapabilities {
+  return selected.length === 0 ? DEFAULT_PROVIDER.capabilities : strictestCapabilities(selected);
+}
+
+/** How many of the request's images Run would send to the providers that take images: none when no ticked provider does. */
 function sentImageCount(request: RequestForm): number {
   return request.capabilities.images === false ? 0 : request.attachments.count();
 }
 
-/** Checks `value` as the request the form would send, with the images it would send. */
+/**
+ * Checks `value` as the request the form would send: against the limits every
+ * ticked provider accepts, with the images the image providers get, then
+ * against each ticked text-only provider, which gets no images. A blank state
+ * passes with an image attached, but not for a provider that is sent no image.
+ */
 function validateForRequest(request: RequestForm, value: unknown): ValidationResult {
-  return validateDecisionRequest(value, request.capabilities, sentImageCount(request));
+  const strictest = validateDecisionRequest(value, request.capabilities, sentImageCount(request));
+  if (!strictest.ok || sentImageCount(request) === 0) return strictest;
+  for (const provider of textOnlyProviders(request.selected)) {
+    const own = validateDecisionRequest(value, provider.capabilities, 0);
+    if (!own.ok) {
+      return {
+        ...own,
+        error: `For ${provider.displayName}, which is sent no images: ${own.error}`,
+      };
+    }
+  }
+  return strictest;
 }
 
 /** The textarea read as a valid request, or why it is not one. Shows nothing. */
@@ -458,35 +492,32 @@ function targetOf(element: HTMLElement): NonNullable<Problem["target"]> {
 }
 
 /**
- * Why no provider can take the request. The summary links to the provider
- * select while a provider can be chosen there. While the select is disabled,
- * because the list is loading, failed, or is empty, the provider area says why,
- * so the problem is listed without a link.
+ * Why no provider can take the request. The summary links to the first
+ * provider checkbox while providers can be ticked. While the choice is
+ * disabled, because the list is loading, failed, or is empty, the problem
+ * beside it says why, so this is listed without a link.
  */
-function providerProblem(select: HTMLSelectElement | null): Problem {
-  if (select === null || select.disabled) {
+function providerProblem(choice: HTMLFieldSetElement | null): Problem {
+  const first = choice?.disabled === false ? choice.querySelector<HTMLInputElement>("input") : null;
+  if (first === null || first === undefined) {
     return {
       key: "provider",
-      message: "No provider is available yet. The Provider area at the top of the page says why.",
+      message: "No provider is available yet. The Providers to ask area beside Run says why.",
     };
   }
   return {
     key: "provider",
-    message: "Choose a provider to run the request.",
-    target: targetOf(select),
+    message: "Tick at least one provider to run the request.",
+    target: targetOf(first),
   };
 }
 
 /**
  * What stops the request from running before it is read: nothing to send
- * yet, no provider, or images that are over the provider's limits or still
+ * yet, no provider, or images that are over a provider's limits or still
  * being added. Each links to the control that fixes it.
  */
-function runBlockers(
-  request: RequestForm,
-  chosen: ProviderSummary | undefined,
-  providerSelect: HTMLSelectElement | null,
-): Problem[] {
+function runBlockers(request: RequestForm, choice: HTMLFieldSetElement | null): Problem[] {
   const problems: Problem[] = [];
   if (request.untouched) {
     problems.push({
@@ -495,7 +526,7 @@ function runBlockers(
       target: targetOf(request.loadButtons.film),
     });
   }
-  if (chosen === undefined) problems.push(providerProblem(providerSelect));
+  if (request.selected.length === 0) problems.push(providerProblem(choice));
   const blocked = request.attachments.blocked();
   if (blocked !== undefined) {
     problems.push({ key: "images", message: blocked, target: targetOf(request.imagesInput) });
@@ -655,21 +686,21 @@ function focusLoaded(request: RequestForm, pressed: Element | null): void {
 }
 
 /**
- * Why the image example cannot load right now, or undefined when it can: the
- * pictures would not be sent to a text-only provider, or to no provider. Its
- * button stays on a text-only provider and presses into this sentence, which
- * names the listed providers that take images (issue #98). It also answers a
+ * Why the image example cannot load right now, or undefined when it can: no
+ * ticked provider would be sent the pictures. Its button stays while only
+ * text-only providers are ticked and presses into this sentence, which names
+ * the listed providers that take images (issue #98). It also answers a
  * provider change made while the pictures were being fetched.
  */
 function imageExampleProblem(
   set: ExampleSet,
-  chosen: ProviderSummary | undefined,
+  selected: readonly ProviderSummary[],
   providers: readonly ProviderSummary[],
 ): string | undefined {
   const needs = `The ${set.label} needs a provider that takes images.`;
-  if (chosen === undefined) return `${needs} No provider is selected.`;
-  if (chosen.capabilities.images === false) {
-    return `${needs} ${textOnlySentence(chosen, providers, "first")}`;
+  if (selected.length === 0) return `${needs} No provider is ticked.`;
+  if (imageProviders(selected).length === 0) {
+    return `${needs} ${textOnlySentence(selected, providers, "first")}`;
   }
   return undefined;
 }
@@ -697,24 +728,35 @@ function replaceQuestion(request: RequestForm, set: ExampleSet, losses: Losses):
   };
 }
 
-/** `omittedImages` is how many attached images the run left out because the provider is text only. */
-function renderOutcome(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
+/**
+ * What one provider made of a run, for its part of the result. `omittedImages`
+ * is how many attached images it was sent without, because it is text only.
+ */
+function outcomeOf(sent: unknown, result: AskResult, omittedImages: number): Outcome {
   switch (result.kind) {
     case "response":
-      return renderResponse(sent, result.response, omittedImages);
+      return result.response.ok
+        ? { kind: "answered", response: result.response, omittedImages }
+        : { kind: "failed", reading: renderResponse(sent, result.response) };
     case "unreachable":
-      return renderUnreachable(result.detail);
+      return { kind: "failed", reading: renderUnreachable(result.detail) };
     case "non_json":
-      return renderNonJson(result.status);
+      return { kind: "failed", reading: renderNonJson(result.status) };
     case "timeout":
-      return renderError(
-        `No answer arrived within ${REQUEST_TIMEOUT_MS / 1000} seconds. Run the request again.`,
-      );
+      return {
+        kind: "failed",
+        reading: renderError(
+          `No answer arrived within ${REQUEST_TIMEOUT_MS / 1000} seconds. Run the request again.`,
+        ),
+      };
     case "unrecognised":
-      return renderError(
-        "The decision endpoint answered in a shape this page does not recognise.",
-        `HTTP ${result.status}. Check the server log for details.`,
-      );
+      return {
+        kind: "failed",
+        reading: renderError(
+          "The decision endpoint answered in a shape this page does not recognise.",
+          `HTTP ${result.status}. Check the server log for details.`,
+        ),
+      };
   }
 }
 
@@ -738,8 +780,9 @@ export type RequestFormOptions = {
 
 /**
  * Wires the request form, which starts empty, to its question type radios,
- * its two example buttons, its Tree and JSON views, and Run, which posts on the
- * provider `selection` holds and adds what came back to the result list. Run
+ * its two example buttons, its Tree and JSON views, and Run, which posts to
+ * every provider `selection` holds, at the same time, and adds what came back
+ * to the result list as one result. Run
  * stays in the tab order whatever the form holds: its note says what it will
  * send or why it cannot, and a press that cannot send lists every reason in
  * the form's error summary.
@@ -752,16 +795,12 @@ export function setupRequestForm(
   const results = setupResults(root);
   const confirm =
     confirmReplace ?? createConfirmDialog(required(root, "#replace-dialog", HTMLDialogElement));
-  // Until a provider is selected, the request is checked against the default provider's limits.
-  const provider = selection.current();
-  const capabilities = provider?.capabilities ?? DEFAULT_PROVIDER.capabilities;
-  // Owned by the provider select; read here only to link to it, and to know whether it can take focus.
-  const providerSelect = root.querySelector<HTMLSelectElement>("#provider-select");
+  // Owned by the provider choice; read here only to link to it, and to know whether it can take focus.
+  const providerChoice = root.querySelector<HTMLFieldSetElement>("#provider-choice");
   const storedType = readStored(TYPE_STORAGE_KEY);
   const request = setupForm(required(root, "#request-form", HTMLFormElement), {
     primitive: isPrimitive(storedType) ? storedType : "noul",
-    capabilities,
-    provider,
+    selected: selection.selected(),
     providers: () => selection.providers(),
     onChange: changed,
   });
@@ -769,15 +808,26 @@ export function setupRequestForm(
   let running = false;
 
   /** What Run's note says once the form is edited: what a press will send, or the first reason it will send nothing. */
-  function runNoteText(chosen: ProviderSummary | undefined): string {
-    if (running) return "Waiting for the answer to this request.";
-    const [blocker] = runBlockers(request, chosen, providerSelect);
-    if (blocker !== undefined || chosen === undefined) return blocker?.message ?? "";
+  function runNoteText(): string {
+    if (running) {
+      return request.selected.length > 1
+        ? "Waiting for the answers to this request."
+        : "Waiting for the answer to this request.";
+    }
+    const [blocker] = runBlockers(request, providerChoice);
+    if (blocker !== undefined) return blocker.message;
     const count = request.attachments.count();
-    const sends = `Checks the ${typeName(request)} request and sends it to ${chosen.displayName}`;
-    if (count === 0) return `${sends}.`;
-    if (chosen.capabilities.images === false) return `${sends} without your ${imagesCount(count)}.`;
-    return `${sends} with ${imagesCount(count)}.`;
+    const sends = `Checks the ${typeName(request)} request and sends it to`;
+    const withImages = imageProviders(request.selected);
+    const without = textOnlyProviders(request.selected);
+    if (count === 0) return `${sends} ${providerNames(request.selected)}.`;
+    if (withImages.length === 0) {
+      return `${sends} ${providerNames(without)} without your ${imagesCount(count)}.`;
+    }
+    if (without.length === 0) {
+      return `${sends} ${providerNames(withImages)} with ${imagesCount(count)}.`;
+    }
+    return `${sends} ${providerNames(withImages)} with ${imagesCount(count)}, and to ${providerNames(without)} without them.`;
   }
 
   /**
@@ -786,15 +836,14 @@ export function setupRequestForm(
    * the tab order, and its note says why. While the form is untouched, its
    * note is hidden and Run is described by the empty-state message instead,
    * so the page does not say the same thing twice. "Load image example" is
-   * hidden only while no provider is selected. On a text-only provider it
-   * stays, marked `aria-disabled` and `data-unavailable` but still focusable
-   * and pressable, so a visitor finds that images exist and its press says why
-   * nothing loads (issue #98).
+   * hidden only while no provider is ticked. While only text-only providers
+   * are ticked it stays, marked `aria-disabled` and `data-unavailable` but
+   * still focusable and pressable, so a visitor finds that images exist and its
+   * press says why nothing loads (issue #98).
    */
   function updateButtons(): void {
-    const chosen = selection.current();
-    const unavailable = chosen === undefined;
-    const textOnly = chosen !== undefined && chosen.capabilities.images === false;
+    const unavailable = request.selected.length === 0;
+    const textOnly = !unavailable && imageProviders(request.selected).length === 0;
     const exampleButton = request.loadButtons.images;
     exampleButton.hidden = unavailable;
     // `aria-disabled`, not `disabled`: the button stays in the tab order and its press explains.
@@ -805,7 +854,7 @@ export function setupRequestForm(
     else request.button.removeAttribute("aria-disabled");
     request.label.textContent = running ? "Running" : "Run";
     request.button.toggleAttribute("data-running", running);
-    request.runNote.textContent = request.untouched ? "" : runNoteText(chosen);
+    request.runNote.textContent = request.untouched ? "" : runNoteText();
     request.runNote.hidden = request.untouched;
     request.button.setAttribute(
       "aria-describedby",
@@ -816,7 +865,7 @@ export function setupRequestForm(
   /** Drops what a shown error summary lists once it is fixed, and updates what changed. */
   function refreshSummary(): void {
     if (!request.summary.shown()) return;
-    const blockers = runBlockers(request, selection.current(), providerSelect);
+    const blockers = runBlockers(request, providerChoice);
     request.summary.update(
       request.untouched ? blockers : [...blockers, ...requestProblems(request)],
     );
@@ -834,12 +883,11 @@ export function setupRequestForm(
   }
 
   selection.subscribe((next) => {
-    if (next !== undefined) {
-      request.capabilities = next.capabilities;
-      revalidate(request);
-    }
-    // The image control re-marks its images for the new provider and tells the page through onChange.
-    request.attachments.setProvider(next);
+    request.selected = next;
+    request.capabilities = limitsOf(next);
+    revalidate(request);
+    // The image control re-marks its images for the ticked providers and tells the page through onChange.
+    request.attachments.setSelected(next);
     changed();
   });
   updateButtons();
@@ -855,10 +903,10 @@ export function setupRequestForm(
    * the image check runs again after the fetch, because the provider may have
    * changed meanwhile. The status line says what happened either way, in one
    * sentence once loaded, and focus lands on the first field of what was
-   * loaded. Pressed on a text-only provider, the image set loads nothing and
-   * the status line names the providers that take images. It does not switch
-   * the provider: that choice also changes the vocabulary legend, the stored
-   * preference, and who receives the person's data, so it stays theirs.
+   * loaded. Pressed while only text-only providers are ticked, the image set
+   * loads nothing and the status line names the providers that take images. It
+   * does not tick a provider: that choice also changes the stored preference
+   * and who receives the person's data, so it stays theirs.
    */
   async function loadExample(set: ExampleSet): Promise<void> {
     if (request.loading) {
@@ -869,7 +917,7 @@ export function setupRequestForm(
     /** Whether the image set may go into the form right now; announces the problem when not. */
     const imagesAllowed = (): boolean => {
       if (set.images.length === 0) return true;
-      const problem = imageExampleProblem(set, selection.current(), selection.providers());
+      const problem = imageExampleProblem(set, request.selected, selection.providers());
       if (problem === undefined) return true;
       setStatus(request, problem, "alert");
       return false;
@@ -940,19 +988,40 @@ export function setupRequestForm(
   }
 
   /**
-   * What Run posts: the request text alone, or, when the form holds images the
-   * provider takes, that request with the images added as base64 in its
-   * `images` list. Returns the body and how many images were left out because
-   * the provider is text only.
+   * Asks one provider and makes its part of the result. `bodies` holds the
+   * request text alone, for a text-only provider, and the text with the images
+   * as base64, encoded once for every provider that takes them.
    */
-  async function bodyFor(
-    text: string,
-    chosen: ProviderSummary,
-  ): Promise<{ body: string; omittedImages: number }> {
-    const files = request.attachments.files();
-    if (files.length === 0) return { body: text, omittedImages: 0 };
-    if (chosen.capabilities.images === false) return { body: text, omittedImages: files.length };
-    return { body: await withImages(text, files), omittedImages: 0 };
+  async function ask(
+    sent: ValidDecisionRequest,
+    provider: ProviderSummary,
+    bodies: { text: string; withImages: string },
+  ): Promise<{ run: ProviderRun; answered: DecisionSuccess | undefined }> {
+    const count = request.attachments.count();
+    const textOnly = provider.capabilities.images === false;
+    const omittedImages = textOnly ? count : 0;
+    try {
+      const result = await askProvider(provider.id, textOnly ? bodies.text : bodies.withImages);
+      const outcome = outcomeOf(sent, result, omittedImages);
+      const wire = result.kind === "response" ? renderWire(result.response) : undefined;
+      return {
+        run: { provider: provider.displayName, outcome, wire },
+        answered: outcome.kind === "answered" ? outcome.response : undefined,
+      };
+    } catch (error) {
+      const reading = renderError(
+        "Something went wrong while showing the answer.",
+        error instanceof Error ? error.message : undefined,
+      );
+      return {
+        run: {
+          provider: provider.displayName,
+          outcome: { kind: "failed", reading },
+          wire: undefined,
+        },
+        answered: undefined,
+      };
+    }
   }
 
   /**
@@ -968,11 +1037,10 @@ export function setupRequestForm(
   }
 
   async function run(): Promise<void> {
-    const chosen = selection.current();
-    const blockers = runBlockers(request, chosen, providerSelect);
+    const blockers = runBlockers(request, providerChoice);
     // An untouched request is empty, so checking it would only repeat that it is empty.
     const prepared = request.untouched ? undefined : prepareRun(request);
-    if (chosen === undefined || prepared === undefined || !prepared.ok || blockers.length > 0) {
+    if (prepared === undefined || !prepared.ok || blockers.length > 0) {
       const found = prepared?.ok === false ? prepared.problems : [];
       showProblems([...blockers, ...found]);
       return;
@@ -980,34 +1048,46 @@ export function setupRequestForm(
     request.summary.clear();
     setStatus(request, "");
     setRunning(true);
-    // The result is labelled with what ran and when it started, and never marked out
-    // of date: the request or the provider may change later, and the label still says what this was.
+    // The result is labelled with what ran and when it started, and never marked out of
+    // date: the request or the providers may change later, and the label still says what this was.
     const at = new Date();
-    const provider = chosen.displayName;
+    const asked = [...request.selected];
     const questionType = QUESTION_TYPE_NAMES[prepared.sent.primitive];
-    results.waiting(provider);
+    results.waiting(asked.map((provider) => provider.displayName));
     try {
-      // Encoding the images happens while the form already shows that it is running.
-      const { body, omittedImages } = await bodyFor(prepared.body, chosen);
-      const result = await askProvider(chosen.id, body);
-      const reading = renderOutcome(prepared.sent, result, omittedImages);
-      const wire = result.kind === "response" ? renderWire(result.response) : undefined;
-      const answered =
-        result.kind === "response" && result.response.ok ? result.response : undefined;
-      // A failure's alert speaks for itself, so the live region then says nothing more.
-      results.add(
-        { questionType, at, runs: [{ provider, reading, wire }] },
-        answered === undefined
-          ? ""
-          : answersSentence(questionType, provider, Object.keys(answered.answers).length),
+      // Encoding the images happens while the form already shows that it is running, and once for all.
+      const files = request.attachments.files();
+      const withImagesBody =
+        files.length > 0 && imageProviders(asked).length > 0
+          ? await withImages(prepared.body, files)
+          : prepared.body;
+      const bodies = { text: prepared.body, withImages: withImagesBody };
+      // At the same time (owner's decision, 2026-11-13): one slow provider does not hold up the others.
+      const outcomes = await Promise.all(
+        asked.map((provider) => ask(prepared.sent, provider, bodies)),
       );
-      if (answered !== undefined) onAnswered?.(answered);
-    } catch (error) {
-      const reading = renderError(
-        "Something went wrong while showing the answer.",
-        error instanceof Error ? error.message : undefined,
+      const runs = outcomes.map((outcome) => outcome.run);
+      const answered = outcomes.flatMap((outcome) =>
+        outcome.answered === undefined ? [] : [outcome.answered],
       );
-      results.add({ questionType, at, runs: [{ provider, reading, wire: undefined }] }, "");
+      const [only] = answered;
+      // A failure's alert speaks for itself, so the live region then names only who answered.
+      const announcement =
+        asked.length === 1
+          ? only === undefined
+            ? ""
+            : answersSentence(
+                questionType,
+                runs[0]?.provider ?? "",
+                Object.keys(only.answers).length,
+              )
+          : comparedSentence(
+              questionType,
+              runs.filter((run) => run.outcome.kind === "answered").map((run) => run.provider),
+              asked.length,
+            );
+      results.add({ questionType, at, sent: prepared.sent, runs }, announcement);
+      for (const response of answered) onAnswered?.(response);
     } finally {
       setRunning(false);
     }

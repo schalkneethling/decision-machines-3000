@@ -681,116 +681,74 @@ code {
 }
 
 /*
- * Provider select: a real <select> that wears the same .tree-field and .tree-select
- * rules as the other selects, and is restyled further where appearance: base-select
- * is supported.
- *
- * The live regions below start empty and stay in the page, because assistive
- * technology announces a change inside a region that is already there. An empty
- * region is zero tall, so only the gap between rows would still show. Spacing is
- * therefore a margin on each row that has content, not a gap on the grid.
+ * The provider choice in the Run bar (issue #101): one checkbox per listed
+ * provider, each named by the provider and its model and described by what it
+ * does with images. On wide screens the providers sit side by side.
  */
-.provider {
+.provider-choice {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.provider-choice-legend {
+  margin-block-end: 0.5rem;
+  padding: 0;
+  font-weight: 500;
+}
+
+.provider-choice:disabled {
+  opacity: 0.6;
+}
+
+.provider-options {
   display: grid;
-  max-inline-size: 30rem;
+  gap: 0.25rem 1.5rem;
 }
 
-.provider > * + *:not(:empty) {
-  margin-block-start: 0.5rem;
+.provider-option {
+  display: grid;
+  grid-template-columns: 1.375rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
 }
 
-.provider-label {
+.provider-input {
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+  margin: 0;
+  accent-color: var(--reading);
+}
+
+.provider-option-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+  min-block-size: 2.75rem;
+  align-content: center;
+  cursor: pointer;
+}
+
+.provider-ability {
+  grid-column: 2;
+  margin: 0;
   color: var(--ink-muted);
   font-size: var(--size-meta);
   line-height: var(--leading-meta);
 }
 
-.provider-select:disabled {
-  opacity: 0.6;
+.provider-placeholder {
+  margin: 0;
+  color: var(--ink-muted);
 }
 
 .provider-model {
   color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: var(--size-meta);
-}
-
-/*
- * Both the select and its picker opt in, as MDN's Customizable select guide
- * requires. The selectors name the element so they outrank .tree-select, which
- * comes later in this file and sets appearance: none and its own arrow.
- */
-@supports (appearance: base-select) {
-  select.provider-select,
-  select.provider-select::picker(select) {
-    appearance: base-select;
-  }
-
-  select.provider-select {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding-inline-end: 0.5rem;
-    background-image: none;
-    cursor: pointer;
-  }
-
-  select.provider-select:disabled {
-    cursor: not-allowed;
-  }
-
-  .provider-select::picker-icon {
-    margin-inline-start: auto;
-    color: var(--ink-muted);
-  }
-
-  .provider-select:open::picker-icon {
-    rotate: 180deg;
-  }
-
-  .provider-select::picker(select) {
-    padding: 0.25rem;
-    margin-block-start: 0.25rem;
-    background: var(--surface);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-well);
-  }
-
-  .provider-select option {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-key);
-    cursor: pointer;
-  }
-
-  /*
-   * The highlighted option gets an inset outline in the ink colour. A background
-   * change cannot do this job: --well on --surface is only 1.07:1 in the light
-   * scheme. --ink on --surface is 11.55:1 in dark and 15.05:1 in light.
-   */
-  .provider-select option:hover,
-  .provider-select option:focus,
-  .provider-select option:focus-visible {
-    outline: 2px solid var(--ink);
-    outline-offset: -2px;
-  }
-
-  .provider-select option::checkmark {
-    order: 1;
-    margin-inline-start: auto;
-    color: var(--reading);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  @supports (appearance: base-select) {
-    .provider-select::picker-icon {
-      transition: rotate 0.2s;
-    }
-  }
 }
 
 /* The setup notice and the failed-load note. The region is always in the page, so filling it is announced. */
@@ -848,14 +806,7 @@ code {
   color: inherit;
 }
 
-/* The selected provider's image capability, always shown. The status line beside it is visually hidden and only announces a change. */
-.provider-capability {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: var(--size-meta);
-  line-height: var(--leading-meta);
-}
-
+/* About these providers: the words each listed provider's API uses, after the results */
 .provider-vocabulary {
   color: var(--ink-muted);
   font-size: var(--size-meta);
@@ -863,22 +814,28 @@ code {
 }
 
 .provider-vocabulary-summary {
+  min-block-size: 2.75rem;
+  display: flex;
+  align-items: center;
   cursor: pointer;
 }
 
-.provider-vocabulary-list {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.25rem 1rem;
-  margin: 0.5rem 0 0;
+.provider-vocabulary-table {
+  border-collapse: collapse;
+  margin-block-start: 0.5rem;
 }
 
-.provider-vocabulary-list dt {
+.provider-vocabulary-table th,
+.provider-vocabulary-table td {
+  padding: 0.375rem 1rem 0.375rem 0;
+  border-block-start: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+
+.provider-vocabulary-table th {
   color: var(--ink);
-}
-
-.provider-vocabulary-list dd {
-  margin: 0;
+  font-weight: 500;
 }
 
 /* Warm connection: the keep-alive select and a smaller Run key above the readout */
@@ -1350,6 +1307,55 @@ textarea.tree-field {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * A run on several providers (issue #101): one table, a row per question and a
+ * column per provider, then each provider's metadata or failure and its wire
+ * view. On a phone, each row becomes a group: the question, then one block per
+ * provider, labelled with its name. The table keeps its roles in the markup,
+ * so a screen reader still reads it as a table.
+ */
+.comparison {
+  inline-size: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.comparison th,
+.comparison td {
+  padding: 0.75rem 1rem 0.75rem 0;
+  border-block-start: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+  font-weight: 400;
+}
+
+.comparison thead th {
+  border-block-start: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+}
+
+.comparison-question {
+  color: var(--ink);
+}
+
+.comparison-missing {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.result-providers {
+  display: grid;
+  gap: 1rem;
+  margin-block-start: 1.25rem;
+}
+
+.result-provider-name {
+  margin: 0 0 0.25rem;
+  font-size: var(--size-body);
+  font-weight: 500;
+}
+
 .readout-error {
   display: grid;
   gap: 0.25rem;
@@ -1593,6 +1599,40 @@ textarea.tree-field {
     inline-size: 100%;
   }
 
+  .comparison,
+  .comparison tbody,
+  .comparison tr,
+  .comparison th,
+  .comparison td {
+    display: block;
+  }
+
+  .comparison thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .comparison tr {
+    padding-block: 0.75rem;
+    border-block-start: 1px solid var(--line);
+  }
+
+  .comparison th,
+  .comparison td {
+    padding: 0.25rem 0;
+    border: 0;
+  }
+
+  .comparison td::before {
+    content: attr(data-provider);
+    display: block;
+    color: var(--ink-muted);
+    font-size: var(--size-meta);
+  }
+
   /* On a phone the examples and the Tree or JSON choice fill the width, as Run does */
   .request-tools,
   .examples {
@@ -1629,8 +1669,9 @@ textarea.tree-field {
     padding: 2rem 0 1.5rem;
   }
 
+  /* Room for the Run bar, so it never covers the field that has focus */
   html {
-    scroll-padding-block-end: 6rem;
+    scroll-padding-block-end: 12rem;
   }
 
   .bench {
@@ -1653,6 +1694,10 @@ textarea.tree-field {
     position: sticky;
     inset-block-end: 0;
     z-index: 1;
+  }
+
+  .provider-options {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   }
 
   .readout {

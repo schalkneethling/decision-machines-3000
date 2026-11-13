@@ -27,48 +27,12 @@
     </header>
 
     <main class="bench">
-      <div class="provider">
-        <label class="provider-label" for="provider-select">Provider</label>
-        <!--
-          A customizable select (appearance: base-select). The button and
-          selectedcontent are ignored by browsers that do not support it, which
-          show a plain select with each option's text.
-        -->
-        <select
-          id="provider-select"
-          class="tree-field tree-select provider-select"
-          name="provider"
-          aria-describedby="provider-problem"
-          disabled
-        >
-          <button>
-            <selectedcontent></selectedcontent>
-          </button>
-          <option value="" selected disabled>Loading providers…</option>
-        </select>
-        <div id="provider-problem" class="provider-problem" role="alert" tabindex="-1"></div>
-        <!--
-          Filled on a deployed instance that refuses runs, or runs them for anyone
-          (ADR-0003). It is in the page and empty from the start, never hidden, so
-          that filling it is announced; CSS collapses it while it is empty.
-        -->
-        <p id="protection-notice" class="protection-notice" role="status"></p>
-        <!--
-          The selected provider's image capability. Plain text, not a live region, so
-          filling it on the first load announces nothing.
-        -->
-        <p id="provider-capability" class="provider-capability"></p>
-        <!--
-          Announces what the viewer causes: a provider change, a Retry. It is visually
-          hidden because the capability line above is what sighted viewers read, and it
-          stays empty on the first load.
-        -->
-        <p id="provider-status" class="visually-hidden" role="status"></p>
-        <details id="provider-vocabulary" class="provider-vocabulary" hidden>
-          <summary class="provider-vocabulary-summary"></summary>
-          <dl class="provider-vocabulary-list"></dl>
-        </details>
-      </div>
+      <!--
+        Filled on a deployed instance that refuses runs, or runs them for anyone
+        (ADR-0003). It is in the page and empty from the start, never hidden, so
+        that filling it is announced; CSS collapses it while it is empty.
+      -->
+      <p id="protection-notice" class="protection-notice" role="status"></p>
 
       <section class="request" aria-labelledby="request-title">
         <h2 id="request-title" class="request-title">Request</h2>
@@ -191,6 +155,26 @@
           <div class="attachments"></div>
           <p id="request-status" class="request-status" role="status"></p>
           <div class="run-bar">
+            <!--
+              One checkbox per listed provider, filled by src/ui/provider-select.ts
+              (issue #101). Run asks every ticked provider. The fieldset is disabled
+              until the list loads; the problem and the Retry sit outside it, so
+              Retry stays usable.
+            -->
+            <fieldset
+              id="provider-choice"
+              class="provider-choice"
+              aria-describedby="provider-problem"
+              disabled
+            >
+              <legend class="provider-choice-legend">Providers to ask</legend>
+              <div class="provider-options">
+                <p class="provider-placeholder">Loading providers…</p>
+              </div>
+            </fieldset>
+            <div id="provider-problem" class="provider-problem" role="alert" tabindex="-1"></div>
+            <!-- Says that the list is loading again after Retry. Visually hidden: Retry itself shows it. -->
+            <p id="provider-status" class="visually-hidden" role="status"></p>
             <p id="request-run-note" class="run-note" hidden></p>
             <button class="run" type="submit" aria-describedby="request-empty">
               <span class="run-label">Run</span>
@@ -210,7 +194,7 @@
         </div>
         <!--
           Shown by src/ui/warm.ts only where the host reports connection metrics
-          (the Node dev host) and the selected provider can warm. It fills the
+          (the Node dev host) and a ticked provider can warm. It fills the
           keep-alive options from KEEP_ALIVE_SECONDS and names the provider on the button.
         -->
         <form class="warm" novalidate hidden>
@@ -239,6 +223,14 @@
         </p>
         <ol id="results-list" class="results-list" role="list"></ol>
       </section>
+
+      <!-- The words each listed provider's API uses, filled by src/ui/provider-select.ts. -->
+      <details id="provider-vocabulary" class="provider-vocabulary" hidden>
+        <summary class="provider-vocabulary-summary">
+          About these providers: the words they use
+        </summary>
+        <table class="provider-vocabulary-table"></table>
+      </details>
     </main>
 
     <!-- Asked before a load replaces what the person made in the request. The cancel button comes first and takes focus, so Enter keeps the request. -->

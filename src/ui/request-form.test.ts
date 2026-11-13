@@ -25,22 +25,39 @@ const openai = toProviderSummary(PROVIDERS.openai);
 
 const PRIMITIVES = ["noul", "choice", "score"] as const;
 
-/** A provider selection the test drives by hand: `choose(undefined)` is "no provider". */
-function selectionOf(initial: ProviderSummary | undefined) {
-  let current: ProviderSummary | undefined = initial;
-  const listeners: ((provider: ProviderSummary | undefined) => void)[] = [];
+type Ticked = ProviderSummary | readonly ProviderSummary[] | undefined;
+
+function isList(
+  ticked: ProviderSummary | readonly ProviderSummary[],
+): ticked is readonly ProviderSummary[] {
+  return Array.isArray(ticked);
+}
+
+/** The providers `ticked` names: one, several, or none for `undefined`. */
+function asList(ticked: Ticked): readonly ProviderSummary[] {
+  return ticked === undefined ? [] : isList(ticked) ? ticked : [ticked];
+}
+
+/**
+ * A provider selection the test drives by hand. `choose` ticks one provider,
+ * several, or none with `undefined`, which is also how it stands while the
+ * list loads.
+ */
+function selectionOf(initial: Ticked) {
+  let ticked = asList(initial);
+  const listeners: ((selected: readonly ProviderSummary[]) => void)[] = [];
   const selection: ProviderSelection = {
-    current: () => current,
-    host: () => (current === undefined ? undefined : { connectionMetrics: false }),
+    selected: () => ticked,
+    host: () => (ticked.length === 0 ? undefined : { connectionMetrics: false }),
     // The three providers the catalog lists, as a configured instance would send them.
-    providers: () => (current === undefined ? [] : [typesafe, subq, openai]),
+    providers: () => (ticked.length === 0 ? [] : [typesafe, subq, openai]),
     subscribe: (listener) => listeners.push(listener),
   };
   return {
     selection,
-    choose: (provider: ProviderSummary | undefined) => {
-      current = provider;
-      for (const listener of listeners) listener(provider);
+    choose: (next: Ticked) => {
+      ticked = asList(next);
+      for (const listener of listeners) listener(ticked);
     },
   };
 }
@@ -137,8 +154,7 @@ function expectDescribedByEmptyMessage(_primitive?: string): void {
 }
 
 const EMPTY_REQUEST = "Load an example or write a question to run the request.";
-const NO_PROVIDER =
-  "No provider is available yet. The Provider area at the top of the page says why.";
+const NO_PROVIDER = "No provider is available yet. The Providers to ask area beside Run says why.";
 
 function stateField(primitive?: string): HTMLTextAreaElement {
   if (primitive !== undefined) useType(primitive);
@@ -498,19 +514,23 @@ describe("the empty start (issue #58)", () => {
     submit("noul");
     expect(summaryItems("noul")).toEqual([
       { text: EMPTY_REQUEST, href: "#load-film" },
-      // The page's select is disabled until providers load, so this problem has no link.
+      // The provider choice is disabled until providers load, so this problem has no link.
       { text: NO_PROVIDER, href: null },
     ]);
 
-    get<HTMLSelectElement>("#provider-select").disabled = false;
+    // The list loaded, but nothing is ticked: the problem links to the first checkbox.
+    const choice = get<HTMLFieldSetElement>("#provider-choice");
+    choice.disabled = false;
+    get(".provider-options").innerHTML =
+      '<input type="checkbox" id="provider-typesafe" name="provider" value="typesafe" />';
     submit("noul");
     expect(summaryItems("noul")).toEqual([
       { text: EMPTY_REQUEST, href: "#load-film" },
-      { text: "Choose a provider to run the request.", href: "#provider-select" },
+      { text: "Tick at least one provider to run the request.", href: "#provider-typesafe" },
     ]);
     expect(document.activeElement).toBe(summary("noul"));
-    followSummaryLink("noul", "Choose a provider to run the request.");
-    expect(document.activeElement).toBe(get("#provider-select"));
+    followSummaryLink("noul", "Tick at least one provider to run the request.");
+    expect(document.activeElement).toBe(get("#provider-typesafe"));
   });
 
   it("puts both load buttons in a labelled group before the view switch", () => {
@@ -744,7 +764,7 @@ describe("loading the image example (issue #58)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(viewButton("choice", "json").checked).toBe(true);
     // The page does not switch the provider for the person.
-    expect(selection.current()).toBe(typesafe);
+    expect(selection.selected()).toEqual([typesafe]);
   });
 
   it("asks nothing before it refuses, even when the person has typed into the request", async () => {
@@ -785,7 +805,7 @@ describe("loading the image example (issue #58)", () => {
     loadButton("noul", "images").click();
     await vi.waitFor(() =>
       expect(status("noul").textContent).toBe(
-        "The image example needs a provider that takes images. No provider is selected.",
+        "The image example needs a provider that takes images. No provider is ticked.",
       ),
     );
     expect(emptyMessage("noul").hidden).toBe(false);
@@ -2098,6 +2118,153 @@ describe("images", () => {
     );
   });
 });
+
+describe("several providers (issue #101)", () => {
+  const KIB = 1024;
+
+  beforeEach(() => {
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:test/preview");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function attachPng(name: string): void {
+    const input = get<HTMLInputElement>("#request-images-input");
+    const transfer = new DataTransfer();
+    transfer.items.add(fileOf(pngBytes({ size: 4 * KIB }), name, "image/png"));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  /** A decide route that answers each provider with the Noul fixture, as that provider, or fails one of them. */
+  function mockDecide(failing?: string) {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      const provider = url.split("/").at(-1) ?? "";
+      if (provider === failing) {
+        return new Response(JSON.stringify({ ok: false, error: "Rate limited." }), { status: 429 });
+      }
+      return new Response(JSON.stringify({ ...noulResponse, provider }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("asks every ticked provider with one press, and shows one result with a column each", async () => {
+    const fetchMock = mockDecide();
+    setupRequestForm(document, selectionOf([typesafe, subq]).selection);
+    await loadFilm("noul");
+    expect(runNote()).toBe(
+      "Checks the Yes or no request and sends it to TypeSafe Jev and SubQ Snap.",
+    );
+    submit();
+    expect(runNote()).toBe("Waiting for the answers to this request.");
+    expect(get("#results-status").textContent).toBe("Asking TypeSafe Jev and SubQ Snap…");
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/decide/typesafe",
+      "/api/decide/subq",
+    ]);
+    const [result] = results();
+    expect(result?.querySelector(".result-title")?.textContent).toMatch(
+      /^Yes or no: TypeSafe Jev and SubQ Snap at /,
+    );
+    expect(
+      [...(result?.querySelectorAll("thead th") ?? [])].map((cell) => cell.textContent),
+    ).toEqual(["Question", "TypeSafe Jev", "SubQ Snap"]);
+    expect(result?.querySelectorAll("tbody tr")).toHaveLength(4);
+    expect(get("#results-status").textContent).toBe(
+      "Yes or no: 2 of 2 providers answered, TypeSafe Jev and SubQ Snap.",
+    );
+  });
+
+  it("shows the answers that arrived beside a provider that failed", async () => {
+    mockDecide("subq");
+    setupRequestForm(document, selectionOf([typesafe, subq]).selection);
+    await loadFilm("noul");
+    submit();
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    const [result] = results();
+    const cells = [...(result?.querySelectorAll('[data-provider="SubQ Snap"]') ?? [])];
+    expect(cells.map((cell) => cell.textContent)).toEqual(Array(4).fill("No answer"));
+    expect(result?.querySelectorAll('[data-provider="TypeSafe Jev"] .bar-value')).toHaveLength(4);
+    expect(result?.querySelector('.result-provider [role="alert"]')?.textContent).toContain(
+      "Rate limited.",
+    );
+    expect(get("#results-status").textContent).toBe(
+      "Yes or no: 1 of 2 providers answered, TypeSafe Jev.",
+    );
+  });
+
+  it("sends the images to the providers that take them, and says the text-only one was sent none", async () => {
+    const fetchMock = mockDecide();
+    setupRequestForm(document, selectionOf([typesafe, subq]).selection);
+    await loadFilm("noul");
+    attachPng("a.png");
+    attachPng("b.png");
+    await vi.waitFor(() => expect(form().querySelectorAll(".attachment")).toHaveLength(2));
+    expect(runNote()).toBe(
+      "Checks the Yes or no request and sends it to SubQ Snap with 2 images, and to TypeSafe Jev without them.",
+    );
+    submit();
+    await vi.waitFor(() => expect(results()).toHaveLength(1));
+    const bodyFor = (provider: string) =>
+      sentRequest(fetchMock.mock.calls.find(([url]) => url.endsWith(provider))?.[1]);
+    expect(bodyFor("typesafe").images).toHaveLength(0);
+    expect(bodyFor("subq").images.map((image) => image.name)).toEqual(["a.png", "b.png"]);
+    const sections = [...(results()[0]?.querySelectorAll(".result-provider") ?? [])];
+    expect(sections[0]?.querySelector(".reading-meta")?.textContent).toContain(
+      "Sent without the 2 attached images.",
+    );
+    expect(sections[1]?.querySelector(".reading-meta")?.textContent).not.toContain("Sent without");
+  });
+
+  it("refuses a blank state with an image when a ticked provider is sent no images", async () => {
+    const fetchMock = mockDecide();
+    setupRequestForm(document, selectionOf([typesafe, subq]).selection);
+    await loadFilm("noul");
+    type(stateField(), "");
+    attachPng("a.png");
+    await vi.waitFor(() => expect(form().querySelectorAll(".attachment")).toHaveLength(1));
+    submit();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(summaryItems()[0]?.text).toMatch(/^For TypeSafe Jev, which is sent no images: /);
+  });
+
+  it("checks the request against the strictest limits of the ticked providers", () => {
+    const { selection, choose } = selectionOf(withoutLevelLimitOf(subq));
+    setupRequestForm(document, selection);
+    viewButton("score", "json").click();
+    type(textarea(), JSON.stringify({ ...scoreExample, criteria: elevenLevelCriteria() }));
+    viewButton("score", "tree").click();
+    expect(get("#request-json-error").hidden).toBe(true);
+    // TypeSafe Jev allows at most 10 levels, so ticking it beside the unlimited provider refuses 11.
+    choose([withoutLevelLimitOf(subq), typesafe]);
+    submit();
+    expect(
+      summaryItems()
+        .map((item) => item.text)
+        .join(" "),
+    ).toContain("at most 10");
+  });
+});
+
+/** `provider` with no maximum number of levels. */
+function withoutLevelLimitOf(provider: ProviderSummary): ProviderSummary {
+  return {
+    ...provider,
+    capabilities: {
+      ...provider.capabilities,
+      scoreLevels: { min: provider.capabilities.scoreLevels.min },
+    },
+  };
+}
+
+function elevenLevelCriteria(): string[] {
+  return Array.from({ length: 11 }, (_, index) => `Level ${index}`);
+}
 
 describe("Enter in a request field does not run the request (issue #93)", () => {
   /** Presses Enter in `field` and returns whether the browser's default action was cancelled. */

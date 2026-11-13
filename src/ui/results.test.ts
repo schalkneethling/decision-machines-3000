@@ -2,9 +2,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { noulExample } from "../decision/examples.ts";
 import { create } from "./dom.ts";
+import { noulResponse } from "./fixtures/noul.ts";
 import {
   answersSentence,
+  comparedSentence,
   loadingSentence,
   RESULT_LIMIT,
   renderResultArticle,
@@ -21,13 +24,18 @@ const body = (/<body>([\s\S]*)<\/body>/.exec(page)?.[1] ?? "").replace(
 // Built from local parts, so it reads 14:32:05 in whatever time zone the tests run.
 const at = new Date(2026, 10, 10, 14, 32, 5);
 
+/** A result whose providers all failed, so each reading is the element given. */
 function result(questionType: string, providers: string[] = ["SubQ Snap"]): Result {
   return {
     questionType,
     at,
+    sent: undefined,
     runs: providers.map((provider) => ({
       provider,
-      reading: create("div", { className: "reading", text: `${provider} reading` }),
+      outcome: {
+        kind: "failed",
+        reading: create("div", { className: "reading", text: `${provider} reading` }),
+      },
       wire: create("div", { className: "wire-view" }),
     })),
   };
@@ -50,17 +58,99 @@ describe("renderResultArticle", () => {
     expect(heading?.querySelector("time")?.getAttribute("datetime")).toBe(at.toISOString());
   });
 
-  it("keeps each provider's reading and wire view together, in the order given", () => {
-    const article = renderResultArticle(result("Yes or no", ["TypeSafe Jev", "SubQ Snap"]));
+  it("keeps one provider's reading and wire view together", () => {
+    const article = renderResultArticle(result("Yes or no"));
+    const runs = [...article.querySelectorAll(".result-run")];
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.querySelector(".reading")?.textContent).toBe("SubQ Snap reading");
+    expect(runs[0]?.querySelector(".wire-view")).not.toBeNull();
+    expect(article.querySelector("table")).toBeNull();
+  });
+});
+
+describe("a result from several providers (issue #101)", () => {
+  /** TypeSafe Jev answered with the Noul fixture; SubQ Snap answered or failed. */
+  function compared(subqFails: boolean): Result {
+    if (!noulResponse.ok) throw new Error("The Noul fixture is a success.");
+    return {
+      questionType: "Yes or no",
+      at,
+      sent: noulExample,
+      runs: [
+        {
+          provider: "TypeSafe Jev",
+          outcome: { kind: "answered", response: noulResponse, omittedImages: 2 },
+          wire: create("div", { className: "wire-view" }),
+        },
+        {
+          provider: "SubQ Snap",
+          outcome: subqFails
+            ? {
+                kind: "failed",
+                reading: create("div", {
+                  className: "readout-error",
+                  text: "Error. Rate limited.",
+                }),
+              }
+            : { kind: "answered", response: noulResponse, omittedImages: 0 },
+          wire: undefined,
+        },
+      ],
+    };
+  }
+
+  function cellTexts(row: Element): string[] {
+    return [...row.querySelectorAll("th, td")].map((cell) => cell.textContent ?? "");
+  }
+
+  it("is one table with a row per question and a column per provider, in the order given", () => {
+    const article = renderResultArticle(compared(false));
     expect(article.querySelector("h3")?.textContent).toBe(
       "Yes or no: TypeSafe Jev and SubQ Snap at 14:32:05",
     );
-    const runs = [...article.querySelectorAll(".result-run")];
-    expect(runs.map((run) => run.querySelector(".reading")?.textContent)).toEqual([
-      "TypeSafe Jev reading",
-      "SubQ Snap reading",
+    const table = article.querySelector("table");
+    expect(table?.querySelector("caption")?.textContent).toBe("Answers by question and provider");
+    const [head, ...rows] = [...(table?.querySelectorAll("tr") ?? [])];
+    expect(head === undefined ? [] : cellTexts(head)).toEqual([
+      "Question",
+      "TypeSafe Jev",
+      "SubQ Snap",
     ]);
-    for (const run of runs) expect(run.querySelector(".wire-view")).not.toBeNull();
+    expect(rows).toHaveLength(Object.keys(noulExample.questions).length);
+    // A row is headed by the question as it was asked, so one row reads one question's answers.
+    const [first] = rows;
+    const header = first?.querySelector("th");
+    expect(header?.getAttribute("scope")).toBe("row");
+    expect(header?.textContent).toBe(noulExample.questions.recommends?.instructions);
+    expect([...(first?.querySelectorAll("td") ?? [])].map((cell) => cell.dataset.provider)).toEqual(
+      ["TypeSafe Jev", "SubQ Snap"],
+    );
+    expect(first?.querySelectorAll(".bar-value")).toHaveLength(2);
+  });
+
+  it("gives each provider its own metadata and wire view below the table", () => {
+    const article = renderResultArticle(compared(false));
+    const sections = [...article.querySelectorAll(".result-provider")];
+    expect(sections.map((section) => section.querySelector("h4")?.textContent)).toEqual([
+      "TypeSafe Jev",
+      "SubQ Snap",
+    ]);
+    expect(sections[0]?.querySelector(".reading-meta")?.textContent).toContain(
+      "Sent without the 2 attached images.",
+    );
+    expect(sections[0]?.querySelector(".wire-view")).not.toBeNull();
+    expect(sections[1]?.querySelector(".wire-view")).toBeNull();
+  });
+
+  it("shows a failed provider's column as no answer, and its failure beside the answers that arrived", () => {
+    const article = renderResultArticle(compared(true));
+    const rows = [...article.querySelectorAll("tbody tr")];
+    expect(rows).toHaveLength(Object.keys(noulExample.questions).length);
+    for (const row of rows) {
+      expect(row.querySelector('[data-provider="SubQ Snap"]')?.textContent).toBe("No answer");
+    }
+    const failed = [...article.querySelectorAll(".result-provider")][1];
+    expect(failed?.querySelector(".readout-error")?.textContent).toBe("Error. Rate limited.");
   });
 });
 
@@ -74,8 +164,19 @@ describe("the sentences", () => {
     );
   });
 
-  it("names the provider while a run waits", () => {
-    expect(loadingSentence("SubQ Snap")).toBe("Asking SubQ Snap…");
+  it("names the providers while a run waits", () => {
+    expect(loadingSentence(["SubQ Snap"])).toBe("Asking SubQ Snap…");
+    expect(loadingSentence(["TypeSafe Jev", "SubQ Snap"])).toBe(
+      "Asking TypeSafe Jev and SubQ Snap…",
+    );
+  });
+
+  it("says how many of the asked providers answered, and names them", () => {
+    expect(comparedSentence("Yes or no", ["TypeSafe Jev", "SubQ Snap"], 3)).toBe(
+      "Yes or no: 2 of 3 providers answered, TypeSafe Jev and SubQ Snap.",
+    );
+    // Every failure announces itself in its own alert.
+    expect(comparedSentence("Yes or no", [], 2)).toBe("");
   });
 });
 

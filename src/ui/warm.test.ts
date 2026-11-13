@@ -133,21 +133,33 @@ const noWarmPath: ProviderSummary = { ...toProviderSummary(PROVIDERS.openai), ca
 const NODE_DEV_HOST: HostSummary = { connectionMetrics: true };
 const WORKER_HOST: HostSummary = { connectionMetrics: false };
 
-/** A provider selection the test drives by hand, listed by `host`. */
-function selectionOf(initial: ProviderSummary | undefined, host: HostSummary = NODE_DEV_HOST) {
-  let current = initial;
-  const listeners: ((provider: ProviderSummary | undefined) => void)[] = [];
+/**
+ * A provider selection the test drives by hand, listed by `host`. `choose`
+ * ticks one provider, or several, or none with `undefined`.
+ */
+function selectionOf(
+  initial: ProviderSummary | readonly ProviderSummary[] | undefined,
+  host: HostSummary = NODE_DEV_HOST,
+) {
+  const isList = (
+    next: ProviderSummary | readonly ProviderSummary[],
+  ): next is readonly ProviderSummary[] => Array.isArray(next);
+  const asList = (
+    next: ProviderSummary | readonly ProviderSummary[] | undefined,
+  ): readonly ProviderSummary[] => (next === undefined ? [] : isList(next) ? next : [next]);
+  let ticked = asList(initial);
+  const listeners: ((selected: readonly ProviderSummary[]) => void)[] = [];
   const selection: ProviderSelection = {
-    current: () => current,
-    host: () => (current === undefined ? undefined : host),
-    providers: () => (current === undefined ? [] : [current]),
+    selected: () => ticked,
+    host: () => (ticked.length === 0 ? undefined : host),
+    providers: () => ticked,
     subscribe: (listener) => listeners.push(listener),
   };
   return {
     selection,
-    choose: (provider: ProviderSummary | undefined) => {
-      current = provider;
-      for (const listener of listeners) listener(provider);
+    choose: (next: ProviderSummary | readonly ProviderSummary[] | undefined) => {
+      ticked = asList(next);
+      for (const listener of listeners) listener(ticked);
     },
   };
 }
@@ -284,7 +296,7 @@ describe("when the warm form shows", () => {
     expect(warmForm().hidden).toBe(true);
   });
 
-  it("follows what GET /api/providers says about the host, through the provider select", async () => {
+  it("follows what GET /api/providers says about the host, through the provider choice", async () => {
     for (const [host, hidden] of [
       [WORKER_HOST, true],
       [NODE_DEV_HOST, false],
@@ -300,7 +312,7 @@ describe("when the warm form shows", () => {
       setupWarm(document, selection, manualRepeat().repeat);
 
       await vi.waitFor(() => {
-        expect(selection.current()?.id).toBe("typesafe");
+        expect(selection.selected().map((provider) => provider.id)).toEqual(["typesafe"]);
       });
       expect(selection.host()).toEqual(host);
       expect(warmForm().hidden).toBe(hidden);
@@ -309,6 +321,15 @@ describe("when the warm form shows", () => {
 });
 
 describe("the warm button", () => {
+  it("warms the first ticked provider that can warm", () => {
+    const cannotWarm = { ...subq, canWarm: false };
+    const { selection, choose } = selectionOf([cannotWarm, typesafe]);
+    setupWarm(document, selection, manualRepeat().repeat);
+    expect(get(".warm-label").textContent).toBe("Warm the TypeSafe Jev connection");
+    choose([cannotWarm]);
+    expect(warmForm().hidden).toBe(true);
+  });
+
   it("names the selected provider, and the new one when the selection changes", () => {
     const { selection, choose } = selectionOf(typesafe);
     setupWarm(document, selection, manualRepeat().repeat);

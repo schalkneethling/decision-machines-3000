@@ -21,7 +21,8 @@ const typesafe = toProviderSummary(PROVIDERS.typesafe);
 const subq = toProviderSummary(PROVIDERS.subq);
 const openai = toProviderSummary(PROVIDERS.openai);
 
-const STORAGE_KEY = "decisionmachines3000:provider";
+const STORAGE_KEY = "decisionmachines3000:providers";
+const LEGACY_STORAGE_KEY = "decisionmachines3000:provider";
 
 function get<T extends HTMLElement = HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);
@@ -29,12 +30,28 @@ function get<T extends HTMLElement = HTMLElement>(selector: string): T {
   return found;
 }
 
-function providerSelect(): HTMLSelectElement {
-  return get<HTMLSelectElement>("#provider-select");
+function providerChoice(): HTMLFieldSetElement {
+  return get<HTMLFieldSetElement>("#provider-choice");
 }
 
+function checkboxes(): HTMLInputElement[] {
+  return [...providerChoice().querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+}
+
+function checkbox(id: string): HTMLInputElement {
+  return get<HTMLInputElement>(`#provider-${id}`);
+}
+
+/** Each checkbox's label text, which is its accessible name. */
 function optionTexts(): string[] {
-  return [...providerSelect().options].map((option) => option.textContent ?? "");
+  return checkboxes().map((input) => input.labels?.[0]?.textContent ?? "");
+}
+
+/** The ids of the ticked checkboxes, in order. */
+function tickedIds(): string[] {
+  return checkboxes()
+    .filter((input) => input.checked)
+    .map((input) => input.value);
 }
 
 function runButtons(): HTMLButtonElement[] {
@@ -46,8 +63,7 @@ function runNote(button: HTMLButtonElement): string {
   return document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
 }
 
-const NO_PROVIDER =
-  "No provider is available yet. The Provider area at the top of the page says why.";
+const NO_PROVIDER = "No provider is available yet. The Providers to ask area beside Run says why.";
 
 /** Chooses a question type in the request form. */
 function useType(primitive: string): void {
@@ -87,18 +103,19 @@ const missingKeys = () =>
     { status: 503 },
   );
 
-/** Loads the page's select and waits until the list has been handled. */
+/** Loads the page's provider choice and waits until the list has been handled. */
 async function load() {
   const selection = setupProviderSelect(document);
   await vi.waitFor(() => {
-    expect(providerSelect().options[0]?.textContent).not.toBe("Loading providers…");
+    expect(get(".provider-options").textContent).not.toBe("Loading providers…");
   });
   return selection;
 }
 
-function change(id: string): void {
-  providerSelect().value = id;
-  providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+/** Ticks or unticks a provider's checkbox, as a click does. */
+function tick(id: string, checked = true): void {
+  const input = checkbox(id);
+  if (input.checked !== checked) input.click();
 }
 
 beforeEach(() => {
@@ -112,14 +129,13 @@ afterEach(() => {
 });
 
 describe("the list", () => {
-  it("has exactly the providers the instance lists, in that order, with name and model", async () => {
+  it("has a checkbox for exactly the providers the instance lists, in that order, with name and model", async () => {
     answerProviders(listed(typesafe, subq));
     await load();
     expect(optionTexts()).toEqual(["TypeSafe Jev jev-1.13.0", "SubQ Snap subq-snap-preview"]);
-    expect([...providerSelect().options].map((option) => option.value)).toEqual([
-      "typesafe",
-      "subq",
-    ]);
+    expect(checkboxes().map((input) => input.value)).toEqual(["typesafe", "subq"]);
+    // A text space between name and model, so the name never reads "OpenAI Decisionsgpt-6-luna".
+    expect(optionTexts()).not.toContain("TypeSafe Jevjev-1.13.0");
   });
 
   it("hands the listed providers to the request form, empty until the list loads", async () => {
@@ -137,215 +153,143 @@ describe("the list", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/providers");
   });
 
-  it("starts disabled with a loading option until the list arrives", () => {
+  it("starts as a disabled fieldset that says the list is loading", () => {
     answerProviders(listed(typesafe));
     setupProviderSelect(document);
-    expect(providerSelect().disabled).toBe(true);
-    expect(optionTexts()).toEqual(["Loading providers…"]);
+    expect(providerChoice().disabled).toBe(true);
+    expect(providerChoice().querySelector("legend")?.textContent).toBe("Providers to ask");
+    expect(get(".provider-options").textContent).toBe("Loading providers…");
+    expect(checkboxes()).toHaveLength(0);
   });
 
-  it("enables the select once the list has loaded", async () => {
-    answerProviders(listed(typesafe, subq));
-    await load();
-    expect(providerSelect().disabled).toBe(false);
-  });
-});
-
-describe("the native select structure that browsers without appearance: base-select show", () => {
-  // happy-dom has no styled picker, so it renders the structure such a browser shows.
-  it("is a labelled <select> whose option text has a space between name and model", async () => {
-    answerProviders(listed(typesafe, subq, openai));
-    await load();
-    const select = providerSelect();
-    expect(select).toBeInstanceOf(HTMLSelectElement);
-    const label = document.querySelector<HTMLLabelElement>('label[for="provider-select"]');
-    expect(label?.textContent).toBe("Provider");
-    const texts = [...select.options].map((option) => option.text);
-    expect(texts).toContain("OpenAI Decisions gpt-6-luna");
-    expect(texts).not.toContain("OpenAI Decisionsgpt-6-luna");
-  });
-
-  it("keeps the button and selectedcontent first in the select, ahead of the options", async () => {
+  it("enables the choice once the list has loaded, inside the Run bar before Run", async () => {
     answerProviders(listed(typesafe));
     await load();
-    const [first] = providerSelect().children;
-    expect(first?.tagName).toBe("BUTTON");
-    expect(first?.firstElementChild?.tagName).toBe("SELECTEDCONTENT");
-    expect(providerSelect().options).toHaveLength(1);
+    expect(providerChoice().disabled).toBe(false);
+    expect(providerChoice().closest(".run-bar")).not.toBeNull();
+    const run = get("#request-form .run");
+    expect(
+      providerChoice().compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("describes each checkbox by what the provider does with images, outside its name", async () => {
+    answerProviders(listed(typesafe, subq));
+    await load();
+    const description = (id: string) =>
+      get(`#${checkbox(id).getAttribute("aria-describedby") ?? ""}`).textContent;
+    expect(description("typesafe")).toBe("Text only, no images.");
+    expect(description("subq")).toBe(
+      "Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    expect(optionTexts()[0]).not.toContain("Text only");
   });
 });
 
 describe("the stored choice", () => {
-  it("selects a stored provider that is configured", async () => {
-    localStorage.setItem(STORAGE_KEY, "subq");
-    answerProviders(listed(typesafe, subq));
+  it("ticks the stored providers that are configured", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(["subq", "openai"]));
+    answerProviders(listed(typesafe, subq, openai));
     const selection = await load();
-    expect(providerSelect().value).toBe("subq");
-    expect(selection.current()?.id).toBe("subq");
+    expect(tickedIds()).toEqual(["subq", "openai"]);
+    expect(selection.selected().map((provider) => provider.id)).toEqual(["subq", "openai"]);
   });
 
-  it("selects the first provider and updates the store when the stored one is not configured", async () => {
-    localStorage.setItem(STORAGE_KEY, "openai");
+  it("drops a stored provider that is not configured, and ticks the first when none is left", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(["openai"]));
     answerProviders(listed(typesafe, subq));
     const selection = await load();
-    expect(providerSelect().value).toBe("typesafe");
-    expect(selection.current()?.id).toBe("typesafe");
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("typesafe");
+    expect(tickedIds()).toEqual(["typesafe"]);
+    expect(selection.selected().map((provider) => provider.id)).toEqual(["typesafe"]);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify(["typesafe"]));
   });
 
-  it("selects the first provider and writes nothing when nothing is stored", async () => {
+  it("ticks the first provider when nothing is stored, and stores that", async () => {
     answerProviders(listed(typesafe, subq));
     await load();
-    expect(providerSelect().value).toBe("typesafe");
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(tickedIds()).toEqual(["typesafe"]);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify(["typesafe"]));
   });
 
-  it.each([
-    ["an empty string", ""],
-    ["the key name __proto__", "__proto__"],
-    ["a name that only looks like an id", "toString"],
-  ])("selects the first provider and replaces a stored value that is %s", async (_name, stored) => {
-    localStorage.setItem(STORAGE_KEY, stored);
+  it("keeps a stored choice of none, so a viewer who unticked every provider finds it so", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
     answerProviders(listed(typesafe, subq));
     const selection = await load();
-    expect(providerSelect().value).toBe("typesafe");
-    expect(selection.current()?.id).toBe("typesafe");
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("typesafe");
+    expect(tickedIds()).toEqual([]);
+    expect(selection.selected()).toEqual([]);
   });
 
-  it("stores a user's choice", async () => {
+  it("starts from the single provider stored before several could be ticked", async () => {
+    localStorage.setItem(LEGACY_STORAGE_KEY, "subq");
     answerProviders(listed(typesafe, subq));
     await load();
-    change("subq");
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("subq");
+    expect(tickedIds()).toEqual(["subq"]);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify(["subq"]));
+  });
+
+  it("stores each change, and tells listeners the ticked providers in list order", async () => {
+    answerProviders(listed(typesafe, subq, openai));
+    const selection = await load();
+    const heard: string[][] = [];
+    selection.subscribe((ticked) => heard.push(ticked.map((provider) => provider.id)));
+    tick("openai");
+    tick("subq");
+    tick("typesafe", false);
+    expect(heard).toEqual([
+      ["typesafe", "openai"],
+      ["typesafe", "subq", "openai"],
+      ["subq", "openai"],
+    ]);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify(["subq", "openai"]));
   });
 
   it("still works when every storage read and write throws", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("Blocked");
+      throw new Error("blocked");
     });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("Blocked");
+      throw new Error("blocked");
     });
     answerProviders(listed(typesafe, subq));
     const selection = await load();
-    expect(providerSelect().value).toBe("typesafe");
-    expect(() => change("subq")).not.toThrow();
-    expect(selection.current()?.id).toBe("subq");
-  });
-});
-
-describe("the capability line (issue #98)", () => {
-  const capability = () => get("#provider-capability");
-
-  it("is in the page empty, and is plain text, not a live region", () => {
-    expect(capability().textContent).toBe("");
-    expect(capability().hasAttribute("role")).toBe(false);
-    expect(capability().hasAttribute("aria-live")).toBe(false);
-  });
-
-  it("states a text-only provider's capability on the first load, with nothing announced", async () => {
-    answerProviders(listed(typesafe, subq));
-    await load();
-    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
-    expect(get("#provider-status").textContent).toBe("");
-  });
-
-  it("states a stored image provider's capability on the first load", async () => {
-    localStorage.setItem(STORAGE_KEY, "subq");
-    answerProviders(listed(typesafe, subq));
-    await load();
-    expect(capability().textContent).toBe(
-      "SubQ Snap: Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
-    );
-    expect(get("#provider-status").textContent).toBe("");
-  });
-
-  it("follows every change, and the status line announces the same capability sentence", async () => {
-    answerProviders(listed(typesafe, subq, openai));
-    await load();
-    change("openai");
-    expect(capability().textContent).toBe(
-      "OpenAI Decisions: Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
-    );
-    expect(get("#provider-status").textContent).toBe(
-      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
-    );
-    change("typesafe");
-    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
-    expect(get("#provider-status").textContent).toBe(
-      "Provider set to TypeSafe Jev. Text only, no images.",
-    );
-  });
-
-  it("is the line sighted viewers read, because the status line is visually hidden", () => {
-    expect(get("#provider-status").classList.contains("visually-hidden")).toBe(true);
-    expect(capability().classList.contains("visually-hidden")).toBe(false);
-  });
-
-  it("is filled after a Retry, and cleared when no provider is available", async () => {
-    answerProviders(Response.json({ ok: false, error: "No." }, { status: 500 }), listed(typesafe));
-    await load();
-    expect(capability().textContent).toBe("");
-    get(".provider-retry").click();
-    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
-    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
-  });
-
-  it("stays empty when the instance has no provider key", async () => {
-    answerProviders(missingKeys());
-    await load();
-    expect(capability().textContent).toBe("");
+    expect(tickedIds()).toEqual(["typesafe"]);
+    expect(() => tick("subq")).not.toThrow();
+    expect(selection.selected().map((provider) => provider.id)).toEqual(["typesafe", "subq"]);
   });
 });
 
 describe("the status line", () => {
-  it("is empty after the page loads without user action", async () => {
-    localStorage.setItem(STORAGE_KEY, "subq");
+  it("is empty after the page loads and after a change, because each checkbox announces itself", async () => {
     answerProviders(listed(typesafe, subq));
     await load();
     expect(get("#provider-status").textContent).toBe("");
     expect(get("#provider-status").getAttribute("role")).toBe("status");
-  });
-
-  it("announces a change with the image capability sentence", async () => {
-    answerProviders(listed(typesafe, subq, openai));
-    await load();
-    change("subq");
-    expect(get("#provider-status").textContent).toBe(
-      "Provider set to SubQ Snap. Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
-    );
-    change("typesafe");
-    expect(get("#provider-status").textContent).toBe(
-      "Provider set to TypeSafe Jev. Text only, no images.",
-    );
-    change("openai");
-    expect(get("#provider-status").textContent).toBe(
-      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
-    );
+    tick("subq");
+    expect(get("#provider-status").textContent).toBe("");
   });
 });
 
 describe("the vocabulary legend", () => {
-  it("stays hidden until a provider is selected", () => {
+  it("stays hidden until the list loads", () => {
     answerProviders(listed(typesafe));
     setupProviderSelect(document);
     expect(get("#provider-vocabulary").hidden).toBe(true);
   });
 
-  it("lists the selected provider's words and follows a change", async () => {
+  it("is a table after the results, with a column for each listed provider's words", async () => {
     answerProviders(listed(typesafe, openai));
     await load();
-    const legend = get("#provider-vocabulary");
+    const legend = get<HTMLDetailsElement>("#provider-vocabulary");
     expect(legend.hidden).toBe(false);
-    expect(legend.querySelector("summary")?.textContent).toBe("Words TypeSafe Jev uses");
-    expect(legend.textContent).not.toContain("predicate");
-
-    change("openai");
-    expect(legend.querySelector("summary")?.textContent).toBe("Words OpenAI Decisions uses");
-    const codes = [...legend.querySelectorAll("code")].map((code) => code.textContent);
+    expect(
+      get("#results-title").compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const headers = [...legend.querySelectorAll("thead th")].map((cell) => cell.textContent);
+    expect(headers).toEqual(["On this page", "TypeSafe Jev", "OpenAI Decisions"]);
+    const codes = [...legend.querySelectorAll("tbody code")].map((code) => code.textContent);
     expect(codes).toContain("predicate");
     expect(codes).toContain("input");
+    expect(legend.querySelector("tbody th")?.getAttribute("scope")).toBe("row");
   });
 });
 
@@ -364,17 +308,17 @@ describe("an instance with no provider key", () => {
     expect(notice.querySelector("a")?.textContent).toBe("deployment guide");
     // The region is an alert, so assistive technology announces the notice.
     expect(notice.getAttribute("role")).toBe("alert");
-    expect(providerSelect().getAttribute("aria-describedby")).toBe("provider-problem");
+    expect(providerChoice().getAttribute("aria-describedby")).toBe("provider-problem");
   });
 
-  it("disables the select, and every Run button says no provider is available and sends nothing", async () => {
+  it("disables the choice, and Run says no provider is available and sends nothing", async () => {
     const fetchMock = answerProviders(missingKeys());
     const selection = setupProviderSelect(document);
     setupRequestForm(document, selection);
     await vi.waitFor(() => expect(get("#provider-problem").textContent).not.toBe(""));
     await loadFilmExample();
-    expect(providerSelect().disabled).toBe(true);
-    expect(selection.current()).toBeUndefined();
+    expect(providerChoice().disabled).toBe(true);
+    expect(selection.selected()).toEqual([]);
     expect(runButtons()).toHaveLength(1);
     // Run stays reachable by keyboard and says why it cannot run (issue #95).
     for (const button of runButtons()) {
@@ -382,7 +326,7 @@ describe("an instance with no provider key", () => {
       expect(runNote(button)).toBe(NO_PROVIDER);
     }
     get("#request-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    // The select cannot take focus, so the summary names the problem without a link.
+    // No checkbox can take focus, so the summary names the problem without a link.
     expect(get("#request-summary").textContent).toContain(NO_PROVIDER);
     expect(get("#request-summary").querySelector("a")).toBeNull();
     // Only the list was requested: no decide call could have been made.
@@ -391,7 +335,7 @@ describe("an instance with no provider key", () => {
 });
 
 describe("a list that could not be loaded", () => {
-  it("says so and offers Retry, with the select disabled and Run saying why it cannot run", async () => {
+  it("says so and offers Retry, with the choice disabled and Run saying why it cannot run", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -404,7 +348,7 @@ describe("a list that could not be loaded", () => {
     expect(get("#provider-problem").textContent).toContain(
       "The list of providers could not be loaded.",
     );
-    expect(providerSelect().disabled).toBe(true);
+    expect(providerChoice().disabled).toBe(true);
     // Loaded, so the missing provider is the first reason each Run gives.
     await loadFilmExample();
     for (const button of runButtons()) {
@@ -420,7 +364,7 @@ describe("a list that could not be loaded", () => {
     expect(get("#provider-problem").textContent).not.toContain("TYPESAFE_API_KEY");
   });
 
-  it("refetches on Retry and fills the select when the list loads", async () => {
+  it("refetches on Retry and fills the choice when the list loads", async () => {
     const fetchMock = answerProviders(
       Response.json({ ok: false, error: "Something went wrong." }, { status: 500 }),
       listed(typesafe, subq),
@@ -432,14 +376,14 @@ describe("a list that could not be loaded", () => {
     await loadFilmExample();
 
     get(".provider-retry").click();
-    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
+    await vi.waitFor(() => expect(providerChoice().disabled).toBe(false));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(optionTexts()).toEqual(["TypeSafe Jev jev-1.13.0", "SubQ Snap subq-snap-preview"]);
     expect(get("#provider-problem").textContent).toBe("");
     for (const button of runButtons()) {
       expect(runNote(button)).toMatch(/^Checks the .+ request and sends it to TypeSafe Jev\.$/);
     }
-    expect(document.activeElement).toBe(providerSelect());
+    expect(document.activeElement).toBe(checkbox("typesafe"));
     // A retry that succeeds is not a user's choice, so it announces nothing.
     expect(get("#provider-status").textContent).toBe("");
   });
@@ -495,9 +439,9 @@ describe("a list that could not be loaded", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     answer(listed(typesafe));
-    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
+    await vi.waitFor(() => expect(providerChoice().disabled).toBe(false));
     expect(get("#provider-status").textContent).toBe("");
-    expect(document.activeElement).toBe(providerSelect());
+    expect(document.activeElement).toBe(checkbox("typesafe"));
   });
 
   it("keeps the note and returns focus to Retry when the retry fails too", async () => {
@@ -516,13 +460,14 @@ describe("a list that could not be loaded", () => {
   });
 });
 
-describe("Run follows the select", () => {
-  it('posts a "Score on a scale" request to the selected provider\'s decide route', async () => {
+describe("Run follows the choice", () => {
+  it('posts a "Score on a scale" request to the ticked provider\'s decide route', async () => {
     const fetchMock = answerProviders(listed(typesafe, subq));
     const selection = setupProviderSelect(document);
     setupRequestForm(document, selection);
-    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
-    change("subq");
+    await vi.waitFor(() => expect(providerChoice().disabled).toBe(false));
+    tick("subq");
+    tick("typesafe", false);
     useType("score");
     await loadFilmExample();
 
@@ -530,6 +475,26 @@ describe("Run follows the select", () => {
     get("#request-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/decide/subq");
+  });
+
+  it("posts to every ticked provider with one press (issue #101)", async () => {
+    const fetchMock = answerProviders(listed(typesafe, subq, openai));
+    const selection = setupProviderSelect(document);
+    setupRequestForm(document, selection);
+    await vi.waitFor(() => expect(providerChoice().disabled).toBe(false));
+    tick("openai");
+    await loadFilmExample();
+    expect(runNote(runButtons()[0]!)).toBe(
+      "Checks the Yes or no request and sends it to TypeSafe Jev and OpenAI Decisions.",
+    );
+
+    fetchMock.mockImplementation(async () => Response.json(noulResponse));
+    get("#request-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock.mock.calls.slice(1).map(([url]) => url)).toEqual([
+      "/api/decide/typesafe",
+      "/api/decide/openai",
+    ]);
   });
 });
 
@@ -549,8 +514,8 @@ describe("the protection notice on a deployed instance", () => {
     expect(notice.textContent).toContain("provider calls are refused");
     expect(notice.textContent).toContain("Neither Cloudflare Access nor the opt-out is set.");
     expect(notice.querySelector("a")?.getAttribute("href")).toBe(DEPLOYMENT_GUIDE_URL);
-    // The select still works: the gate refuses runs, it does not hide them.
-    expect(providerSelect().disabled).toBe(false);
+    // The choice still works: the gate refuses runs, it does not hide them.
+    expect(providerChoice().disabled).toBe(false);
     expect(runButtons().every((button) => !button.disabled)).toBe(true);
   });
 

@@ -65,22 +65,37 @@ export function imageProviderNames(providers: readonly ProviderSummary[]): strin
     .map((provider) => provider.displayName);
 }
 
+const andList = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+
+/** "TypeSafe Jev is", "A and B are": the subject of a sentence about `textOnly`. */
+function textOnlySubject(textOnly: readonly ProviderSummary[]): string {
+  const subject = andList.format(textOnly.map((provider) => provider.displayName));
+  return `${subject} ${textOnly.length === 1 ? "is" : "are"}`;
+}
+
 /**
- * Says that `selected` is text only and where to go for images: "TypeSafe Jev is
- * text only. Choose SubQ Snap or OpenAI Decisions to attach images." `purpose`
- * completes "Choose … " ("to attach images", "first"). When no listed provider
- * takes images, it says that instead, because there is nowhere to go.
+ * Says that the ticked providers in `textOnly` are text only and where to go
+ * for images: "TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions
+ * to attach images." `purpose` completes "Choose … " ("to attach images",
+ * "first"). When no listed provider takes images, it says that instead,
+ * because there is nowhere to go.
  */
 export function textOnlySentence(
-  selected: ProviderSummary,
+  textOnly: readonly ProviderSummary[],
   providers: readonly ProviderSummary[],
   purpose: string,
 ): string {
   const names = imageProviderNames(providers);
+  const subject = textOnlySubject(textOnly);
   if (names.length === 0) {
-    return `${selected.displayName} is text only, and no provider on this instance takes images.`;
+    return `${subject} text only, and no provider on this instance takes images.`;
   }
-  return `${selected.displayName} is text only. Choose ${orList(names)} ${purpose}.`;
+  return `${subject} text only. Choose ${orList(names)} ${purpose}.`;
+}
+
+/** "TypeSafe Jev is text only and gets the request without images.": its line among the image limits. */
+export function textOnlyLimitSentence(provider: ProviderSummary): string {
+  return `${provider.displayName} is text only and gets the request without images.`;
 }
 
 /**

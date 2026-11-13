@@ -15,7 +15,7 @@ import { appendWithInlineCode, create } from "./dom.ts";
  * returns a detached element; `results.ts` puts it in the page.
  */
 
-type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer;
+export type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer;
 
 /** What the readout says in place of bars when the model declines a question. */
 export const REFUSAL_TEXT = "The model declined to answer this question.";
@@ -173,7 +173,8 @@ function renderRefusal(): Node[] {
   return [create("p", { className: "answer-refusal", text: REFUSAL_TEXT })];
 }
 
-function renderReading(answer: Answer): Node[] {
+/** The primitive-specific reading of one answer, without its question: bars, a verdict, or the refusal. */
+export function renderReading(answer: Answer): Node[] {
   switch (answer.type) {
     case "refusal":
       return renderRefusal();

@@ -73,9 +73,10 @@ Feature: One request with a question type choice, instead of three panels
     And one stored choice applies to every question type
 
   Scenario: The Run bar
-    Then the Run bar holds the sentence that describes Run, then Run
+    Then the Run bar holds the provider choice, the sentence that describes Run, then Run
     And on screens 60em wide or more it stays at the bottom of the window while the request is on screen
-    And the page keeps 6rem of scroll padding at the bottom, so the bar never covers the field that has focus
+    And the page keeps 12rem of scroll padding at the bottom, so the bar never covers the field that has focus
+    # 12rem since #101 put the provider checkboxes in the bar (scenarios/101-compare-providers.feature).
     And on a phone it follows the request, with Run as wide as the screen
 
   Scenario: The results follow the request and scroll with the page

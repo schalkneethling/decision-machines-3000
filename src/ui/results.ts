@@ -1,4 +1,12 @@
-import { create, required } from "./dom.ts";
+import type { DecisionSuccess } from "../decision/contract.ts";
+import { appendWithInlineCode, create, required } from "./dom.ts";
+import {
+  metadataSentence,
+  omittedImagesSentence,
+  questionText,
+  renderReading,
+  renderResponse,
+} from "./readout.ts";
 
 /**
  * The result list: every run adds one result, newest first, so earlier answers
@@ -11,14 +19,21 @@ import { create, required } from "./dom.ts";
 export const RESULT_LIMIT = 20;
 
 /**
- * What one provider made of a run: the reading the person reads, and, when the
- * provider answered, the wire view of what travelled. A result holds a list of
- * these so that a run on several providers can later show one column each.
+ * What a provider made of a run: its answers, with how many attached images
+ * it was sent without, or a failure, already rendered as an alert.
+ */
+export type Outcome =
+  | { kind: "answered"; response: DecisionSuccess; omittedImages: number }
+  | { kind: "failed"; reading: HTMLElement };
+
+/**
+ * What one provider made of a run, and, when the provider answered, the wire
+ * view of what travelled. A result holds one per provider it asked.
  */
 export type ProviderRun = {
   /** The provider's display name: "SubQ Snap". */
   provider: string;
-  reading: HTMLElement;
+  outcome: Outcome;
   /** Undefined when no answer arrived, such as when the endpoint could not be reached. */
   wire: HTMLElement | undefined;
 };
@@ -28,6 +43,8 @@ export type Result = {
   questionType: string;
   /** When the run started. */
   at: Date;
+  /** The request that was sent, for the question text each answer is shown under. */
+  sent: unknown;
   runs: ProviderRun[];
 };
 
@@ -44,11 +61,11 @@ export function formatTime(at: Date): string {
   return timeFormat.format(at);
 }
 
+const providerList = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+
 /** The providers a result ran on, as a heading names them: "TypeSafe Jev and SubQ Snap". */
 function providerNames(runs: ProviderRun[]): string {
-  const names = runs.map((run) => run.provider);
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
+  return providerList.format(runs.map((run) => run.provider));
 }
 
 /** "Pick one option: SubQ Snap at 14:32:05", with the time in a `<time>` element. */
@@ -63,18 +80,116 @@ export function renderResultHeading(result: Result): HTMLHeadingElement {
   ]);
 }
 
+/** The metadata line for an answered provider: who, how fast, and any images it was sent without. */
+function metaLine(response: DecisionSuccess, omittedImages: number): HTMLParagraphElement {
+  const meta =
+    omittedImages > 0
+      ? `${metadataSentence(response)} ${omittedImagesSentence(omittedImages)}`
+      : metadataSentence(response);
+  return create("p", { className: "reading-meta", text: meta });
+}
+
+/** One provider's run on its own: the full reading, then its wire view. */
+function renderSingleRun(sent: unknown, run: ProviderRun): HTMLElement {
+  const reading =
+    run.outcome.kind === "answered"
+      ? renderResponse(sent, run.outcome.response, run.outcome.omittedImages)
+      : run.outcome.reading;
+  return create("div", { className: "result-run" }, run.wire ? [reading, run.wire] : [reading]);
+}
+
 /**
- * One result: its heading, then one block per provider with the reading and
- * its own wire view. The wire view sits in the result it describes, outside
- * any live region, and its disclosures start closed.
+ * The question ids the answers carry, in the order they first appear. Every
+ * provider answers the same questions, so each row lines up; a provider that
+ * failed contributes none.
+ */
+function answeredIds(runs: readonly ProviderRun[]): string[] {
+  const ids: string[] = [];
+  for (const run of runs) {
+    if (run.outcome.kind !== "answered") continue;
+    for (const id of Object.keys(run.outcome.response.answers)) {
+      if (!ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * The comparison table of a run on several providers (issue #101): one row per
+ * question, headed by the question, and one column per provider, headed by
+ * its name. Moving along a row reads one question's answers from every
+ * provider together. Explicit roles keep the table's meaning on a phone, where
+ * CSS lays each row out as a group; each cell names its provider there.
+ */
+function renderComparison(result: Result): HTMLTableElement {
+  const head = create("thead", { attributes: { role: "rowgroup" } }, [
+    create("tr", { attributes: { role: "row" } }, [
+      create("th", { text: "Question", attributes: { scope: "col", role: "columnheader" } }),
+      ...result.runs.map((run) =>
+        create("th", { text: run.provider, attributes: { scope: "col", role: "columnheader" } }),
+      ),
+    ]),
+  ]);
+  const rows = answeredIds(result.runs).map((id) => {
+    const question = create("th", {
+      className: "comparison-question",
+      attributes: { scope: "row", role: "rowheader" },
+    });
+    appendWithInlineCode(question, questionText(result.sent, id));
+    const cells = result.runs.map((run) => {
+      const cell = create("td", {
+        className: "comparison-cell",
+        attributes: { role: "cell", "data-provider": run.provider },
+      });
+      const answer = run.outcome.kind === "answered" ? run.outcome.response.answers[id] : undefined;
+      if (answer === undefined) {
+        cell.append(create("p", { className: "comparison-missing", text: "No answer" }));
+      } else {
+        cell.append(...renderReading(answer));
+      }
+      return cell;
+    });
+    return create("tr", { attributes: { role: "row" } }, [question, ...cells]);
+  });
+  return create("table", { className: "comparison", attributes: { role: "table" } }, [
+    create("caption", { className: "visually-hidden", text: "Answers by question and provider" }),
+    head,
+    create("tbody", { attributes: { role: "rowgroup" } }, rows),
+  ]);
+}
+
+/** One provider's part of a compared run: its metadata or its failure, then its wire view. */
+function renderProviderDetails(run: ProviderRun): HTMLElement {
+  const heading = create("h4", { className: "result-provider-name", text: run.provider });
+  const body =
+    run.outcome.kind === "answered"
+      ? metaLine(run.outcome.response, run.outcome.omittedImages)
+      : run.outcome.reading;
+  return create(
+    "section",
+    { className: "result-provider" },
+    run.wire ? [heading, body, run.wire] : [heading, body],
+  );
+}
+
+/**
+ * One result: its heading, then, for one provider, its reading and wire view,
+ * as before. For several providers, the comparison table, then each provider's
+ * metadata or failure and its own wire view. The wire view sits in the result
+ * it describes, outside any live region, and its disclosures start closed.
  */
 export function renderResultArticle(result: Result): HTMLElement {
-  const runs = result.runs.map((run) =>
-    create("div", { className: "result-run" }, run.wire ? [run.reading, run.wire] : [run.reading]),
-  );
-  return create("article", { className: "result" }, [
+  const [only] = result.runs;
+  if (result.runs.length === 1 && only !== undefined) {
+    return create("article", { className: "result" }, [
+      renderResultHeading(result),
+      create("div", { className: "result-runs" }, [renderSingleRun(result.sent, only)]),
+    ]);
+  }
+  return create("article", { className: "result result-compared" }, [
     renderResultHeading(result),
-    create("div", { className: "result-runs" }, runs),
+    renderComparison(result),
+    create("div", { className: "result-providers" }, result.runs.map(renderProviderDetails)),
   ]);
 }
 
@@ -83,14 +198,28 @@ export function answersSentence(questionType: string, provider: string, count: n
   return `${questionType}: ${provider} gave ${count} ${count === 1 ? "answer" : "answers"}.`;
 }
 
-/** What the live region says while a run waits, naming the provider it was sent to. */
-export function loadingSentence(provider: string): string {
-  return `Asking ${provider}…`;
+/**
+ * What the live region says once a run on several providers ends:
+ * "Yes or no: 2 of 3 providers answered, TypeSafe Jev and SubQ Snap." A
+ * failure's alert in its result says the rest, so this names only who answered.
+ */
+export function comparedSentence(
+  questionType: string,
+  answered: readonly string[],
+  asked: number,
+): string {
+  if (answered.length === 0) return "";
+  return `${questionType}: ${answered.length} of ${asked} providers answered, ${providerList.format(answered)}.`;
+}
+
+/** What the live region says while a run waits, naming the providers it was sent to. */
+export function loadingSentence(providers: readonly string[]): string {
+  return `Asking ${providerList.format(providers)}…`;
 }
 
 export type Results = {
-  /** Says in the live region that a run is waiting on `provider`. */
-  waiting: (provider: string) => void;
+  /** Says in the live region that a run is waiting on `providers`. */
+  waiting: (providers: readonly string[]) => void;
   /**
    * Puts `result` at the top of the list and drops the oldest past
    * `RESULT_LIMIT`. The live region then says `announcement`; an empty
@@ -131,8 +260,8 @@ export function setupResults(root: Document): Results {
   showCount();
 
   return {
-    waiting: (provider) => {
-      status.textContent = loadingSentence(provider);
+    waiting: (providers) => {
+      status.textContent = loadingSentence(providers);
     },
     add: (result, announcement) => {
       list.prepend(create("li", { className: "results-item" }, [renderResultArticle(result)]));

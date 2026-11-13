@@ -262,7 +262,7 @@ describe("the image control with the shrink transform", () => {
     });
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
@@ -285,7 +285,7 @@ describe("the image control with the shrink transform", () => {
     const { rasterize } = fakeRasterizer();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
@@ -298,7 +298,7 @@ describe("the image control with the shrink transform", () => {
     const { rasterize } = fakeRasterizer({ hasAlpha: true, bytesAt: () => 20 * KIB });
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
@@ -317,7 +317,7 @@ describe("the image control with the shrink transform", () => {
     };
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers: () => [subq, openai],
       transform: spy,
     });
@@ -331,7 +331,7 @@ describe("the image control with the shrink transform", () => {
     async function refusedWithRoom(taken: number, size: number): Promise<string> {
       const control = createAttachments(mount(), {
         prefix: "noul-images",
-        provider: openai,
+        selected: [openai],
         providers: () => [subq, openai],
         transform: createShrinkTransform(undefined),
       });
@@ -368,7 +368,7 @@ describe("the image control with the shrink transform", () => {
     });
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: openai,
+      selected: [openai],
       providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
@@ -386,7 +386,7 @@ describe("the image control with the shrink transform", () => {
     const { rasterize } = fakeRasterizer({ bytesAt: () => 71 * KIB });
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
@@ -406,7 +406,7 @@ describe("the image control with the shrink transform", () => {
     const changes = vi.fn();
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: async (image, caps) => {
         await gate;
@@ -428,7 +428,7 @@ describe("the image control with the shrink transform", () => {
   it("says nothing about shrinking for an image that already fits", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: createShrinkTransform(fakeRasterizer().rasterize),
     });
@@ -440,7 +440,7 @@ describe("the image control with the shrink transform", () => {
   it("keeps going with the rest of the selection after a refusal", async () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
-      provider: subq,
+      selected: [subq],
       providers: () => [subq, openai],
       transform: createShrinkTransform(undefined),
     });

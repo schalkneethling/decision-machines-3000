@@ -80,10 +80,13 @@ const KIB = 1024;
  * Free plan, which allows 10 ms of CPU per request. A CPU measurement on a
  * scratch Worker found that 2 MiB images cost 35 to 107 ms per request, while
  * 128 KiB images peaked at 12 ms. A 96 KiB cap then measured a p95 of 11 ms, so
- * the owner chose 64 KiB, which is still to be re-measured. The measurements are
+ * the owner chose 64 KiB, which then measured a p95 of 9 ms. The measurements are
  * on PR #53, starting at
- * https://github.com/schalkneethling/decision-machines-3000/pull/53#issuecomment-6221879089,
- * and the browser is later meant to shrink pictures to fit (issue #25).
+ * https://github.com/schalkneethling/decision-machines-3000/pull/53#issuecomment-6221879089.
+ * Sending the images as base64 in the request's JSON, instead of as multipart
+ * parts, was measured next: about 28 ms of CPU per MiB, so no larger cap fits
+ * the Free plan either (`scenarios/15-server-images.feature`). The browser
+ * shrinks pictures to fit (issue #25).
  *
  * The two caps are equal today but are separate constants because they limit
  * different things, so they may diverge again. The descriptors below and the

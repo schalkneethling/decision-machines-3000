@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { PROVIDER_ORDER } from "../providers/catalog.ts";
-import { VOCABULARY } from "./vocabulary.ts";
+import { questionTypeTerm, VOCABULARY } from "./vocabulary.ts";
 
 function term(shared: string, provider: (typeof PROVIDER_ORDER)[number]): string {
   const row = VOCABULARY.find((candidate) => candidate.shared === shared);
@@ -15,8 +15,31 @@ describe("vocabulary legend", () => {
     }
   });
 
+  it("names its rows with the plain terms the page uses (issue #103)", () => {
+    expect(VOCABULARY.map((row) => row.shared)).toEqual([
+      "What the model reads",
+      "Questions",
+      "Yes or no",
+      "Pick one option",
+      "Score on a scale",
+      "Yes/no meaning",
+      "Options",
+      "Levels",
+      "Probability of yes",
+      "A question the model declines",
+    ]);
+  });
+
+  it("says each question type's API term from its row, grouped by provider", () => {
+    expect(questionTypeTerm("noul")).toBe(
+      "`noul` in TypeSafe Jev and SubQ Snap, `predicate` in OpenAI Decisions",
+    );
+    expect(questionTypeTerm("choice")).toBe("`choice` in every provider");
+    expect(questionTypeTerm("score")).toBe("`score` in every provider");
+  });
+
   it("gives OpenAI score levels a label, and a description only for a structured level, as its adapter sends", () => {
-    expect(term("Score levels", "openai")).toBe(
+    expect(term("Levels", "openai")).toBe(
       "`levels`, a list of `label`, with a `description` for a structured level",
     );
   });

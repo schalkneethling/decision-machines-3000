@@ -36,6 +36,7 @@ import {
   addOptionButton,
   elementId,
   issueSlot,
+  jsonKeyNote,
   levelList,
   meaningList,
   moveHint,
@@ -117,12 +118,12 @@ function fanOutHint(question: QuestionModel, model: ComposerModel): string {
 
 function stateHint(model: ComposerModel): string {
   if (stateReading(model.state) === "text") {
-    return "Read as text.";
+    return "The page reads this as text.";
   }
   const lists = arrayKeys(model.state);
   return lists.length === 0
-    ? "Read as JSON."
-    : `Read as JSON. Questions can ask about each item in ${lists.join(", ")}.`;
+    ? "The page reads this as JSON."
+    : `The page reads this as JSON. Questions can ask about each item in ${lists.join(", ")}.`;
 }
 
 export function createComposer(options: ComposerOptions): Composer {
@@ -307,7 +308,10 @@ export function createComposer(options: ComposerOptions): Composer {
       ...keys.map((key) => ({ value: key, label: key })),
     ];
     if (question.fanOut !== undefined && !keys.includes(question.fanOut)) {
-      choices.push({ value: question.fanOut, label: `${question.fanOut}, not in the state` });
+      choices.push({
+        value: question.fanOut,
+        label: `${question.fanOut}, not in what the model reads`,
+      });
     }
     const current = [...select.options]
       .map((option) => `${option.value}\n${option.text}`)
@@ -331,7 +335,8 @@ export function createComposer(options: ComposerOptions): Composer {
       key: STATE_KEY,
       control: "state",
       field: "state",
-      label: "State",
+      label: "What the model reads",
+      jsonKey: "state",
       value: contentText(model.state),
       multiline: true,
       code: true,
@@ -419,6 +424,7 @@ export function createComposer(options: ComposerOptions): Composer {
           text: `Shared ${noun}`,
           attributes: { id: legendId },
         }),
+        jsonKeyNote(elementId(prefix, SHARED_KEY, "json-key"), "criteria"),
         create("p", {
           className: "tree-hint",
           text: `Questions without their own ${noun} use ${model.primitive === "noul" ? "this one" : "these"}.`,
@@ -477,6 +483,7 @@ export function createComposer(options: ComposerOptions): Composer {
       shared === undefined ? capitalise(noun) : `${capitalise(noun)} for this question`;
     block.append(
       create("p", { className: "node-label", text: heading, attributes: { id: labelId } }),
+      jsonKeyNote(elementId(prefix, question.key, "criteria-json-key"), "criteria"),
       ...criteriaEditor(question.key, own, labelId),
     );
 
@@ -637,7 +644,7 @@ export function createComposer(options: ComposerOptions): Composer {
       [
         create("label", {
           className: "node-label",
-          text: "Ask for each item in",
+          text: "Ask once for each item in",
           attributes: { for: selectId },
         }),
         select,

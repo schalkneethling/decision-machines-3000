@@ -53,6 +53,18 @@ export function elementId(prefix: string, key: string, part: string): string {
   return `${prefix}-${key}-${part}`;
 }
 
+/**
+ * The quiet line under a plain label that names the key the JSON view uses for
+ * the same thing: "In JSON: `state`". The label leads with the plain name, and
+ * a person who knows the API still finds its word here.
+ */
+export function jsonKeyNote(id: string, key: string): HTMLParagraphElement {
+  return create("p", { className: "api-term", attributes: { id } }, [
+    "In JSON: ",
+    create("code", { text: key }),
+  ]);
+}
+
 /** The element that lists a row's problems; controls in the row point at it with aria-describedby. */
 export function issueSlot(prefix: string, key: string): HTMLParagraphElement {
   return create("p", {
@@ -99,6 +111,8 @@ export type TextFieldOptions = {
   code?: boolean;
   field?: string;
   hint?: string;
+  /** The JSON view's key for this field, shown under the label and read after it as part of the description. */
+  jsonKey?: string;
   /** Whether the row has an issue slot to describe the control. Defaults to true. */
   hasIssues?: boolean;
   /** Content that can be text or JSON: say which it was read as when that is in doubt. */
@@ -126,6 +140,13 @@ export function textField(ctx: RowContext, options: TextFieldOptions): HTMLDivEl
     options.hint === undefined
       ? undefined
       : elementId(ctx.prefix, options.key, `${options.control}-hint`);
+  const jsonKey =
+    options.jsonKey === undefined
+      ? undefined
+      : jsonKeyNote(
+          elementId(ctx.prefix, options.key, `${options.control}-json-key`),
+          options.jsonKey,
+        );
   const readingId = options.reading
     ? elementId(ctx.prefix, options.key, `${options.control}-reading`)
     : undefined;
@@ -135,7 +156,12 @@ export function textField(ctx: RowContext, options: TextFieldOptions): HTMLDivEl
       : create("p", { className: "tree-hint", attributes: { id: readingId } });
   if (reading) updateReadingHint(reading, options.value);
 
-  const description = describedBy(ctx.prefix, options.key, [readingId, hintId], options.hasIssues);
+  const description = describedBy(
+    ctx.prefix,
+    options.key,
+    [jsonKey?.id, readingId, hintId],
+    options.hasIssues,
+  );
   if (description !== "") input.setAttribute("aria-describedby", description);
   if (input instanceof HTMLInputElement) {
     // A single-line field submits its form when Enter is pressed (HTML's implicit
@@ -162,7 +188,7 @@ export function textField(ctx: RowContext, options: TextFieldOptions): HTMLDivEl
   const wrapper = create(
     "div",
     { className: ["field", options.className].filter(Boolean).join(" ") },
-    [label, input],
+    jsonKey === undefined ? [label, input] : [label, jsonKey, input],
   );
   if (reading) wrapper.append(reading);
   if (options.hint !== undefined && hintId !== undefined) {

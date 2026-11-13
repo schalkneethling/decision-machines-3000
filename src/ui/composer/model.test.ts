@@ -216,7 +216,7 @@ describe("fan-out", () => {
 
     fanOut.fanOut = "reviews";
     expect(messages(model)).toEqual([
-      `The state has no list called "reviews". Pick a list from the state or ask once.`,
+      `What the model reads has no list called "reviews". Pick one of its lists, or ask once.`,
     ]);
 
     model.state = { films: [] };
@@ -494,13 +494,13 @@ describe("a blank state with images", () => {
 
   it("offers attaching an image when none is attached and the provider takes images", () => {
     expect(findIssues(blankState(), subq).map((issue) => issue.message)).toEqual([
-      "The state is empty. Add the text, object, or list to evaluate, or attach an image.",
+      "What the model reads is empty. Add the text, object, or list your questions are about, or attach an image.",
     ]);
   });
 
   it("does not offer an image to a text-only provider", () => {
     expect(findIssues(blankState(), typesafe).map((issue) => issue.message)).toEqual([
-      "The state is empty. Add the text, object, or list to evaluate.",
+      "What the model reads is empty. Add the text, object, or list your questions are about.",
     ]);
   });
 });

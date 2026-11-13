@@ -43,17 +43,17 @@ beforeEach(() => {
 
 describe("renderResultArticle", () => {
   it("is an article whose h3 names the question type, the provider, and the time", () => {
-    const article = renderResultArticle(result("Choice"));
+    const article = renderResultArticle(result("Pick one option"));
     expect(article.tagName).toBe("ARTICLE");
     const heading = article.querySelector("h3");
-    expect(heading?.textContent).toBe("Choice on SubQ Snap at 14:32:05");
+    expect(heading?.textContent).toBe("Pick one option: SubQ Snap at 14:32:05");
     expect(heading?.querySelector("time")?.getAttribute("datetime")).toBe(at.toISOString());
   });
 
   it("keeps each provider's reading and wire view together, in the order given", () => {
-    const article = renderResultArticle(result("Noul", ["TypeSafe Jev", "SubQ Snap"]));
+    const article = renderResultArticle(result("Yes or no", ["TypeSafe Jev", "SubQ Snap"]));
     expect(article.querySelector("h3")?.textContent).toBe(
-      "Noul on TypeSafe Jev and SubQ Snap at 14:32:05",
+      "Yes or no: TypeSafe Jev and SubQ Snap at 14:32:05",
     );
     const runs = [...article.querySelectorAll(".result-run")];
     expect(runs.map((run) => run.querySelector(".reading")?.textContent)).toEqual([
@@ -66,8 +66,12 @@ describe("renderResultArticle", () => {
 
 describe("the sentences", () => {
   it("counts answers in one short sentence", () => {
-    expect(answersSentence("Choice", "SubQ Snap", 4)).toBe("Choice on SubQ Snap: 4 answers.");
-    expect(answersSentence("Score", "TypeSafe Jev", 1)).toBe("Score on TypeSafe Jev: 1 answer.");
+    expect(answersSentence("Pick one option", "SubQ Snap", 4)).toBe(
+      "Pick one option: SubQ Snap gave 4 answers.",
+    );
+    expect(answersSentence("Score on a scale", "TypeSafe Jev", 1)).toBe(
+      "Score on a scale: TypeSafe Jev gave 1 answer.",
+    );
   });
 
   it("names the provider while a run waits", () => {
@@ -78,14 +82,14 @@ describe("the sentences", () => {
 describe("setupResults", () => {
   it("adds each result at the top and announces only the sentence it is given", () => {
     const results = setupResults(document);
-    results.add(result("Noul"), "Noul on SubQ Snap: 4 answers.");
-    results.add(result("Choice"), "Choice on SubQ Snap: 4 answers.");
+    results.add(result("Yes or no"), "Yes or no: SubQ Snap gave 4 answers.");
+    results.add(result("Pick one option"), "Pick one option: SubQ Snap gave 4 answers.");
     expect(headings()).toEqual([
-      "Choice on SubQ Snap at 14:32:05",
-      "Noul on SubQ Snap at 14:32:05",
+      "Pick one option: SubQ Snap at 14:32:05",
+      "Yes or no: SubQ Snap at 14:32:05",
     ]);
     expect(document.querySelector("#results-status")?.textContent).toBe(
-      "Choice on SubQ Snap: 4 answers.",
+      "Pick one option: SubQ Snap gave 4 answers.",
     );
   });
 
@@ -96,13 +100,13 @@ describe("setupResults", () => {
     }
     const kept = headings();
     expect(kept).toHaveLength(RESULT_LIMIT);
-    expect(kept[0]).toMatch(/^Run 22 /);
-    expect(kept.at(-1)).toMatch(/^Run 3 /);
+    expect(kept[0]).toMatch(/^Run 22: /);
+    expect(kept.at(-1)).toMatch(/^Run 3: /);
   });
 
   it("clears the list, shows the empty message, and puts focus on the heading", () => {
     const results = setupResults(document);
-    results.add(result("Noul"), "");
+    results.add(result("Yes or no"), "");
     results.clear();
     expect(headings()).toEqual([]);
     expect(document.querySelector<HTMLElement>("#results-empty")?.hidden).toBe(false);

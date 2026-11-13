@@ -151,6 +151,21 @@ code {
   line-height: 1.05;
 }
 
+.panel-heading {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+/* The API's word for the question type: a quieter second line under the plain name. */
+.panel-api-term,
+.api-term {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
+}
+
 .panel-description {
   max-inline-size: 60ch;
   margin: 0 0 0.75rem;

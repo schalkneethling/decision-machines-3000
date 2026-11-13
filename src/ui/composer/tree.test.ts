@@ -119,6 +119,24 @@ describe("tree structure", () => {
     expect(harness.all(".option-row")).toHaveLength(7);
   });
 
+  it("leads each label with a plain name and names the JSON key after it (issue #103)", () => {
+    const harness = mount(choiceExample);
+    const state = harness.get<HTMLTextAreaElement>("#test-state-state");
+    expect(harness.get(`label[for="${state.id}"]`).textContent).toBe("What the model reads");
+    const note = harness.get("#test-state-state-json-key");
+    expect(note.textContent).toBe("In JSON: state");
+    expect(note.querySelector("code")?.textContent).toBe("state");
+    // Read after the label, as the first part of the field's description.
+    expect(state.getAttribute("aria-describedby")?.split(" ")[0]).toBe(note.id);
+
+    expect(harness.get("#test-shared-legend").textContent).toBe("Shared options");
+    expect(harness.get("#test-shared-json-key").textContent).toBe("In JSON: criteria");
+    const [question] = questionKeys(harness);
+    expect(harness.get(`#test-${question}-fan-out-field label`).textContent).toBe(
+      "Ask once for each item in",
+    );
+  });
+
   it("says what the id is for once per panel, and no Id field is described by it", () => {
     const harness = mount(noulExample);
     const keys = questionKeys(harness);
@@ -235,14 +253,14 @@ describe("editing", () => {
 
     type(state, `{"films": [], "reviews": ["a"]}`);
     expect(hint.textContent).toBe(
-      "Read as JSON. Questions can ask about each item in films, reviews.",
+      "The page reads this as JSON. Questions can ask about each item in films, reviews.",
     );
     const [question] = questionKeys(harness);
     const select = harness.get<HTMLSelectElement>(control(question!, "fan-out"));
     expect([...select.options].map((option) => option.value)).toEqual(["", "films", "reviews"]);
 
     type(state, "A plain sentence.");
-    expect(hint.textContent).toBe("Read as text.");
+    expect(hint.textContent).toBe("The page reads this as text.");
     expect(harness.composer.model().state).toBe("A plain sentence.");
   });
 
@@ -632,16 +650,16 @@ describe("text or JSON content", () => {
     const field = harness.get<HTMLTextAreaElement>(control(key!, "instructions"));
     const hint = harness.get(`#test-${key}-instructions-reading`);
     expect(field.value).toBe(`{\n  "a": 1\n}`);
-    expect(hint.textContent).toBe("Read as JSON.");
+    expect(hint.textContent).toBe("The page reads this as JSON.");
     expect(field.getAttribute("aria-describedby")).toContain(hint.id);
 
     type(field, `{\n  "a": 1\n`);
     expect(harness.composer.model().questions[0]?.instructions).toBe(`{\n  "a": 1\n`);
-    expect(hint.textContent).toBe("Read as text.");
+    expect(hint.textContent).toBe("The page reads this as text.");
 
     type(field, `{\n  "a": 1\n}`);
     expect(harness.composer.model().questions[0]?.instructions).toEqual({ a: 1 });
-    expect(hint.textContent).toBe("Read as JSON.");
+    expect(hint.textContent).toBe("The page reads this as JSON.");
   });
 
   it("reads JSON typed into a field that started empty", () => {
@@ -656,7 +674,9 @@ describe("text or JSON content", () => {
     type(field, `["calm", "tense"]`);
     const criteria = toRequest(harness.composer.model()).criteria;
     expect(Array.isArray(criteria) ? criteria.at(-1) : undefined).toEqual(["calm", "tense"]);
-    expect(harness.get(`#test-${added}-description-reading`).textContent).toBe("Read as JSON.");
+    expect(harness.get(`#test-${added}-description-reading`).textContent).toBe(
+      "The page reads this as JSON.",
+    );
   });
 
   it("does not label plain prose", () => {

@@ -14,13 +14,13 @@ Feature: Pressing Enter in a request field never sends the request
     And the answer area does not change
 
   Scenario: Enter in an option's name field posts nothing
-    Given the Choice panel with options
+    Given the "Pick one option" panel with options
     When the person presses Enter in an option's name field
     Then nothing is posted
 
   Scenario: Enter in a textarea still inserts a new line
     Given a panel holding a valid request
-    When the person presses Enter in a textarea, such as the State field
+    When the person presses Enter in a textarea, such as the "What the model reads" field
     Then the key's default action is not cancelled
     And the request is not posted
 

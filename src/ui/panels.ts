@@ -19,15 +19,17 @@ import { createComposer } from "./composer/tree.ts";
 import type { Composer } from "./composer/tree.ts";
 import { createConfirmDialog } from "./confirm-dialog.ts";
 import type { Confirm, Confirmation } from "./confirm-dialog.ts";
-import { create, required } from "./dom.ts";
+import { appendWithInlineCode, create, required } from "./dom.ts";
 import { createErrorSummary } from "./error-summary.ts";
 import type { ErrorSummary, Problem } from "./error-summary.ts";
 import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
 import { renderError, renderNonJson, renderResponse, renderUnreachable } from "./readout.ts";
+import { QUESTION_TYPE_NAMES } from "./question-types.ts";
 import { answersSentence, setupResults } from "./results.ts";
 import { fetchSampleImages } from "./sample-images.ts";
 import { capitalise } from "./text.ts";
+import { questionTypeTerm } from "./vocabulary.ts";
 import { renderWire } from "./wire-view.ts";
 
 type View = "tree" | "json";
@@ -36,7 +38,7 @@ const VIEWS = ["tree", "json"] as const satisfies readonly View[];
 
 type Panel = {
   primitive: Primitive;
-  /** The panel's name as its heading shows it: "Noul". */
+  /** The question type's plain name, as the panel's heading shows it: "Yes or no". */
   name: string;
   /** The limits this panel validates against. */
   capabilities: ProviderCapabilities;
@@ -192,7 +194,11 @@ function setupPanel(
     },
   });
   treeBody.append(composer.element);
-  const name = capitalise(primitive);
+  const name = QUESTION_TYPE_NAMES[primitive];
+  // The heading's second line, the API's word for this question type, sits in the panel's hgroup.
+  const apiTerm = required(form.closest(".panel") ?? form, ".panel-api-term", HTMLElement);
+  apiTerm.replaceChildren("API term: ");
+  appendWithInlineCode(apiTerm, `${questionTypeTerm(primitive)}.`);
 
   panel = {
     primitive,
@@ -529,7 +535,7 @@ function replaceRequest(panel: Panel, request: ValidDecisionRequest): void {
 }
 
 /**
- * Puts focus on the first field of what was loaded: the tree's State field, or
+ * Puts focus on the first field of what was loaded: the tree's "What the model reads" field, or
  * the textarea. Only when focus is still on `pressed`, the load button, or has
  * fallen to the body: a person who tabbed on while the pictures were fetched
  * keeps their place.

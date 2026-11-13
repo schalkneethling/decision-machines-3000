@@ -19,6 +19,9 @@ Feature: Plain names for the question types and fields, with the API terms as se
 
   # --- Panel headings --------------------------------------------------------------------------------------------------
 
+  # Since #102 the three panel headings are the three options of the question type choice. Each option is named by
+  # its plain name alone and described by what it answers and the same API term sentence
+  # (scenarios/102-one-request.feature).
   Scenario: Each panel is headed by its plain name, with the API term on the next line
     Given the page
     Then the three panel headings read "Yes or no", "Pick one option", and "Score on a scale"
@@ -40,7 +43,7 @@ Feature: Plain names for the question types and fields, with the API terms as se
   Scenario: The API terms come from the vocabulary legend, so the page markup names no provider
     Given index.html
     Then the API-term paragraphs are empty in the markup
-    And src/ui/panels.ts fills each one from the legend's row for that question type
+    And src/ui/request-form.ts fills each one from the legend's row for that question type
     And index.html still names no provider (the provider-neutral contract, #23)
 
   # --- Field labels ----------------------------------------------------------------------------------------------------
@@ -69,8 +72,8 @@ Feature: Plain names for the question types and fields, with the API terms as se
   Scenario: Sentences about a panel use its plain name without quotation marks
     Given the "Yes or no" panel holds the film example and TypeSafe Jev is selected
     Then Run's description says "Checks the Yes or no request and sends it to TypeSafe Jev."
-    And a confirmation before a load asks "Load the film example into the Yes or no panel?"
-    And an error summary is headed "The Yes or no request cannot be sent yet"
+    And a confirmation before a load asks "Load the film example for Yes or no?"
+    And an error summary is headed "The request cannot be sent yet"
     # No quotation marks in accessible names or announced sentences: with punctuation reading on, a screen
     # reader can say "left double quote", and the capitalised name already marks where it starts.
 

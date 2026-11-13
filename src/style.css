@@ -16,7 +16,7 @@
   --size-body: 1rem; /* 16px */
   --size-title: 1.25rem; /* 20px readout question titles */
   --size-wordmark: 1.75rem; /* 28px */
-  --size-panel: 2.75rem; /* 44px panel names */
+  --size-heading: 2.75rem; /* 44px section headings */
 
   --leading-body: 1.5;
   --leading-meta: 1.4;
@@ -36,6 +36,8 @@
     --surface: #262a31;
     --well: #171a1e;
     --line: #363b44;
+    /* The edge of a field or button: at least 3:1 against --surface and --well, as WCAG 2.2's 1.4.11 asks */
+    --control-edge: #808893;
     --ink: #e8e6e1;
     --ink-muted: #9aa0a8;
     --reading: #f2b441;
@@ -51,6 +53,7 @@
     --surface: #f6f7f8;
     --well: #ffffff;
     --line: #c9cdd3;
+    --control-edge: #767c85;
     --ink: #1e2126;
     --ink-muted: #5c636d;
     --reading: #b77a0a;
@@ -87,6 +90,24 @@ code {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+/* Skip to results: the first tab stop, shown only while it has focus */
+.skip-link {
+  position: absolute;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
+  z-index: 1;
+  padding: 0.75rem 1rem;
+  background: var(--reading);
+  color: var(--on-reading);
+  border-radius: var(--radius-key);
+  font-weight: 500;
+  transform: translateY(calc(-100% - 1rem));
+}
+
+.skip-link:focus {
+  transform: none;
 }
 
 /* Masthead */
@@ -126,7 +147,7 @@ code {
   color: var(--ink-muted);
 }
 
-/* Bench: the faceplate holding the panels and the readout */
+/* Bench: the faceplate holding the request and the readout */
 .bench {
   box-sizing: border-box;
   display: grid;
@@ -136,47 +157,97 @@ code {
   border-block: 1px solid var(--line);
 }
 
-/* Panels */
-.panel {
+/*
+ * The request: one form whose question type is a choice (issue #102). The
+ * heading is for screen readers' heading lists; the question type legend is
+ * the first thing a sighted reader meets.
+ */
+.request {
   display: grid;
   gap: 0.5rem;
 }
 
-.panel-name {
+.request-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--size-panel);
+  font-size: var(--size-heading);
   font-style: italic;
   font-weight: 400;
   line-height: 1.05;
 }
 
-.panel-heading {
+.request-form {
   display: grid;
-  gap: 0.25rem;
-  margin: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
 }
 
-/* The API's word for the question type: a quieter second line under the plain name. */
-.panel-api-term,
-.api-term {
+/* Question type: three native radios, each with its plain name, what it answers, and the API term */
+.question-type {
+  display: grid;
+  gap: 0.75rem;
   margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.question-type-legend {
+  margin-block-end: 0.75rem;
+  padding: 0;
+  font-size: var(--size-title);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.question-type-option {
+  display: grid;
+  grid-template-columns: 1.375rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--control-edge);
+  border-radius: var(--radius-well);
+  cursor: pointer;
+}
+
+.question-type-option:has(:checked) {
+  padding: calc(0.875rem - 1px) calc(1rem - 1px);
+  border: 2px solid var(--reading);
+  background: var(--well);
+}
+
+.question-type-input {
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+  margin: 0.0625rem 0 0;
+  accent-color: var(--reading);
+}
+
+.question-type-text {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.question-type-name {
+  font-weight: 500;
+}
+
+.question-type-description,
+.question-type-term {
   color: var(--ink-muted);
   font-size: var(--size-meta);
   line-height: var(--leading-meta);
 }
 
-.panel-description {
-  max-inline-size: 60ch;
-  margin: 0 0 0.75rem;
-  color: var(--ink-muted);
-}
-
-.panel-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+/* The examples and the Tree or JSON choice share one row where it fits */
+.request-tools {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 1rem;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  padding-block-end: 1.25rem;
+  border-block-end: 1px solid var(--line);
 }
 
 .request-field {
@@ -187,7 +258,7 @@ code {
   resize: vertical;
   background: var(--well);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-edge);
   border-radius: var(--radius-well);
   font-family: var(--font-mono);
   font-size: var(--size-meta);
@@ -214,7 +285,7 @@ code {
 }
 
 /*
- * The error summary at the top of each panel: why Run cannot send the request,
+ * The error summary at the top of the request: why Run cannot send it,
  * with one link per problem. It takes no room while it lists nothing.
  */
 .error-summary {
@@ -253,16 +324,14 @@ code {
   color: inherit;
 }
 
-/* The example buttons at the top of each panel, and the empty-state message that points at them */
+/* The example buttons, and the empty-state message that points at them */
 .examples {
   display: flex;
   flex-wrap: wrap;
-  grid-column: 1 / -1;
   gap: 0.75rem;
 }
 
-.panel-empty {
-  grid-column: 1 / -1;
+.request-empty {
   max-inline-size: 60ch;
   margin: 0;
   color: var(--ink-muted);
@@ -270,26 +339,38 @@ code {
   line-height: var(--leading-meta);
 }
 
-/* Tree or JSON: a two-segment switch above each panel body */
+/*
+ * Tree or JSON: two native radios drawn as a two-segment switch, so the choice
+ * is one tab stop and reads as a choice between two views.
+ */
 .view-switch {
-  display: inline-flex;
-  grid-column: 1 / -1;
-  justify-self: start;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-key);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.view-switch-legend {
+  float: inline-start;
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: var(--size-meta);
+  line-height: var(--leading-meta);
 }
 
 .view-option {
-  padding: 0.25rem 0.75rem;
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 2.75rem;
+  padding-inline: 0.875rem;
+  border: 1px solid var(--control-edge);
+  border-radius: var(--radius-key);
   color: var(--ink-muted);
-  border: 0;
-  border-radius: 2px;
-  font-family: var(--font-sans);
-  font-size: var(--size-meta);
-  line-height: var(--leading-meta);
   cursor: pointer;
 }
 
@@ -297,14 +378,21 @@ code {
   color: var(--ink);
 }
 
-.view-option[aria-pressed="true"] {
+.view-option:has(:checked) {
   background: var(--well);
   color: var(--ink);
+  border-color: var(--reading);
+}
+
+.view-option input {
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  margin: 0;
+  accent-color: var(--reading);
 }
 
 .tree-view,
 .json-view {
-  grid-column: 1 / -1;
   min-inline-size: 0;
 }
 
@@ -319,7 +407,7 @@ code {
 }
 
 /*
- * Images: a fieldset that is also the drop zone, under the panel body. The
+ * Images: a fieldset that is also the drop zone, under the request body. The
  * notice and the status line below it stay in the page while empty, like the
  * provider's, so that filling them is announced; CSS collapses them while empty.
  */
@@ -511,15 +599,15 @@ code {
   display: none;
 }
 
-/* The status line beside Run: announcements and the first problem that stops a run */
-.panel-status {
+/* The status line above Run: announcements and the first problem that stops a run */
+.request-status {
   margin: 0;
   color: var(--ink-muted);
   font-size: var(--size-meta);
   line-height: var(--leading-meta);
 }
 
-.panel-status[data-tone="alert"] {
+.request-status[data-tone="alert"] {
   color: var(--alert);
 }
 
@@ -539,8 +627,8 @@ code {
 }
 
 /*
- * Off while a run is in flight; the running panel's button shows progress. The
- * panels mark Run aria-disabled so it keeps focus; the warm form disables its own.
+ * Off while a run is in flight, when Run shows progress. The request form marks
+ * Run aria-disabled so it keeps focus; the warm form disables its own.
  */
 .run:disabled,
 .run[aria-disabled="true"] {
@@ -552,9 +640,30 @@ code {
   cursor: progress;
 }
 
-/* The sentence Run's aria-describedby points at: what Run will send, or why it cannot */
+/*
+ * The Run bar: the sentence Run's aria-describedby points at, which says what
+ * Run will send or why it cannot, and Run itself.
+ */
+.run-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding-block: 1rem;
+  border-block-start: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.run-bar .run {
+  min-block-size: 3rem;
+  min-inline-size: 8rem;
+  justify-content: center;
+  align-items: center;
+}
+
 .run-note {
-  grid-column: 1 / -1;
+  flex: 1 1 20rem;
   margin: 0;
   color: var(--ink-muted);
   font-size: var(--size-meta);
@@ -964,7 +1073,7 @@ p.node-label {
   background: var(--well);
   color: var(--ink);
   border: 0;
-  border-block-end: 1px solid var(--line);
+  border-block-end: 1px solid var(--control-edge);
   border-radius: var(--radius-key) var(--radius-key) 0 0;
   font-family: var(--font-sans);
   font-size: var(--size-body);
@@ -1111,10 +1220,11 @@ textarea.tree-field {
  * because amber stays for Run and Warm connection.
  */
 .action-button {
+  min-block-size: 2.75rem;
   padding: 0.5rem 1rem;
   background: var(--well);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-edge);
   border-radius: var(--radius-key);
   font-family: var(--font-sans);
   font-size: var(--size-body);
@@ -1478,9 +1588,38 @@ textarea.tree-field {
   .readout {
     padding: 1rem;
   }
+
+  .run-bar .run {
+    inline-size: 100%;
+  }
+
+  /* On a phone the examples and the Tree or JSON choice fill the width, as Run does */
+  .request-tools,
+  .examples {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .examples .action-button {
+    inline-size: 100%;
+  }
+
+  .view-switch-legend {
+    float: none;
+    inline-size: 100%;
+  }
+
+  .view-option {
+    flex: 1 1 0;
+    justify-content: center;
+  }
 }
 
-/* Large: panels left, sticky readout right */
+/*
+ * Large: the request, then the results, in one column. The Run bar stays at
+ * the bottom of the window while the request is on screen, and the page keeps
+ * that much room below a focused field so the bar never covers it.
+ */
 @media (width >= 60em) {
   body {
     padding: 0 2rem 2rem;
@@ -1490,27 +1629,33 @@ textarea.tree-field {
     padding: 2rem 0 1.5rem;
   }
 
+  html {
+    scroll-padding-block-end: 6rem;
+  }
+
   .bench {
-    grid-template-columns: minmax(0, 7fr) minmax(0, 6fr);
-    gap: 3rem 2rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3rem;
     padding: 2rem;
     border-inline: 1px solid var(--line);
     border-radius: var(--radius-plate);
   }
 
-  .provider,
-  .panel {
-    grid-column: 1;
+  .question-type {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .question-type-legend {
+    grid-column: 1 / -1;
+  }
+
+  .run-bar {
+    position: sticky;
+    inset-block-end: 0;
+    z-index: 1;
   }
 
   .readout {
-    position: sticky;
-    inset-block-start: 1.5rem;
-    grid-column: 2;
-    grid-row: 1 / span 4;
-    align-self: start;
-    max-block-size: calc(100dvh - 3rem);
-    overflow: auto;
     padding: 1.5rem;
   }
 }

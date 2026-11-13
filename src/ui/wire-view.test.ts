@@ -69,7 +69,7 @@ describe("renderWireView", () => {
     expect(noulResponse.primitive).toBe("noul");
   });
 
-  it("keeps the panel's primitive on a provider whose own vocabulary differs", () => {
+  it("keeps the request's primitive on a provider whose own vocabulary differs", () => {
     const sent = JSON.parse(blocks(openaiResponse)["Sent to OpenAI Decisions"] ?? "");
     expect(sent.questions[0].type).toBe("predicate");
     expect(sent.questions[0].yes_means).toBe("Escalate it.");

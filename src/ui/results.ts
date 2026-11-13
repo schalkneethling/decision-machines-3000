@@ -24,7 +24,7 @@ export type ProviderRun = {
 };
 
 export type Result = {
-  /** The question type's plain name, as its panel heading shows it: "Yes or no". */
+  /** The question type's plain name, as the question type choice names it: "Yes or no". */
   questionType: string;
   /** When the run started. */
   at: Date;

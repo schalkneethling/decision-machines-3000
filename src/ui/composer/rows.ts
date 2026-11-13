@@ -35,7 +35,7 @@ export type StructuralChange = {
 };
 
 export type RowContext = {
-  /** Prefix for element ids, unique per panel. */
+  /** Prefix for element ids, unique per form. */
   prefix: string;
   model: ComposerModel;
   /** A field changed; `key` is the row it belongs to. */
@@ -165,7 +165,7 @@ export function textField(ctx: RowContext, options: TextFieldOptions): HTMLDivEl
   if (description !== "") input.setAttribute("aria-describedby", description);
   if (input instanceof HTMLInputElement) {
     // A single-line field submits its form when Enter is pressed (HTML's implicit
-    // submission), and the panel form's submit runs the request, which spends
+    // submission), and the request form's submit runs the request, which spends
     // provider credit. Cancelling the keydown stops that. The Run button is
     // unaffected, and a textarea keeps Enter for new lines. Enter that confirms
     // an input-method composition is left alone so the composition still commits.

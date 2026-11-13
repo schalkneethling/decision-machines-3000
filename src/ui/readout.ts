@@ -213,7 +213,7 @@ export function metadataSentence(response: DecisionSuccess): string {
 }
 
 /**
- * "Sent without the 2 attached images.": what the readout adds when the panel
+ * "Sent without the 2 attached images.": what the readout adds when the request
  * held images that the provider does not take, so nothing is dropped silently.
  */
 export function omittedImagesSentence(count: number): string {

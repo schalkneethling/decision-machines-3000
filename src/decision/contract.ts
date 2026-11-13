@@ -2,7 +2,7 @@
  * Request/response contract between the browser UI and `POST /api/decide/{provider}`.
  *
  * The browser never talks to a provider directly: the API keys stay on the server.
- * Each panel in the UI targets exactly one primitive, so the request names the
+ * Each request in the UI targets exactly one primitive, so the request names the
  * primitive once and every question in it is built with that primitive.
  *
  * The shapes are Zod Mini schemas (ADR-0004), and every type below is inferred
@@ -105,13 +105,13 @@ export type CriteriaByPrimitive = {
   [P in Primitive]: Exclude<RequestMember<P>["criteria"], undefined>;
 };
 
-/** One question as typed into a panel. `criteria` may be omitted to inherit the request-level default. */
+/** One question as typed into the request form. `criteria` may be omitted to inherit the request-level default. */
 export type QuestionInput<P extends Primitive> = Flatten<
   Omit<RequestMember<P>["questions"][string], "criteria"> & { criteria?: CriteriaByPrimitive[P] }
 >;
 
 /**
- * The JSON document a panel textarea holds and posts to `/api/decide/{provider}`, for one primitive.
+ * The JSON document the request textarea holds and posts to `/api/decide/{provider}`, for one primitive.
  *
  * - `state`: what the model evaluates.
  * - `criteria`: default criteria applied to every question that omits its own.

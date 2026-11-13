@@ -260,7 +260,7 @@ type FanOutMatch = {
 };
 
 /**
- * Whether a panel offers "ask for each item in" expansion. A Noul asks one yes/no
+ * Whether a question type offers "ask for each item in" expansion. A Noul asks one yes/no
  * statement about the state as a whole, so it never fans out.
  */
 export function supportsFanOut(primitive: Primitive): boolean {

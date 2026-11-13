@@ -1,5 +1,5 @@
 /**
- * Validation for the JSON a panel posts to `/api/jev`.
+ * Validation for the JSON the request form posts to `/api/jev`.
  *
  * Pure, so it runs in the browser (to check a textarea before sending) and on
  * the server (to guard the TypeSafe call).

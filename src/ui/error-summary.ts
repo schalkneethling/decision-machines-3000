@@ -1,6 +1,6 @@
 import { create } from "./dom.ts";
 
-/** One reason a panel cannot run, as its error summary lists it. */
+/** One reason the request cannot run, as its error summary lists it. */
 export type Problem = {
   /**
    * Names the problem across refreshes, so a fixed problem can be dropped

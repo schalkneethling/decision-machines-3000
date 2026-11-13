@@ -48,7 +48,7 @@ function withImages(
 
 function mount(): HTMLFormElement {
   document.body.innerHTML = `
-    <form class="panel-form" data-primitive="noul" novalidate>
+    <form id="request-form" class="request-form" novalidate>
       <div class="attachments"></div>
       <button class="run" type="submit">Run</button>
     </form>`;
@@ -528,7 +528,7 @@ describe("attaching", () => {
     );
   });
 
-  it("attaches a pasted image from the panel form, naming a nameless blob by its detected type", async () => {
+  it("attaches a pasted image from the request form, naming a nameless blob by its detected type", async () => {
     const form = mount();
     const control = createAttachments(form, { prefix: "noul-images", provider: subq, providers });
     const paste = eventWithFiles("paste", [fileOf(pngBytes({ size: 2 * KIB }), "", "image/png")]);
@@ -934,7 +934,7 @@ describe("provider changes with images attached", () => {
     expect(document.activeElement).toBe(get("#noul-images-limits"));
   });
 
-  it("says nothing about an empty panel on a provider change", () => {
+  it("says nothing about an empty image list on a provider change", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,

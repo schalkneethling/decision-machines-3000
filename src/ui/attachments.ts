@@ -5,15 +5,26 @@ import type { ProviderSummary } from "../providers/contract.ts";
 import { SIGNATURE_BYTES, detectMediaType, imageDimensions } from "../providers/image-bytes.ts";
 import type { ImageSize } from "../providers/image-bytes.ts";
 import { create, required } from "./dom.ts";
-import { capabilitySentence, formatList, imagesCount, sizeLimits } from "./image-sentences.ts";
+import {
+  capabilitySentence,
+  formatList,
+  imagesCount,
+  sizeLimits,
+  textOnlySentence,
+} from "./image-sentences.ts";
 
 /**
  * The image control of one panel (issue #16): a fieldset with a file input,
  * a drop zone, and a paste listener on the panel form, which follows the
- * selected provider. It appears only for a provider that takes images, and its
- * `accept` list, count, and size limits come from that provider's
- * `capabilities.images`, as `GET /api/providers` serves them. The client holds
- * no limit of its own.
+ * selected provider. For a provider that takes images, its `accept` list,
+ * count, and size limits come from that provider's `capabilities.images`, as
+ * `GET /api/providers` serves them. The client holds no limit of its own. For a
+ * text-only provider the control stays in the page in an unavailable state
+ * (issue #98), so a visitor can see that images exist: one sentence names the
+ * selected provider as text only and the listed providers that take images,
+ * and the file input is disabled. Drop and paste still reach `admit`, which
+ * refuses them with "X is text only". Only while no provider is selected is the
+ * control hidden, because there is nothing true to say yet.
  *
  * Every image goes through one pipeline, `admit`, whatever brought it in:
  *
@@ -42,7 +53,10 @@ import { capabilitySentence, formatList, imagesCount, sizeLimits } from "./image
  * added, removed, or refused with the reason, and what a provider change does
  * to this panel's images. It says nothing on initial render, and nothing about
  * a provider change that leaves an empty list alone: the provider select's own
- * status line announces the new capability once, for all three panels.
+ * status line announces the new capability once, for all three panels. The
+ * unavailable sentence is not in a live region for the same reason: it is
+ * rewritten on every provider change, and the provider status line has already
+ * said the change.
  */
 
 /** A picture the user attached, as the panel keeps it. */
@@ -86,13 +100,15 @@ export type AttachmentsOptions = {
   prefix: string;
   /** The provider selected when the control is built. The first render announces nothing. */
   provider: ProviderSummary | undefined;
+  /** The providers the page received, read when the control says which ones take images. */
+  providers: () => readonly ProviderSummary[];
   transform?: ImageTransform;
   /** Called after every change to the list or to what the provider makes of it. */
   onChange?: () => void;
 };
 
 export type Attachments = {
-  /** Follows a provider change: shows or hides the control, updates its limits, marks the excess, and announces the effect. */
+  /** Follows a provider change: shows the control as available or unavailable, updates its limits, marks the excess, and announces the effect. */
   setProvider(provider: ProviderSummary | undefined): void;
   /** The attached files, in order, as they are sent. */
   files(): readonly File[];
@@ -200,7 +216,7 @@ function carriesFiles(data: DataTransfer | null | undefined): data is DataTransf
 /** Builds the control in `form`'s `.attachments` container and wires the file input, the drop zone, and paste. */
 export function createAttachments(
   form: HTMLFormElement,
-  { prefix, provider, transform = keepAsIs, onChange }: AttachmentsOptions,
+  { prefix, provider, providers, transform = keepAsIs, onChange }: AttachmentsOptions,
 ): Attachments {
   const host = required(form, ".attachments", HTMLElement);
   const ids = {
@@ -222,7 +238,11 @@ export function createAttachments(
     text: ASK_ABOUT_IMAGES,
     attributes: { id: ids.hint },
   });
-  const limits = create("p", { className: "attachments-limits", attributes: { id: ids.limits } });
+  // Focusable by script only: it takes focus when the last Remove goes while the input is disabled.
+  const limits = create("p", {
+    className: "attachments-limits",
+    attributes: { id: ids.limits, tabindex: "-1" },
+  });
   const label = create("label", {
     className: "attachments-label",
     text: "Choose images",
@@ -354,9 +374,18 @@ export function createAttachments(
   /** The fieldset, its limits, and the notice for the current provider. Returns the blocking message, if any. */
   function render(): string | undefined {
     const images = imagesOf(current);
-    zone.hidden = images === false;
+    // Only "no provider" hides the control. A text-only provider shows it as unavailable.
+    zone.hidden = current === undefined;
+    const unavailable = images === false;
+    zone.toggleAttribute("data-unavailable", unavailable && current !== undefined);
+    input.disabled = unavailable;
+    // What the control says about choosing files is untrue while it is unavailable.
+    for (const element of [instructions, hint, privacy]) element.hidden = unavailable;
     if (images === false || current === undefined) {
-      limits.textContent = "";
+      // Plain text in the fieldset, not in a live region: it is there on the first render and
+      // rewritten on a provider change, which the provider status line announces once.
+      limits.textContent =
+        current === undefined ? "" : textOnlySentence(current, providers(), "to attach images");
       input.removeAttribute("accept");
       markOverLimit();
       if (current !== undefined && attachments.length > 0) {
@@ -387,8 +416,12 @@ export function createAttachments(
     numberItems();
     const blocked = render();
     // The pressed Remove is gone; hand focus to the next one, or back to the input.
+    // A disabled input cannot take focus, so the sentence that says why it is disabled does.
     const next = attachments[index] ?? attachments.at(-1);
-    (next?.element.querySelector<HTMLElement>(".attachment-remove") ?? input).focus();
+    (
+      next?.element.querySelector<HTMLElement>(".attachment-remove") ??
+      (input.disabled ? limits : input)
+    ).focus();
     const remain =
       attachments.length === 0
         ? "No images remain."
@@ -621,9 +654,11 @@ export function createAttachments(
   // The drop zone must cancel dragover for drop to fire (MDN, File drag and drop).
   zone.addEventListener("dragover", (event) => {
     if (!carriesFiles(event.dataTransfer)) return;
+    // Cancelled even when unavailable, so the drop reaches `add` and is refused in words
+    // instead of the browser opening the file. The highlight is for a zone that accepts.
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    zone.dataset.dragging = "true";
+    if (imagesOf(current) !== false) zone.dataset.dragging = "true";
   });
   zone.addEventListener("dragleave", () => {
     delete zone.dataset.dragging;

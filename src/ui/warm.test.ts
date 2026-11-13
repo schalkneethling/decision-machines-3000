@@ -140,6 +140,7 @@ function selectionOf(initial: ProviderSummary | undefined, host: HostSummary = N
   const selection: ProviderSelection = {
     current: () => current,
     host: () => (current === undefined ? undefined : host),
+    providers: () => (current === undefined ? [] : [current]),
     subscribe: (listener) => listeners.push(listener),
   };
   return {

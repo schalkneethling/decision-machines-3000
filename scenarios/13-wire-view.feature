@@ -8,7 +8,7 @@ Feature: A read-only wire view shows what was sent to the provider and what came
   Scenario: A Yes/no run on TypeSafe shows the TypeSafe body
     Given a successful Yes/no run on TypeSafe
     When the readout renders
-    Then a details block "Sent to TypeSafe Jev" is open
+    Then a details block "Sent to TypeSafe Jev" is closed until the person opens it (issue #100)
     And it shows "type": "noul" and "model": "jev-1.13.0"
     And the block "Received from TypeSafe Jev" shows TypeSafe's own reply body, with "model" and "answers"
 
@@ -32,7 +32,7 @@ Feature: A read-only wire view shows what was sent to the provider and what came
   Scenario: The live region does not announce the JSON
     Given a run has finished, as a success or as a failure
     Then no details or pre element is inside the aria-live element
-    And the wire view, or the failure's "Raw response" block, is in the sibling container
+    And the wire view, or the failure's "Raw response" block, is inside that run's result in the list, which is not a live region
 
   Scenario: A provider reply that is too deep or too large is not shown
     Given a provider reply with a field nested more than 64 levels deep, or over 256 KiB of text
@@ -48,13 +48,13 @@ Feature: A read-only wire view shows what was sent to the provider and what came
   Scenario: The blocks are read-only and reachable
     Given the wire view is rendered
     Then each block is a details element with a summary and its text in pre and code
-    And the live region announces the result, and the wire view sits beside it in its own container, silent
+    And the live region announces one sentence about the result, and the wire view sits in the result, silent
 
   # Manual step, run by the coordinator (needs vp dev, which needs 1Password).
   Scenario: Live check in Chrome
     Given vp dev --port 5199 --strictPort is running
     When I press Run on the Yes/no example
-    Then "Sent to TypeSafe Jev" and "Received from TypeSafe Jev" both show, open
+    Then "Sent to TypeSafe Jev" and "Received from TypeSafe Jev" both show, closed, in the new result
     And the Sent block shows "model": "jev-1.13.0" and no Authorization
-    And Tab reaches each summary, and Enter or Space collapses and reopens it
-    And a screen reader announces each summary as a collapsible, expanded control
+    And Tab reaches each summary, and Enter or Space opens and closes it
+    And a screen reader announces each summary as a collapsible, collapsed control

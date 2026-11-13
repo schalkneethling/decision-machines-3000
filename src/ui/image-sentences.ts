@@ -48,6 +48,41 @@ export function imageInputSentence(images: ImageCapabilities | false): string {
   return `Image input available: up to ${images.maxCount} ${formatList(images.mediaTypes)} images, ${sizeLimits(images)}.`;
 }
 
+/** `A`, `A or B`, `A, B, or C`: names as a sentence fragment. */
+function orList(names: readonly string[]): string {
+  if (names.length <= 2) return names.join(" or ");
+  return `${names.slice(0, -1).join(", ")}, or ${names.at(-1)}`;
+}
+
+/**
+ * The display names of the listed providers that take images, in list order.
+ * The list is the one the page received from `GET /api/providers`, so a
+ * provider that is not configured on this instance is never named.
+ */
+export function imageProviderNames(providers: readonly ProviderSummary[]): string[] {
+  return providers
+    .filter((provider) => provider.capabilities.images !== false)
+    .map((provider) => provider.displayName);
+}
+
+/**
+ * Says that `selected` is text only and where to go for images: "TypeSafe Jev is
+ * text only. Choose SubQ Snap or OpenAI Decisions to attach images." `purpose`
+ * completes "Choose … " ("to attach images", "first"). When no listed provider
+ * takes images, it says that instead, because there is nowhere to go.
+ */
+export function textOnlySentence(
+  selected: ProviderSummary,
+  providers: readonly ProviderSummary[],
+  purpose: string,
+): string {
+  const names = imageProviderNames(providers);
+  if (names.length === 0) {
+    return `${selected.displayName} is text only, and no provider on this instance takes images.`;
+  }
+  return `${selected.displayName} is text only. Choose ${orList(names)} ${purpose}.`;
+}
+
 /**
  * The capability line under the control. The byte caps are this project's own
  * for every provider (issue #15), so the last sentence is said for all of them.

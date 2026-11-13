@@ -37,24 +37,24 @@ const openaiResponse: DecisionSuccess = {
 };
 
 describe("renderWire", () => {
-  it("shows a failure as one open Raw response block with its JSON", () => {
+  it("shows a failure as one closed Raw response block with its JSON", () => {
     const failure: DecisionFailure = { ok: false, error: "Nope.", detail: "HTTP 401" };
     const view = renderWire(failure);
     const [details, ...rest] = view.querySelectorAll("details");
     expect(rest).toHaveLength(0);
-    expect(details?.open).toBe(true);
+    expect(details?.open).toBe(false);
     expect(details?.querySelector("summary")?.textContent).toBe("Raw response");
     expect(JSON.parse(details?.querySelector("pre code")?.textContent ?? "")).toEqual(failure);
   });
 
-  it("shows a success as the sent and received blocks, both open", () => {
+  it("shows a success as the sent and received blocks, both closed", () => {
     const summaries = [...renderWire(noulResponse).querySelectorAll("details")].map((details) => [
       details.open,
       details.querySelector("summary")?.textContent,
     ]);
     expect(summaries).toEqual([
-      [true, "Sent to TypeSafe Jev"],
-      [true, "Received from TypeSafe Jev"],
+      [false, "Sent to TypeSafe Jev"],
+      [false, "Received from TypeSafe Jev"],
     ]);
   });
 });
@@ -95,11 +95,11 @@ describe("renderWireView", () => {
     }
   });
 
-  it("renders both blocks open, as read-only text in pre and code", () => {
+  it("renders both blocks closed, as read-only text in pre and code", () => {
     const views = renderWireView(noulResponse);
     expect(views).toHaveLength(2);
     for (const details of views) {
-      expect(details.open).toBe(true);
+      expect(details.open).toBe(false);
       expect(details.querySelector("summary")).not.toBeNull();
       expect(details.querySelector("pre > code")).not.toBeNull();
       expect(details.querySelector("input, textarea, [contenteditable]")).toBeNull();

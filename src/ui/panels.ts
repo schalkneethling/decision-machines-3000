@@ -10,7 +10,7 @@ import { createAttachments, withImages } from "./attachments.ts";
 import { browserRasterizer } from "./shrink-browser.ts";
 import { createShrinkTransform } from "./shrink.ts";
 import type { Attachments } from "./attachments.ts";
-import { imagesCount } from "./image-sentences.ts";
+import { imagesCount, textOnlySentence } from "./image-sentences.ts";
 import { askProvider, REQUEST_TIMEOUT_MS } from "./client.ts";
 import type { AskResult } from "./client.ts";
 import { findIssues, STATE_KEY, toRequest, toViewModel } from "./composer/model.ts";
@@ -24,13 +24,8 @@ import { createErrorSummary } from "./error-summary.ts";
 import type { ErrorSummary, Problem } from "./error-summary.ts";
 import { describeJsonError } from "./json-error.ts";
 import type { ProviderSelection } from "./provider-select.ts";
-import {
-  renderError,
-  renderLoading,
-  renderNonJson,
-  renderResponse,
-  renderUnreachable,
-} from "./readout.ts";
+import { renderError, renderNonJson, renderResponse, renderUnreachable } from "./readout.ts";
+import { answersSentence, setupResults } from "./results.ts";
 import { fetchSampleImages } from "./sample-images.ts";
 import { capitalise } from "./text.ts";
 import { renderWire } from "./wire-view.ts";
@@ -146,13 +141,15 @@ type PanelSetup = {
   capabilities: ProviderCapabilities;
   /** The provider selected while the panel is built, for the image control's first, silent render. */
   provider: ProviderSummary | undefined;
+  /** The providers the page received, so the image control and example can name the ones that take images. */
+  providers: () => readonly ProviderSummary[];
   /** Called after any change to what Run would send or why it cannot: the panel's images, or an edit. */
   onChange: () => void;
 };
 
 function setupPanel(
   form: HTMLFormElement,
-  { capabilities, provider, onChange }: PanelSetup,
+  { capabilities, provider, providers, onChange }: PanelSetup,
 ): Panel {
   const primitive = form.dataset.primitive;
   if (!isPrimitive(primitive)) {
@@ -170,6 +167,7 @@ function setupPanel(
   const attachments = createAttachments(form, {
     prefix: `${primitive}-images`,
     provider,
+    providers,
     transform: createShrinkTransform(browserRasterizer()),
     onChange: () => {
       if (!panel) return;
@@ -552,17 +550,19 @@ function focusLoaded(panel: Panel, pressed: Element | null): void {
 /**
  * Why the image example cannot load right now, or undefined when it can: the
  * pictures would not be sent to a text-only provider, or to no provider. Its
- * button is hidden then, so this mostly answers a provider change made while
- * the pictures were being fetched.
+ * button stays on a text-only provider and presses into this sentence, which
+ * names the listed providers that take images (issue #98). It also answers a
+ * provider change made while the pictures were being fetched.
  */
 function imageExampleProblem(
   set: ExampleSet,
   chosen: ProviderSummary | undefined,
+  providers: readonly ProviderSummary[],
 ): string | undefined {
   const needs = `The ${set.label} needs a provider that takes images.`;
   if (chosen === undefined) return `${needs} No provider is selected.`;
   if (chosen.capabilities.images === false) {
-    return `${needs} ${chosen.displayName} is text only. Choose another provider first.`;
+    return `${needs} ${textOnlySentence(chosen, providers, "first")}`;
   }
   return undefined;
 }
@@ -591,7 +591,7 @@ function replaceQuestion(panel: Panel, set: ExampleSet, losses: Losses): Confirm
 }
 
 /** `omittedImages` is how many attached images the run left out because the provider is text only. */
-function renderResult(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
+function renderOutcome(sent: unknown, result: AskResult, omittedImages: number): HTMLElement {
   switch (result.kind) {
     case "response":
       return renderResponse(sent, result.response, omittedImages);
@@ -632,19 +632,17 @@ export type PanelOptions = {
 
 /**
  * Wires each panel, which starts empty, to its two example buttons, its Tree
- * and JSON views, and Run, which posts to the shared readout on the provider
- * `selection` holds. Run stays in the tab order whatever the panel holds: its
- * note says what it will send or why it cannot, and a press that cannot send
- * lists every reason in the panel's error summary.
+ * and JSON views, and Run, which posts on the provider `selection` holds and
+ * adds what came back to the shared result list. Run stays in the tab order
+ * whatever the panel holds: its note says what it will send or why it cannot,
+ * and a press that cannot send lists every reason in the panel's error summary.
  */
 export function setupPanels(
   root: Document,
   selection: ProviderSelection,
   { onAnswered, confirmReplace }: PanelOptions = {},
 ): void {
-  const readout = required(root, "#readout-body", HTMLElement);
-  // Outside the live region, so the JSON is never announced.
-  const wire = required(root, "#wire-body", HTMLElement);
+  const results = setupResults(root);
   const confirm =
     confirmReplace ?? createConfirmDialog(required(root, "#replace-dialog", HTMLDialogElement));
   // Until a provider is selected, requests are checked against the default provider's limits.
@@ -653,7 +651,12 @@ export function setupPanels(
   // Owned by the provider select; read here only to link to it, and to know whether it can take focus.
   const providerSelect = root.querySelector<HTMLSelectElement>("#provider-select");
   const panels = [...root.querySelectorAll<HTMLFormElement>("form[data-primitive]")].map((form) =>
-    setupPanel(form, { capabilities, provider, onChange: changed }),
+    setupPanel(form, {
+      capabilities,
+      provider,
+      providers: () => selection.providers(),
+      onChange: changed,
+    }),
   );
   /** The panel whose run is in flight, or undefined between runs. */
   let running: Panel | undefined;
@@ -679,16 +682,24 @@ export function setupPanels(
    * its place in the tab order, and its note says why. While a panel is
    * untouched, its note is hidden and Run is described by the empty-state
    * message instead, so the page does not say the same thing twice. The
-   * running panel reads "Running". "Load image example" is hidden unless the
-   * selected provider takes images, because it could only refuse. The state is
-   * read here rather than passed in, so a provider or image change during a
-   * run cannot relabel the buttons.
+   * running panel reads "Running". "Load image example" is hidden only while
+   * no provider is selected. On a text-only provider it stays, marked
+   * `aria-disabled` and `data-unavailable` but still focusable and pressable,
+   * so a visitor finds that images exist and its press says why nothing loads
+   * (issue #98). The state is read here rather than passed in, so a provider
+   * or image change during a run cannot relabel the buttons.
    */
   function updateButtons(): void {
     const chosen = selection.current();
-    const imagesTaken = chosen !== undefined && chosen.capabilities.images !== false;
+    const unavailable = chosen === undefined;
+    const textOnly = chosen !== undefined && chosen.capabilities.images === false;
     for (const panel of panels) {
-      panel.loadButtons.images.hidden = !imagesTaken;
+      const exampleButton = panel.loadButtons.images;
+      exampleButton.hidden = unavailable;
+      // `aria-disabled`, not `disabled`: the button stays in the tab order and its press explains.
+      if (textOnly) exampleButton.setAttribute("aria-disabled", "true");
+      else exampleButton.removeAttribute("aria-disabled");
+      exampleButton.toggleAttribute("data-unavailable", textOnly);
       if (running === undefined) panel.button.removeAttribute("aria-disabled");
       else panel.button.setAttribute("aria-disabled", "true");
       panel.label.textContent = panel === running ? "Running" : "Run";
@@ -717,7 +728,6 @@ export function setupPanels(
 
   function setRunning(active: Panel | undefined): void {
     running = active;
-    readout.setAttribute("aria-busy", String(running !== undefined));
     updateButtons();
   }
 
@@ -743,7 +753,11 @@ export function setupPanels(
    * made while the pictures were being fetched, and the image check runs again
    * after the fetch, because the provider may have changed meanwhile. The
    * status line says what happened either way, in one sentence once loaded,
-   * and focus lands on the first field of what was loaded.
+   * and focus lands on the first field of what was loaded. Pressed on a
+   * text-only provider, the image set loads nothing and the status line names
+   * the providers that take images. It does not switch the provider: that
+   * choice also changes the other two panels, the vocabulary legend, the
+   * stored preference, and who receives the person's data, so it stays theirs.
    */
   async function loadExample(panel: Panel, set: ExampleSet): Promise<void> {
     if (panel.loading) {
@@ -754,7 +768,7 @@ export function setupPanels(
     /** Whether the image set may go into this panel right now; announces the problem when not. */
     const imagesAllowed = (): boolean => {
       if (set.images.length === 0) return true;
-      const problem = imageExampleProblem(set, selection.current());
+      const problem = imageExampleProblem(set, selection.current(), selection.providers());
       if (problem === undefined) return true;
       setStatus(panel, problem, "alert");
       return false;
@@ -867,15 +881,36 @@ export function setupPanels(
     panel.summary.clear();
     setStatus(panel, "");
     setRunning(panel);
-    readout.replaceChildren(renderLoading(chosen.displayName));
-    wire.replaceChildren();
+    // The result is labelled with what ran and when it started, and never marked out
+    // of date: the panel or the provider may change later, and the label still says what this was.
+    const at = new Date();
+    const provider = chosen.displayName;
+    results.waiting(provider);
     try {
       // Encoding the images happens while the panel already shows that it is running.
       const { body, omittedImages } = await bodyFor(panel, prepared.body, chosen);
       const result = await askProvider(chosen.id, body);
-      readout.replaceChildren(renderResult(prepared.sent, result, omittedImages));
-      if (result.kind === "response") wire.replaceChildren(renderWire(result.response));
-      if (result.kind === "response" && result.response.ok) onAnswered?.(result.response);
+      const reading = renderOutcome(prepared.sent, result, omittedImages);
+      const wire = result.kind === "response" ? renderWire(result.response) : undefined;
+      const answered =
+        result.kind === "response" && result.response.ok ? result.response : undefined;
+      // A failure's alert speaks for itself, so the live region then says nothing more.
+      results.add(
+        { questionType: panel.name, at, runs: [{ provider, reading, wire }] },
+        answered === undefined
+          ? ""
+          : answersSentence(panel.name, provider, Object.keys(answered.answers).length),
+      );
+      if (answered !== undefined) onAnswered?.(answered);
+    } catch (error) {
+      const reading = renderError(
+        "Something went wrong while showing the answer.",
+        error instanceof Error ? error.message : undefined,
+      );
+      results.add(
+        { questionType: panel.name, at, runs: [{ provider, reading, wire: undefined }] },
+        "",
+      );
     } finally {
       setRunning(undefined);
     }
@@ -934,13 +969,12 @@ export function setupPanels(
       if (running !== undefined) {
         return;
       }
+      // run adds its own failures to the result list; what reaches here failed before anything was sent.
       run(panel).catch((error: unknown) => {
-        wire.replaceChildren();
-        readout.replaceChildren(
-          renderError(
-            "Something went wrong while showing the answer.",
-            error instanceof Error ? error.message : undefined,
-          ),
+        setStatus(
+          panel,
+          `Something went wrong while running the ${panel.name} panel${error instanceof Error ? `: ${error.message}` : "."}`,
+          "alert",
         );
       });
     });

@@ -11,8 +11,8 @@ import { PROVIDERS } from "../providers/catalog.ts";
 import { appendWithInlineCode, create } from "./dom.ts";
 
 /**
- * Pure renderers for the readout. Each takes data and returns a detached element;
- * `panels.ts` decides when to put it in the page.
+ * Pure renderers for one provider's reading in a result. Each takes data and
+ * returns a detached element; `results.ts` puts it in the page.
  */
 
 type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer;
@@ -186,9 +186,9 @@ function renderReading(answer: Answer): Node[] {
   }
 }
 
-/** One question: its text, then the primitive-specific reading. */
+/** One question: its text, then the primitive-specific reading. Its h4 sits under the result's h3. */
 export function renderAnswer(question: string, answer: Answer): HTMLLIElement {
-  const heading = create("h3", { className: "answer-question" });
+  const heading = create("h4", { className: "answer-question" });
   appendWithInlineCode(heading, question);
   return create("li", { className: "answer" }, [heading, ...renderReading(answer)]);
 }
@@ -220,11 +220,6 @@ export function omittedImagesSentence(count: number): string {
   return `Sent without the ${count} attached ${count === 1 ? "image" : "images"}.`;
 }
 
-/** The line shown while a run waits, naming the provider it was sent to. */
-export function renderLoading(providerName: string): HTMLElement {
-  return create("p", { className: "readout-status", text: `Asking ${providerName}…` });
-}
-
 export function renderError(message: string | (Node | string)[], detail?: string): HTMLElement {
   const lead = create("p", { className: "readout-error-message" });
   lead.append(...(typeof message === "string" ? [message] : message));
@@ -252,9 +247,9 @@ export function renderNonJson(status: number): HTMLElement {
 }
 
 /**
- * The readout for a finished run: a failure, or metadata and answers. It is what a
- * screen reader announces, so the JSON of the wire view is rendered apart from it
- * by `renderWire`. `omittedImages` is how many attached images were left out
+ * The reading for a finished run: a failure, or metadata and answers. It holds no
+ * JSON; `renderWire` renders the wire view beside it in the same result.
+ * `omittedImages` is how many attached images were left out
  * because the provider is text only; the metadata sentence says so when it is not 0.
  */
 export function renderResponse(

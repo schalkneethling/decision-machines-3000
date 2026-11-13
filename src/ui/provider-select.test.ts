@@ -125,6 +125,14 @@ describe("the list", () => {
     ]);
   });
 
+  it("hands the listed providers to the panels, empty until the list loads", async () => {
+    answerProviders(listed(typesafe, subq));
+    const selection = setupProviderSelect(document);
+    expect(selection.providers()).toEqual([]);
+    await vi.waitFor(() => expect(selection.providers()).toHaveLength(2));
+    expect(selection.providers().map((provider) => provider.id)).toEqual(["typesafe", "subq"]);
+  });
+
   it("asks GET /api/providers once", async () => {
     const fetchMock = answerProviders(listed(typesafe));
     await load();
@@ -227,6 +235,70 @@ describe("the stored choice", () => {
     expect(providerSelect().value).toBe("typesafe");
     expect(() => change("subq")).not.toThrow();
     expect(selection.current()?.id).toBe("subq");
+  });
+});
+
+describe("the capability line (issue #98)", () => {
+  const capability = () => get("#provider-capability");
+
+  it("is in the page empty, and is plain text, not a live region", () => {
+    expect(capability().textContent).toBe("");
+    expect(capability().hasAttribute("role")).toBe(false);
+    expect(capability().hasAttribute("aria-live")).toBe(false);
+  });
+
+  it("states a text-only provider's capability on the first load, with nothing announced", async () => {
+    answerProviders(listed(typesafe, subq));
+    await load();
+    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
+    expect(get("#provider-status").textContent).toBe("");
+  });
+
+  it("states a stored image provider's capability on the first load", async () => {
+    localStorage.setItem(STORAGE_KEY, "subq");
+    answerProviders(listed(typesafe, subq));
+    await load();
+    expect(capability().textContent).toBe(
+      "SubQ Snap: Image input available: up to 4 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    expect(get("#provider-status").textContent).toBe("");
+  });
+
+  it("follows every change, and the status line announces the same capability sentence", async () => {
+    answerProviders(listed(typesafe, subq, openai));
+    await load();
+    change("openai");
+    expect(capability().textContent).toBe(
+      "OpenAI Decisions: Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    expect(get("#provider-status").textContent).toBe(
+      "Provider set to OpenAI Decisions. Image input available: up to 8 PNG, JPEG, or WebP images, 64 KB in total.",
+    );
+    change("typesafe");
+    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
+    expect(get("#provider-status").textContent).toBe(
+      "Provider set to TypeSafe Jev. Text only, no images.",
+    );
+  });
+
+  it("is the line sighted viewers read, because the status line is visually hidden", () => {
+    expect(get("#provider-status").classList.contains("visually-hidden")).toBe(true);
+    expect(capability().classList.contains("visually-hidden")).toBe(false);
+  });
+
+  it("is filled after a Retry, and cleared when no provider is available", async () => {
+    answerProviders(Response.json({ ok: false, error: "No." }, { status: 500 }), listed(typesafe));
+    await load();
+    expect(capability().textContent).toBe("");
+    get(".provider-retry").click();
+    await vi.waitFor(() => expect(providerSelect().disabled).toBe(false));
+    expect(capability().textContent).toBe("TypeSafe Jev: Text only, no images.");
+  });
+
+  it("stays empty when the instance has no provider key", async () => {
+    answerProviders(missingKeys());
+    await load();
+    expect(capability().textContent).toBe("");
   });
 });
 

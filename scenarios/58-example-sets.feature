@@ -3,7 +3,7 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
   Background:
     Given every panel opens empty: its request is {"primitive": <primitive>, "state": "", "questions": {}} in both the tree and the JSON view
     And each panel shows a short empty-state message that points at its load buttons
-    And each panel has a group of load buttons labelled for that panel: "Load film example", and "Load image example" while the selected provider takes images
+    And each panel has a group of load buttons labelled for that panel: "Load film example", and "Load image example", which is marked unavailable while the selected provider is text only (issue #98)
     # The buttons live in each panel, not in one shared control. A panel's edits, its images, and its status line
     # are all its own, so a shared control would have to ask about three panels' edits at once and announce into
     # three status lines. Per-panel buttons also sit beside the empty-state message that names them.
@@ -76,16 +76,34 @@ Feature: Two example sets, film reviews and images, with neither loaded by defau
     Then nothing new starts, and the status line says "An example is still loading into the Noul panel."
     And a picture that does not arrive within ten seconds ends the load with the could-not-be-loaded message
 
-  Scenario: The image example is offered only on a provider that takes images
-    Given TypeSafe Jev is selected, or no provider is
-    Then every panel shows "Load film example" and hides "Load image example", because it could only refuse
+  Scenario: The image example stays visible on a text-only provider, marked unavailable
+    Given TypeSafe Jev is selected
+    Then every panel shows "Load film example" and "Load image example"
+    And "Load image example" has aria-disabled="true" and data-unavailable, is not disabled, and takes focus
+    # aria-disabled, not disabled, so keyboard and screen reader users can reach the button and hear why it does nothing.
     When SubQ Snap or OpenAI Decisions is selected
-    Then "Load image example" is shown again
+    Then "Load image example" has neither attribute and behaves as in the scenarios below
+
+  Scenario: The image example is hidden only while no provider is selected
+    Given no provider is selected
+    Then every panel shows "Load film example" and hides "Load image example"
+
+  Scenario: Pressing the image example on a text-only provider loads nothing and says why
+    Given TypeSafe Jev is selected and the page received SubQ Snap and OpenAI Decisions
+    When "Load image example" is pressed in a panel
+    Then nothing is loaded, no sample picture is fetched, and the panel's request and images are as they were
+    And that panel's status line, with tone alert, reads "The image example needs a provider that takes images. TypeSafe Jev is text only. Choose SubQ Snap or OpenAI Decisions first."
+    And no confirmation is asked, even when the person has typed into the panel
+    And the provider stays TypeSafe Jev, and the other two panels' status lines stay empty
+    # The page does not switch providers for the person. A provider change also changes the other two panels, the
+    # vocabulary legend, the stored preference, and which company receives the person's data, so the person makes it.
+    When no listed provider takes images
+    Then the sentence ends "TypeSafe Jev is text only, and no provider on this instance takes images."
 
   Scenario: The provider changes to a text-only one while the sample pictures are fetched
     Given "Load image example" was pressed on SubQ Snap
     When TypeSafe Jev is selected before the pictures arrive
-    Then the status line says the image example needs a provider that takes images and that TypeSafe Jev is text only
+    Then the status line says the image example needs a provider that takes images, that TypeSafe Jev is text only, and which providers take images
     And nothing is replaced
 
   Scenario: Loading an example over images the person attached asks first

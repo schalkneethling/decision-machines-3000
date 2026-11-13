@@ -263,6 +263,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
     await control.add([
@@ -285,6 +286,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
     await control.add([fileOf(pngBytes({ size: 12 * KIB }), "poster.png", "image/png")]);
@@ -297,6 +299,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
     await control.add([fileOf(pngBytes({ size: 2 * MIB }), "logo.png", "image/png")]);
@@ -315,6 +318,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: openai,
+      providers: () => [subq, openai],
       transform: spy,
     });
     await control.add([fileOf(pngBytes({ size: 40 * KIB }), "first.png", "image/png")]);
@@ -328,6 +332,7 @@ describe("the image control with the shrink transform", () => {
       const control = createAttachments(mount(), {
         prefix: "noul-images",
         provider: openai,
+        providers: () => [subq, openai],
         transform: createShrinkTransform(undefined),
       });
       await control.add([fileOf(pngBytes({ size: taken }), "first.png", "image/png")]);
@@ -364,6 +369,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: openai,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
     const photo = (name: string) => fileOf(jpegBytes({ size: 4 * MIB }), name, "image/jpeg");
@@ -381,6 +387,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(rasterize),
     });
     await control.add([fileOf(pngBytes({ size: 6.1 * MIB }), "huge.png", "image/png")]);
@@ -400,6 +407,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: async (image, caps) => {
         await gate;
         return inner(image, caps);
@@ -421,6 +429,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(fakeRasterizer().rasterize),
     });
     const adding = control.add([fileOf(pngBytes({ size: 12 * KIB }), "a.png", "image/png")]);
@@ -432,6 +441,7 @@ describe("the image control with the shrink transform", () => {
     const control = createAttachments(mount(), {
       prefix: "noul-images",
       provider: subq,
+      providers: () => [subq, openai],
       transform: createShrinkTransform(undefined),
     });
     await control.add([
